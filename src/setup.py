@@ -1,9 +1,9 @@
 #!/usr/bin/env python
 
 """
-Installer for CPP_AUTOTEST libraries and command-line tools.
+Installer for pyvxl libraries and command-line tools.
 
-Run "python setup.py develop" to install script shortcuts in your path.
+Run "python setup.py install" to install script shortcuts in your path.
 
 Requires setuptools (http://pypi.python.org/pypi/setuptools/).
 """
@@ -178,19 +178,6 @@ except ImportError:
             admin.runAsAdmin(cmdLine=[path])
             raw_input('Press return to continue . . .')
 
-
-# Install PyDAQmx
-try:
-    import PyDAQmx
-except NotImplementedError:
-    install_package('PyDAQmx-1.2.5.2')
-    print "National Instruments NIDAQ driver not found!"
-    print "Please download and install them from: "
-    print "http://www.ni.com/download/ni-daqmx-14.0/4918/en/"
-except ImportError:
-    install_package('PyDAQmx-1.2.5.2')
-
-
 # Install colorama
 try:
     import colorama
@@ -206,67 +193,24 @@ except ImportError:
 if os.name == 'nt':
     sys.path.append('C:\\Python27\\Lib\\site-packages\\win32')
 
-# Install autotest
+# Install pyvxl
 console_scripts = []  # pylint: disable=C0103
 warnings = []  # pylint: disable=C0103
-from autotest import mock_gui
-console_scripts.append(mock_gui.__program__ + " = autotest.mock_gui:main")
-from autotest import mock_gui_mmui
-console_scripts.append(mock_gui_mmui.__program__ + " = autotest.mock_gui_mmui:main")
-from autotest import mock_gui_dbapi
-console_scripts.append(mock_gui_dbapi.__program__ + " = autotest.mock_gui_dbapi:main")
-from autotest import mock_gui_appsdk
-console_scripts.append(mock_gui_appsdk.__program__ + " = autotest.mock_gui_appsdk:main")
-from autotest import ihu
-console_scripts.append(ihu.__program__ + " = autotest.ihu:main")
-from autotest import reporting_auto
-console_scripts.append(reporting_auto.__program__ + " = autotest.reporting_auto:main")
-from autotest import reporting_unit
-console_scripts.append(reporting_unit.__program__ + " = autotest.reporting_unit:main")
-from autotest import mock_user
-console_scripts.append(mock_user.__program__ + " = autotest.mock_user:main")
-try:
-    from autotest import mock_dbus_server
-    from autotest import mock_dbus_client
-except Exception as exception:  # pylint: disable=W0703,C0103
-    warnings.append("WARNING: {0}".format(exception))
-else:
-    console_scripts.append(mock_dbus_server.__program__ + " = autotest.mock_dbus_server:main")
-    console_scripts.append(mock_dbus_client.__program__ + " = autotest.mock_dbus_client:main")
-try:
-    from autotest import introspection
-except Exception as exception:  # pylint: disable=W0703,C0103
-    warnings.append("WARNING: {0}".format(exception))
-else:
-    console_scripts.append(introspection.__program__ + " = autotest.introspection:main")
-from autotest import relays
-console_scripts.append(relays.__program__ + " = autotest.relays:main")
-from autotest.relays import remote_server
-console_scripts.append(remote_server.__program__ + " = autotest.relays.remote_server:main")
-from autotest.relays import remote_client
-console_scripts.append(remote_client.__program__ + " = autotest.relays.remote_client:main")
-from autotest import sci
-console_scripts.append(sci.__program__ + " = autotest.sci:main")
-from autotest import can
-console_scripts.append(can.__program__ + " = autotest.can:main")
-from autotest import daq
-console_scripts.append(daq.__program__ + " = autotest.daq:main")
-from autotest import lin
+from pyvxl import __program__
+console_scripts.append(__program__ + " = pyvxl.can:main")
 #
 # Create scripts
-from autotest import settings
 setup(
 
-name='autotest',
-version=settings.__version__,
+name='pyvxl',
+version=1.0,
 
-description=("Framework for remotely testing an IHU with mocked components."),
-author="Jace Browning",
-author_email="jace.browning@jci.com",
+description=("A python interface to the vector vxlapi.dll for CAN communication."),
+author="Chris Cerovec",
+author_email="chris.cerovec@gmail.com",
 
 packages=find_packages(),
-package_data={'autotest': ['*.cfg', '*.xsl'],
-              'autotest.can': ['*.dbc']},
+package_data={'pyvxl': ['*.dbc']},
 
 entry_points={'console_scripts': console_scripts},
 )
