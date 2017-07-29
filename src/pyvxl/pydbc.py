@@ -386,7 +386,7 @@ class DBCParser(object):
     def p_symbol_section(self, p):
         '''symbol_section : NS ':'
                           | NS ':' symbol_list'''
-        if len(p[3]) > 3:
+        if len(p) > 3 and len(p[3]) > 3:
             p[0] = p[3]
         else:
             p[0] = []
@@ -482,10 +482,9 @@ class DBCParser(object):
         if p[1]:
             p[0] = p[2]
             p[0][p[1].id] = p[1]
-            try:
-                self.nodeDict[p[1].sender.lower()].txMessages.append(p[1])
-            except KeyError:
-                print 'Error in dbc - Node: ' + str(p[1].sender.lower())+' - is invalid!'
+            if not self.nodeDict.has_key(p[1].sender.lower()):
+                self.nodeDict[p[1].sender.lower()] = DBCNode(p[1].sender)
+            self.nodeDict[p[1].sender.lower()].txMessages.append(p[1])
             self.msgDict = p[0]
         else:
             p[0] = {}

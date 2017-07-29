@@ -1,13 +1,12 @@
 #!/usr/bin/env python
 
 """
-Contains the Vector object which can be used to interface with vector hardware
+Contains the CAN object which can be used to interface with vector hardware
 """
-# TODO: Remove this when updating CAN232 and common
-# also move all doc strings from these methods to common
+
 # pylint: disable=W0223, R0911, C0103
 import traceback, time, logging, os, math, sys, inspect, socket, select, shlex
-import common, pydbc
+import pydbc
 from vector_data_types import event, driverConfig
 from autotest import settings, config
 from argparse import ArgumentParser
@@ -22,6 +21,8 @@ if os.name == 'nt':
     from win32event import WaitForSingleObject, CreateEvent #pylint: disable=E0611
 from re import findall
 from types import IntType, LongType
+
+__program__ = 'can'
 
 # Grab the c library and some functions from it
 if os.name == 'nt':
@@ -303,10 +304,11 @@ class transmitThread(Thread):
                 break
 
 
-class Vector(common.BaseCAN):
+class CAN(object):
     """Class to manage Vector hardware"""
     def __init__(self, channel, dbc_path, baud_rate):
-        super(Vector, self).__init__(channel, dbc_path, baud_rate)
+        self.dbc_path = dbc_path
+        self.baud_rate = baud_rate
         self.status = c_short(0)
         self.drvConfig = None
         self.initialized = False
@@ -1399,7 +1401,7 @@ def main():
                         'instance of the program running in network mode')
 
     methods = []
-    classes = [Vector]
+    classes = [CAN]
     for can_class in classes:
         # Collect the feature's helper methods
         #skips = [method[0] for method in
@@ -1460,7 +1462,7 @@ def main():
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.bind((HOST, PORT))
         sock.listen(1)
-    can = Vector(channel, dbc_path, baud_rate)
+    can = CAN(channel, dbc_path, baud_rate)
     can.start()
     print 'Type an invalid command to see help'
     while 1:

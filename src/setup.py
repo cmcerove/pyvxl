@@ -89,7 +89,6 @@ for library_version in ('argparse-1.2.1',
                         'nose-1.2.1',
                         'pyserial-2.6',
                         'unittest2-0.5.1',
-                        'websocket-client-0.8.0',
                         'mock-1.0.1'):
     library, version = library_version.rsplit('-', 1)
     try:
@@ -197,7 +196,7 @@ if os.name == 'nt':
 console_scripts = []  # pylint: disable=C0103
 warnings = []  # pylint: disable=C0103
 from pyvxl import __program__
-console_scripts.append(__program__ + " = pyvxl.can:main")
+console_scripts.append(__program__ + " = pyvxl:main")
 #
 # Create scripts
 setup(

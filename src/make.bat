@@ -116,7 +116,7 @@ ECHO.
 call python setup.py install
 IF ERRORLEVEL 1 GOTO setup_error
 ECHO.
-ECHO.CPP_AUTOTEST installed correctly. To verify installation: autotest --version
+ECHO.pyvxl installed correctly
 echo.
 pause
 ECHO.
@@ -150,27 +150,9 @@ GOTO end
 
 
 :clean
-DEL ..\test-auto\*.pyc 2>NUL
-DEL ..\test-auto\.coverage 2>NUL
-DEL ..\test\logging\*.csv 2>NUL
-DEL ..\test\samples\system\*.pyc 2>NUL
-DEL ..\test\samples\system\*.log 2>NUL
-DEL .coverage 2>NUL
-DEL autotest\*.pyc 2>NUL
-DEL autotest\can\*.pyc 2>NUL
-DEL autotest\phonesim\*.pyc 2>NUL
-DEL autotest\relays\*.pyc 2>NUL
-DEL autotest\sci\*.pyc 2>NUL
-DEL autotest\test\*.pyc 2>NUL
-DEL autotest\test\files\sample_error\test-auto\*.pyc 2>NUL
-DEL autotest\test\files\sample_fail\test-auto\*.pyc 2>NUL
-DEL autotest\test\files\sample_filters\test-auto\*.pyc 2>NUL
-DEL autotest\test\files\sample_pass\test-auto\*.pyc 2>NUL
-DEL autotest\test\files\sample_pass\test-auto\*.pyc 2>NUL
+DEL pyvxl\*.pyc 2>NUL
 RD /s/q ..\documentation\apidocs 2>NUL
-RD /s/q autotest.egg-info 2>NUL
-RD /s/q autotest\test\files\sample_fail\test-unit\cover 2>NUL
-RD /s/q autotest\test\files\sample_pass\test-unit\cover 2>NUL
+RD /s/q pyvxl.egg-info 2>NUL
 RD /s/q build 2>NUL
 RD /s/q cover 2>NUL
 RD /s/q dist 2>NUL

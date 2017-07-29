@@ -8,8 +8,7 @@ import sys, logging, traceback, socket, select, os, subprocess
 from argparse import ArgumentParser
 from colorama import Fore, Style
 from autotest import config, settings
-from autotest.can.vector import Vector
-from autotest.can.can232 import CAN232
+from pyvxl import CAN
 from autotest.can.initbus import initbus
 
 __program__ = 'can'
@@ -227,13 +226,6 @@ def main():
     else:
         if args.driver:
             driver = args.driver.lower()
-        if driver == 'can232':
-            CAN = CAN232
-        elif driver == 'vector':
-            CAN = Vector
-        else:
-            logging.error('Invalid CAN driver - type can -h for help!')
-            sys.exit(1)
     if args.channel:
         channel = args.channel
     try:
