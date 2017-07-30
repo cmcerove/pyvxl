@@ -480,10 +480,10 @@ def main():
                                 can.find_node('')
                         elif s[1] == 'message':
                             msg = ' '.join(s[2:])
-                            can.find_message(msg)
+                            can.find_message(msg, display=True)
                         elif s[1] == 'signal':
                             signal = ' '.join(s[2:])
-                            can.find_signal(signal)
+                            can.find_signal(signal, display=True)
                         else:
                             logging.error('Invalid find type!')
                     elif o in ['exit', 'q']: # exit or q

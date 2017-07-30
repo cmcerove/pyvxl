@@ -5,7 +5,6 @@ set "installDir=.\lib"
 set "inspy=0"
 set "inseasy=0"
 set "inspip=0"
-set "insjcipip=0"
 set "ins=0"
 
 if "%1" == "" GOTO check_python
@@ -69,14 +68,6 @@ echo.pip installed successfully.
 echo.
 set "inspip=1"
 set "ins=1"
-GOTO check_python 
-
-:jcipip
-echo.Installing jcipip...
-cd ..\jcipip
-call python jcipip.py
-echo.
-set "insjcipip=1"
 GOTO check_python 
 
 :check_path
@@ -173,7 +164,7 @@ goto error
 
 :setup_error
 echo.
-echo.CPP_AUTOTEST did not install successfully.
+echo.pyvxl did not install successfully.
 echo.
 echo.Try reruning the batch file.
 echo.
@@ -200,14 +191,6 @@ echo.pip did not install successfully.
 echo.
 PAUSE
 GOTO error
-
-:jcipip_error
-echo.
-echo.jcipip did not install successfully.
-echo.
-PAUSE
-GOTO error
-
 
 :error
 EXIT /b 1

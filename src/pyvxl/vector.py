@@ -347,7 +347,7 @@ class CAN(object):
         self._printStatus("High Voltage Wakeup")
         return True
 
-    def open_driver(self, display=True):
+    def open_driver(self, display=False):
         """Open the vector driver"""
         # Open the driver
         if not self.initialized:
@@ -368,7 +368,7 @@ class CAN(object):
         self.init_channel = int(channel)
         self.channel = c_ulonglong(2**(self.init_channel-1))
 
-    def start(self, display=True): # pylint: disable=R0914
+    def start(self, display=False): # pylint: disable=R0914
         """Initializes and connects to a CANpiggy"""
         init()
         self.open_driver(display=display)
@@ -462,7 +462,7 @@ class CAN(object):
             self.initialized = False
         return True
 
-    def _send(self, txID, dataString, dlc, endianness, display=True):
+    def _send(self, txID, dataString, dlc, endianness, display=False):
         """Sends a spontaneous CAN message"""
         # Check endianness here and reverse if necessary
         if endianness != 0: # Motorola(Big endian byte order) need to reverse
@@ -502,7 +502,7 @@ class CAN(object):
             transmitMsg(self.portHandle, self.channel, msgPtr,
                                  eventPtr)
 
-    def _send_periodic(self, msg, dataString, display=True, func=None):
+    def _send_periodic(self, msg, dataString, display=False, func=None):
         """Sends a periodic CAN message"""
         txID = msg.txId
         dlc = msg.dlc
@@ -675,8 +675,8 @@ class CAN(object):
             return False
 
     #pylint: disable=R0912
-    def send_message(self, msgID, data, inDatabase=True, cycleTime=0,
-                     display=True, func=None):
+    def send_message(self, msgID, data='', inDatabase=True, cycleTime=0,
+                     display=False, func=None):
         """Sends a complete spontaneous or periodic message changing all of
            the signal values"""
         if not self.initialized:
@@ -737,7 +737,7 @@ class CAN(object):
         return True
 
     #pylint: enable=R0912
-    def send_signal(self, signal, value, force=False, display=True, func=None):
+    def send_signal(self, signal, value, force=False, display=False, func=None):
         """Sends the CAN message containing signal with value"""
         if not self.initialized:
             logging.error(
@@ -765,7 +765,7 @@ class CAN(object):
         else:
             return False
 
-    def find_node(self, node, display=True):
+    def find_node(self, node, display=False):
         """Prints all nodes of the dbc matching 'node'"""
         if not self.imported:
             logging.error('No CAN databases currently imported!')
@@ -793,7 +793,7 @@ class CAN(object):
         elif numFound > 1:
             self.lastFoundNode = None
 
-    def find_message(self, searchStr, display=True):#pylint: disable=R0912
+    def find_message(self, searchStr, display=False):#pylint: disable=R0912
         """Prints all messages of the dbc match 'searchStr'"""
         if not self.imported:
             logging.error('No CAN databases currently imported!')
@@ -831,8 +831,9 @@ class CAN(object):
                 logging.info('No messages found for that input')
         elif numFound > 1:
             self.lastFoundMessage = None
+        return True
 
-    def find_signal(self, searchStr, display=True):
+    def find_signal(self, searchStr, display=False):
         """Prints all signals of the dbc matching 'searchStr'"""
         if not searchStr or (type(searchStr) != type('')):
             logging.error('No search string found!')
@@ -1128,7 +1129,7 @@ class CAN(object):
         for sig in msg.signals:
             sig.val = msg.data&sig.mask
 
-    def _checkMsgID(self, msgID, display=True):
+    def _checkMsgID(self, msgID, display=False):
         """Checks for errors in message ids"""
         caseNum = 0 # 0 - invalid, 1 - num, 2 - string
         if not msgID:
@@ -1271,7 +1272,7 @@ class CAN(object):
             self.validMsg = (msg, val)
             return True
     #pylint:enable=R0912
-    def _printMessage(self, msg, display=True):
+    def _printMessage(self, msg, display=False):
         """Prints a colored CAN message"""
         if display:
             print ''
@@ -1303,7 +1304,7 @@ class CAN(object):
                 print txt+msg.sender+Fore.RESET+Style.RESET_ALL
 
     # pylint: disable=R0912,R0201
-    def _printSignal(self, sig, shortName=False, display=True, value=False):
+    def _printSignal(self, sig, shortName=False, display=False, value=False):
         """Prints a colored CAN signal"""
         color = Fore.CYAN+Style.BRIGHT
         rst = Fore.RESET+Style.RESET_ALL
