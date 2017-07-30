@@ -58,8 +58,8 @@ class DBCMessage(object):
         self.sending = False
 
     def __str__(self):
-        return "{id:0x%03x name:%s, length:%d, sender:%s, comment:%s}" % (
-            self.id, self.name, self.dlc, self.sender, self.comment)
+        return "{id:0x%03x name:%s, length:%d, sender:%s, signals:%d, comment:%s}" % (
+            self.id, self.name, self.dlc, self.sender, len(self.signals), self.comment)
 
 class DBCSignal(object):
     """DBC signal object"""
