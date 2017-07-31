@@ -676,9 +676,9 @@ class CAN(object):
 
     #pylint: disable=R0912
     def send_message(self, msgID, data='', inDatabase=True, cycleTime=0,
-                     display=False, func=None):
-        """Sends a complete spontaneous or periodic message changing all of
-           the signal values"""
+                     display=True, func=None):
+        """ Sends a complete spontaneous or periodic message changing all of
+           the signal values """
         if not self.initialized:
             logging.error(
                 'Initialization required before a message can be sent!')
@@ -1381,6 +1381,7 @@ def _print_help(methods):
 
         print firsthalf+editedlines
     print '    q | exit\t\tTo exit'
+
 
 def main():
     """Run the command-line program for the current class"""
