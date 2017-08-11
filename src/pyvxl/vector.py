@@ -227,9 +227,9 @@ class transmitThread(Thread):
         while not self.stopped.wait(self.currGcd):
             for msg in self.messages:
                 if self.elapsed % msg[1] == 0:
-                    if msg[3]:
+                    if msg[2].updateFunc:
                         #msg[3](''.join(['{:02X}'.format(x) for x in msg[0][0].tagData.msg.data]))
-                        data = unhexlify(msg[3](msg[2]))
+                        data = unhexlify(msg[2].updateFunc(msg[2]))
                         data = create_string_buffer(data, len(data))
                         tmpPtr = pointer(data)
                         dataPtr = cast(tmpPtr, POINTER(c_ubyte*8))
@@ -266,7 +266,7 @@ class transmitThread(Thread):
             self.currGcd = float(cGcd)/float(1000)
             self.currLcm = cLcm
 
-    def add(self, txID, dlc, data, cycleTime, msg, func=None):
+    def add(self, txID, dlc, data, cycleTime, message):
         """Adds a periodic message to the list of periodics being sent"""
         xlEvent = event()
         memset(pointer(xlEvent), 0, sizeof(xlEvent))
@@ -285,11 +285,12 @@ class transmitThread(Thread):
         msgPtr = pointer(msgCount)
         eventPtr = pointer(xlEvent)
         for msg in self.messages:
+            # If the message is already being sent, replace it with new data
             if msg[0].contents.tagData.msg.id == xlEvent.tagData.msg.id:
                 msg[0] = eventPtr
                 break
         else:
-            self.messages.append([eventPtr, cycleTime, msg, func])
+            self.messages.append([eventPtr, cycleTime, message])
         self.updateTimes()
 
     def remove(self, txID):
@@ -439,7 +440,7 @@ class CAN(object):
                          +str(self.baud_rate)+'Bd!')
         else:
             logging.error(
-                'Unable to connect to Channel '+str(self.channel.value))
+                'Unable to connect to Channel '+str(self.init_channel))
             self.initialized = False
             return False
         return True
@@ -451,8 +452,8 @@ class CAN(object):
             if self.sendingPeriodics:
                 self.kill_periodics()
             if self.receiving:
-                self.stopRxThread.set()
                 self.receiving = False
+                self.stopRxThread.set()
             self.status = deactivateChannel(self.portHandle, self.channel)
             self._printStatus("Deactivate Channel")
             self.status = closePort(self.portHandle)
@@ -502,7 +503,7 @@ class CAN(object):
             transmitMsg(self.portHandle, self.channel, msgPtr,
                                  eventPtr)
 
-    def _send_periodic(self, msg, dataString, display=False, func=None):
+    def _send_periodic(self, msg, dataString, display=False):
         """Sends a periodic CAN message"""
         txID = msg.txId
         dlc = msg.dlc
@@ -531,10 +532,10 @@ class CAN(object):
             self.txthread = transmitThread(self.stopTxThread, self.channel,
                                            self.portHandle)
             self.sendingPeriodics = True
-            self.txthread.add(txID, dlc, data, period, msg, func=func)
+            self.txthread.add(txID, dlc, data, period, msg)
             self.txthread.start()
         else:
-            self.txthread.add(txID, dlc, data, period, msg, func=func)
+            self.txthread.add(txID, dlc, data, period, msg)
         self._send(txID, dataOrig, dlc, 0, display=False)
 
     def start_periodics(self, node):
@@ -676,9 +677,9 @@ class CAN(object):
 
     #pylint: disable=R0912
     def send_message(self, msgID, data='', inDatabase=True, cycleTime=0,
-                     display=False, func=None):
-        """Sends a complete spontaneous or periodic message changing all of
-           the signal values"""
+                     display=True):
+        """ Sends a complete spontaneous or periodic message changing all of
+           the signal values """
         if not self.initialized:
             logging.error(
                 'Initialization required before a message can be sent!')
@@ -733,11 +734,11 @@ class CAN(object):
             if not msg.sending:
                 msg.sending = True
                 self.currentPeriodics.append(msg)
-            self._send_periodic(msg, data, display=display, func=func)
+            self._send_periodic(msg, data, display=display)
         return True
 
     #pylint: enable=R0912
-    def send_signal(self, signal, value, force=False, display=False, func=None):
+    def send_signal(self, signal, value, force=False, display=True, func=None):
         """Sends the CAN message containing signal with value"""
         if not self.initialized:
             logging.error(
@@ -760,7 +761,7 @@ class CAN(object):
                 if not msg.sending:
                     msg.sending = True
                     self.currentPeriodics.append(msg)
-                self._send_periodic(msg, value, display=display, func=func)
+                self._send_periodic(msg, value, display=display)
             return True
         else:
             return False
@@ -793,7 +794,8 @@ class CAN(object):
         elif numFound > 1:
             self.lastFoundNode = None
 
-    def find_message(self, searchStr, display=False):#pylint: disable=R0912
+    def find_message(self, searchStr, display=False,
+                     exact=True):#pylint: disable=R0912
         """Prints all messages of the dbc match 'searchStr'"""
         if not self.imported:
             logging.error('No CAN databases currently imported!')
@@ -820,11 +822,18 @@ class CAN(object):
                 return False
         else: # string
             for msg in self.parser.dbc.messages.values():
-                if msgID.lower() in msg.name.lower():#pylint: disable=E1103
-                    numFound += 1
-                    self._printMessage(msg, display=display)
-                    for sig in msg.signals:
-                        self._printSignal(sig, display=display)
+                if not exact:
+                    if msgID.lower() in msg.name.lower():#pylint: disable=E1103
+                        numFound += 1
+                        self._printMessage(msg, display=display)
+                        for sig in msg.signals:
+                            self._printSignal(sig, display=display)
+                else:
+                    if msgID.lower() == msg.name.lower():#pylint: disable=E1103
+                        numFound += 1
+                        self._printMessage(msg, display=display)
+                        for sig in msg.signals:
+                            self._printSignal(sig, display=display)
         if numFound == 0:
             self.lastFoundMessage = None
             if display:
@@ -833,7 +842,7 @@ class CAN(object):
             self.lastFoundMessage = None
         return True
 
-    def find_signal(self, searchStr, display=False):
+    def find_signal(self, searchStr, display=False, exact=False):
         """Prints all signals of the dbc matching 'searchStr'"""
         if not searchStr or (type(searchStr) != type('')):
             logging.error('No search string found!')
@@ -845,8 +854,12 @@ class CAN(object):
         for msg in self.parser.dbc.messages.values():
             msgPrinted = False
             for sig in msg.signals:
-                shortName = (searchStr.lower() in sig.name.lower())
-                fullName = (searchStr.lower() in sig.fullName.lower())
+                if not exact:
+                    shortName = (searchStr.lower() in sig.name.lower())
+                    fullName = (searchStr.lower() in sig.fullName.lower())
+                else:
+                    shortName = (searchStr.lower() == sig.name.lower())
+                    fullName = (searchStr.lower() == sig.fullName.lower())
                 if fullName or shortName:
                     numFound += 1
                     self.lastFoundSignal = sig
@@ -859,6 +872,34 @@ class CAN(object):
             logging.info('No signals found for that input')
         elif numFound > 1:
             self.lastFoundSignal = None
+        return True
+
+    def get_message(self, searchStr):
+        """ Returns the message object associated with searchStr """
+        ret = None
+        if self.find_message(searchStr, exact=True) and self.lastFoundMessage:
+            ret = self.lastFoundMessage
+        return ret
+
+    def get_signals(self, searchStr):
+        """ Returns a list of signals objects associated with message searchStr
+
+        searchStr (string): the message name whose signals will be returned
+        """
+        ret = None
+        if self.find_message(searchStr, exact=True) and self.lastFoundMessage:
+            ret = self.lastFoundMessage.signals
+        return ret
+
+    def get_signal_values(self, searchStr):
+        """ Returns a dictionary of values associated with signal searchStr
+
+        searchStr (string): the signal name whose values will be returned
+        """
+        ret = None
+        if self.find_signal(searchStr, exact=True) and self.lastFoundSignal:
+            ret = self.lastFoundSignal.values
+        return ret
 
     # pylint: disable=R0912, R0914
     def wait_for(self, timeout, msgID, data, inDatabase=True):
@@ -910,7 +951,7 @@ class CAN(object):
 
     # pylint: enable=R0912, R0914
     def send_diag(self, message, data, respID, numToReceive=1, respData='',
-                  inDatabase=True):
+                  inDatabase=True, timeout=1000):
         """Sends a diagnotistic message and returns the response"""
         msg, respData = self._get_message(respID, respData, inDatabase)
         if not msg:
@@ -955,12 +996,12 @@ class CAN(object):
             self._printStatus('Set Notification')
             self.rxthread = receiveThread(self.stopRxThread, self.portHandle,
                                           msgEvent)
-            self.rxthread.waitFor(msg.txId, respData, mask, 1000, num=numToReceive)
+            self.rxthread.waitFor(msg.txId, respData, mask, timeout, num=numToReceive)
             self.rxthread.start()
-            self.send_message(message, data)
+            self.send_message(message, data, inDatabase=inDatabase)
         else:
-            self.rxthread.waitFor(msg.txId, respData, mask, 1000, num=numToReceive)
-            self.send_message(message, data)
+            self.rxthread.waitFor(msg.txId, respData, mask, timeout, num=numToReceive)
+            self.send_message(message, data, inDatabase=inDatabase)
         while self.rxthread.searching:
             time.sleep(0.01)
         if not self.rxthread.logging:
@@ -1272,7 +1313,7 @@ class CAN(object):
             self.validMsg = (msg, val)
             return True
     #pylint:enable=R0912
-    def _printMessage(self, msg, display=False):
+    def _printMessage(self, msg, display=True):
         """Prints a colored CAN message"""
         if display:
             print ''
@@ -1304,7 +1345,7 @@ class CAN(object):
                 print txt+msg.sender+Fore.RESET+Style.RESET_ALL
 
     # pylint: disable=R0912,R0201
-    def _printSignal(self, sig, shortName=False, display=False, value=False):
+    def _printSignal(self, sig, shortName=False, display=True, value=False):
         """Prints a colored CAN signal"""
         color = Fore.CYAN+Style.BRIGHT
         rst = Fore.RESET+Style.RESET_ALL
@@ -1381,6 +1422,7 @@ def _print_help(methods):
 
         print firsthalf+editedlines
     print '    q | exit\t\tTo exit'
+
 
 def main():
     """Run the command-line program for the current class"""
