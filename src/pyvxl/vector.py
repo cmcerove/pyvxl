@@ -539,7 +539,7 @@ class CAN(object):
             self.txthread.start()
         else:
             self.txthread.add(txID, dlc, data, period, msg)
-        #self._send(txID, dataOrig, dlc, 0, display=False)
+        self._send(txID, dataOrig, dlc, 0, display=False)
 
     def start_periodics(self, node):
         """Starts all periodic messages except those transmitted by node"""
