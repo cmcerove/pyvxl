@@ -5,7 +5,7 @@ loads configuration variables from the environment and configuration files.
 
 The following files:
 
- - .autotest
+ - .pyvxl
  - setup.cfg
 
 can be placed in the following locations:
@@ -16,8 +16,7 @@ can be placed in the following locations:
 
 and have configuration variables in sections called:
 
- - autotest
- - CPP_AUTOTEST
+ - pyvxl
 
 """
 
@@ -29,23 +28,6 @@ import Tkinter as tk
 import tkMessageBox
 from tkFileDialog import askopenfilename, asksaveasfilename
 
-# Testing configuration variables
-TARGET_ENV = 'TEST_IHU'  # specifies IP/hostname of networked IHU
-DELAY_ENV = 'TEST_DELAY'  # specifies number of seconds for simulated user delay during testing
-PHONESIM_ENV = 'TEST_PHONESIM'  # specifies address:port of a running phone simulator
-BROWSER_ENV = 'TEST_BROWSER'  # specifies the path of a web browser to use for simulated user input
-MANUAL_ENV = 'TEST_MANUAL'  # allows manual unit tests to run
-
-# Hardware configuration variables
-PORT_RELAYS_ENV = 'PORT_RELAYS'  # serial port of a connected relay box
-NUM_RELAY_BOXES_ENV = 'NUM_RELAY_BOXES' #number of relay boxes
-TYPE_RELAYS_ENV = 'TYPE_RELAYS'  # type of relays: 'SAINSMART', 'GBLITE' (default)
-PORT_SCI_ENV = 'PORT_SCI'  # serial port of the SCI connection (for the MAP)
-PORT_SCI_MAP_ENV = 'PORT_SCI_MAP'  # serial port of the MAP's SCI connection
-PORT_SCI_VIP_ENV = 'PORT_SCI_VIP'  # serial port of the VIP's SCI connection
-PORT_CAN_ENV = 'PORT_CAN'  # serial port or channel of connected CAN hardware
-PORT_LIN_ENV = 'PORT_LIN' # channel of connected LIN hardware
-
 CAN_DRIVER_ENV = 'CAN_DRIVER'
 DBC_PATH_ENV = 'DBC_PATH'
 CAN_BAUD_RATE_ENV = 'CAN_BAUD_RATE'
@@ -54,16 +36,15 @@ LIN_BAUD_RATE_ENV = 'LIN_BAUD_RATE'
 # Configuration file locations
 FILENAMES = (
 'setup.cfg',
-'.autotest',
+'.pyvxl',
 )
 DIRECTORIES = (
 os.getcwd(),  # current working directory
 os.path.expanduser("~"),  # user's home directory
-os.path.dirname(__file__),  # src/cpp/autotest/src/autotest (or install path)
+os.path.dirname(__file__),  # src/pyvxl (or install path)
 )
 SECTIONS = (
-'autotest',
-'CPP_AUTOTEST'
+'pyvxl',
 )
 
 

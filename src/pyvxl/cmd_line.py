@@ -7,9 +7,9 @@ The command line program run when typing 'can'
 import sys, logging, traceback, socket, select, os, subprocess
 from argparse import ArgumentParser
 from colorama import Fore, Style
-from autotest import config, settings
+import config, settings
 from pyvxl import CAN
-from autotest.can.initbus import initbus
+from initbus import initbus
 
 __program__ = 'can'
 
@@ -20,10 +20,6 @@ def initialize_bus(can, node=None):
 
        For a more specific initialization, see initbus.py located in this
        directory.
-
-       Also note that editing files in: src/autotest/can will require the
-       command "setup.py install" to be rerun from src/ before changes
-       take affect.
     """
     can.hvWakeUp()
     if node:

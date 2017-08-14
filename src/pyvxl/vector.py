@@ -8,7 +8,7 @@ Contains the CAN object which can be used to interface with vector hardware
 import traceback, time, logging, os, math, sys, inspect, socket, select, shlex
 import pydbc
 from vector_data_types import event, driverConfig
-from autotest import settings, config
+import settings, config
 from argparse import ArgumentParser
 from threading import Thread, Event
 from ctypes import cdll, CDLL, c_uint, c_int, c_char_p, c_ubyte, c_ulong, cast

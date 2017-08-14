@@ -1,13 +1,13 @@
 #!/usr/bin/env python
 
 """
-Demonstrates the usage of autotest.can
+Demonstrates the usage of pyvxl.CAN
 """
 
 import logging, sys, os, math
 from argparse import ArgumentParser
-from autotest import config, settings
-from autotest.can import Vector, initbus
+import settings
+import CAN, initbus
 
 __program__ = 'can_example'
 
@@ -36,16 +36,16 @@ def main(): # pylint: disable=C0111
     dbc_path = config.get(config.DBC_PATH_ENV)
     baud_rate = config.get(config.CAN_BAUD_RATE_ENV)
     '''
-    # To make this a working example, i've hardcoded values with a GM dbc file
+    # To make this a working example, i've hardcoded values with a dbc file
     if args.channel:
         channel = int(args.channel)
     else:
         channel = 1
-    dbc = 'GlobalA - LSCpy.dbc'
+    dbc = 'a.dbc'
     dbc_path = os.path.dirname(os.path.realpath(__file__))+'\\'+dbc
     baud_rate = 33333
     if channel and dbc_path and baud_rate:
-        can = Vector(channel, dbc_path, baud_rate)
+        can = CAN(channel, dbc_path, baud_rate)
         can.open_driver()
         can.set_channel(math.pow(2, can.drvConfig.channelCount-1))
         # Connect to the vector driver, hide the printed message
@@ -158,8 +158,7 @@ def main(): # pylint: disable=C0111
     # Kill all periodics
     can.kill_periodics()
     # Sends a high voltage wake up message to all ECUs on the bus. Some
-    # projects require this to be sent before nodes will up from sleep, like
-    # GM_B4 for example.
+    # projects require this to be sent before nodes will up from sleep.
     can.hvWakeUp()
     # Stop logging - this is when the log is actually saved to file
     can.stop_logging()
