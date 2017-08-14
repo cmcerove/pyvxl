@@ -159,11 +159,11 @@ try:
             vxDLL = WinDLL("c:\\Documents and Settings\\All Users\\Documents\\Vector XL Driver Library\\bin\\vxlapi.dll")
 except WindowsError:
     if not admin.isUserAdmin():
-        path = os.path.join(LIB_PATH, 'xl_lib83.exe')
+        path = os.path.join(LIB_PATH, 'xl_lib97.exe')
         admin.runAsAdmin(cmdLine=[path])
         raw_input('Press return to continue . . .')
     else:
-        install_exe('xl_lib83.exe')
+        install_exe('xl_lib97.exe')
 
 # Install numpy
 try:

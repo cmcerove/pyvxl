@@ -524,7 +524,10 @@ class CAN(object):
                 logging.info(
                     "Sending Periodic CAN Msg: 0x{0:X} Data: None".format(int(txID)))
         dataOrig = dataString
-        dataString = unhexlify(dataString)
+        if msg.updateFunc:
+            dataString = unhexlify(msg.updateFunc(msg))
+        else:
+            dataString = unhexlify(dataOrig)
         dlc = len(dataString)
         data = create_string_buffer(dataString, 8)
         if not self.sendingPeriodics:
@@ -536,7 +539,7 @@ class CAN(object):
             self.txthread.start()
         else:
             self.txthread.add(txID, dlc, data, period, msg)
-        self._send(txID, dataOrig, dlc, 0, display=False)
+        #self._send(txID, dataOrig, dlc, 0, display=False)
 
     def start_periodics(self, node):
         """Starts all periodic messages except those transmitted by node"""
