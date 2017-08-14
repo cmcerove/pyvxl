@@ -463,9 +463,13 @@ class CAN(object):
             self.initialized = False
         return True
 
-    def _send(self, txID, dataString, dlc, endianness, display=False):
+    def _send(self, msg, dataString, display=False):
         """Sends a spontaneous CAN message"""
         # Check endianness here and reverse if necessary
+        txID = msg.txId
+        dlc = msg.dlc
+        period = msg.cycleTime
+        endianness = msg.endianness
         if endianness != 0: # Motorola(Big endian byte order) need to reverse
             dataString = self._reverse(dataString, dlc)
         if display:
@@ -476,7 +480,10 @@ class CAN(object):
                 logging.info(
                         "Sending CAN Msg: 0x{0:X} Data: {1}".format(int(txID),
                                                             dataString.upper()))
-        dataString = unhexlify(dataString)
+        if msg.updateFunc:
+            dataString = unhexlify(msg.updateFunc(msg))
+        else:
+            dataString = unhexlify(dataString)
         if dlc > 8:
             logging.error(
                 'Sending of multiframe messages currently isn\'t supported!')
@@ -539,7 +546,7 @@ class CAN(object):
             self.txthread.start()
         else:
             self.txthread.add(txID, dlc, data, period, msg)
-        self._send(txID, dataOrig, dlc, 0, display=False)
+        self._send(msg, dataOrig, display=False)
 
     def start_periodics(self, node):
         """Starts all periodic messages except those transmitted by node"""
@@ -732,7 +739,7 @@ class CAN(object):
             logging.error('Non-hexadecimal characters found in message data')
             return False
         if msg.cycleTime == 0:
-            self._send(msg.txId, data, msg.dlc, msg.endianness, display=display)
+            self._send(msg, data, display=display)
         else:
             if not msg.sending:
                 msg.sending = True
@@ -759,7 +766,7 @@ class CAN(object):
             while len(value) < msg.dlc*2:
                 value = '0'+value
             if msg.cycleTime == 0:
-                self._send(msg.txId, value, msg.dlc, msg.endianness, display=display)
+                self._send(msg, value, display=display)
             else:
                 if not msg.sending:
                     msg.sending = True
