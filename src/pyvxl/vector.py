@@ -687,7 +687,7 @@ class CAN(object):
 
     #pylint: disable=R0912
     def send_message(self, msgID, data='', inDatabase=True, cycleTime=0,
-                     display=True):
+                     display=True, sendOnce=False):
         """ Sends a complete spontaneous or periodic message changing all of
            the signal values """
         if not self.initialized:
@@ -738,7 +738,7 @@ class CAN(object):
         except ValueError:
             logging.error('Non-hexadecimal characters found in message data')
             return False
-        if msg.cycleTime == 0:
+        if msg.cycleTime == 0 or sendOnce:
             self._send(msg, data, display=display)
         else:
             if not msg.sending:
@@ -748,7 +748,8 @@ class CAN(object):
         return True
 
     #pylint: enable=R0912
-    def send_signal(self, signal, value, force=False, display=True, func=None):
+    def send_signal(self, signal, value, force=False, display=True,
+                    sendOnce=False):
         """Sends the CAN message containing signal with value"""
         if not self.initialized:
             logging.error(
@@ -765,7 +766,7 @@ class CAN(object):
             value = self.validMsg[1]
             while len(value) < msg.dlc*2:
                 value = '0'+value
-            if msg.cycleTime == 0:
+            if msg.cycleTime == 0 or sendOnce:
                 self._send(msg, value, display=display)
             else:
                 if not msg.sending:
