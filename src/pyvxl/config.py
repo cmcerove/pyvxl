@@ -24,10 +24,6 @@ import os
 import sys
 import ConfigParser
 
-import Tkinter as tk
-import tkMessageBox
-from tkFileDialog import askopenfilename, asksaveasfilename
-
 CAN_DRIVER_ENV = 'CAN_DRIVER'
 DBC_PATH_ENV = 'DBC_PATH'
 CAN_BAUD_RATE_ENV = 'CAN_BAUD_RATE'

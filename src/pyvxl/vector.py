@@ -14,7 +14,7 @@ from threading import Thread, Event
 from ctypes import cdll, CDLL, c_uint, c_int, c_char_p, c_ubyte, c_ulong, cast
 from ctypes import c_ushort, c_ulonglong, WinDLL, pointer, sizeof, POINTER
 from ctypes import c_short, c_long, create_string_buffer
-from binascii import unhexlify
+from binascii import unhexlify, hexlify
 from fractions import gcd
 from colorama import init, deinit, Fore, Back, Style
 if os.name == 'nt':
@@ -81,6 +81,7 @@ class receiveThread(Thread):
         resetClock(portHandle)
         self.logging = False
         self.searching = False
+        self.errorState = False
         self.found = ''
         self.mask = 0
         self.startTime = 0
@@ -108,6 +109,11 @@ class receiveThread(Thread):
                     received = True
                     rxmsg = str(getEventStr(self.rxEventPtr)).split()
                     noError = 'error' not in rxmsg[4].lower()
+                    if not noError:
+                        self.errorState = True
+                    else:
+                        self.errorState = False
+
                     if noError and 'chip' not in rxmsg[0].lower():
                         # TODO: Figure out which part of the message determines
                         # absolute/relative
@@ -334,7 +340,7 @@ class CAN(object):
     def __del__(self):
         """A destructor to ensure the object is properly terminated
         """
-        self.terminate()
+        self.stop()
 
     def hvWakeUp(self):
         """Send a high voltage wakeup message on the bus"""
@@ -404,7 +410,7 @@ class CAN(object):
                 closeDriver()
                 self.initialized = False
                 return False
-            appName = create_string_buffer("pycan", 32)
+            appName = create_string_buffer("pyvxl", 32)
             phPtr = pointer(c_long(-1))
             desiredChannel = self.channel.value
             self.status = openPort(phPtr, appName, self.channel, permPtr, 8192,
@@ -420,7 +426,7 @@ class CAN(object):
                 print ''
                 logging.error('Unable to connect to desired channel!')
                 print ''
-                self.terminate()
+                self.stop()
                 return False
             self.portHandle = phPtr.contents
             self.status = setBaudrate(self.portHandle, self.channel,
@@ -445,7 +451,7 @@ class CAN(object):
             return False
         return True
 
-    def terminate(self):
+    def stop(self):
         """Cleanly disconnects from the CANpiggy"""
         deinit()
         if self.initialized:
@@ -472,6 +478,12 @@ class CAN(object):
         endianness = msg.endianness
         if endianness != 0: # Motorola(Big endian byte order) need to reverse
             dataString = self._reverse(dataString, dlc)
+
+        if msg.updateFunc:
+            dataString = unhexlify(msg.updateFunc(msg))
+        else:
+            dataString = unhexlify(dataString)
+
         if display:
             if dlc == 0:
                 logging.info(
@@ -479,11 +491,7 @@ class CAN(object):
             else:
                 logging.info(
                         "Sending CAN Msg: 0x{0:X} Data: {1}".format(int(txID),
-                                                            dataString.upper()))
-        if msg.updateFunc:
-            dataString = unhexlify(msg.updateFunc(msg))
-        else:
-            dataString = unhexlify(dataString)
+                                                            hexlify(dataString).upper()))
         if dlc > 8:
             logging.error(
                 'Sending of multiframe messages currently isn\'t supported!')
@@ -522,19 +530,19 @@ class CAN(object):
             return False
         if endianness != 0: # Motorola(Big endian byte order) need to reverse
             dataString = self._reverse(dataString, dlc)
-        if display:
-            if dlc > 0:
-                logging.info(
-                    "Sending Periodic CAN Msg: 0x{0:X} Data: {1}".format(int(txID),
-                                                                dataString.upper()))
-            else:
-                logging.info(
-                    "Sending Periodic CAN Msg: 0x{0:X} Data: None".format(int(txID)))
         dataOrig = dataString
         if msg.updateFunc:
             dataString = unhexlify(msg.updateFunc(msg))
         else:
             dataString = unhexlify(dataOrig)
+        if display:
+            if dlc > 0:
+                logging.info(
+                    "Sending Periodic CAN Msg: 0x{0:X} Data: {1}".format(int(txID),
+                                                                hexlify(dataString).upper()))
+            else:
+                logging.info(
+                    "Sending Periodic CAN Msg: 0x{0:X} Data: None".format(int(txID)))
         dlc = len(dataString)
         data = create_string_buffer(dataString, 8)
         if not self.sendingPeriodics:
@@ -911,6 +919,37 @@ class CAN(object):
         if self.find_signal(searchStr, exact=True) and self.lastFoundSignal:
             ret = self.lastFoundSignal.values
         return ret
+
+    def wait_for_error(self):
+        if not self.receiving:
+            self.receiving = True
+            self.stopRxThread = Event()
+            msgEvent = CreateEvent(None, 0, 0, None)
+            msgPointer = pointer(c_int(msgEvent.handle))
+            self.status = setNotification(self.portHandle, msgPointer, 1)
+            self._printStatus('Set Notification')
+            self.rxthread = receiveThread(self.stopRxThread, self.portHandle,
+                                          msgEvent)
+            self.rxthread.start()
+
+        while not self.rxthread.errorState:
+            time.sleep(0.001)
+
+        if not self.rxthread.logging:
+            self.stopRxThread.set()
+            self.receiving = False
+
+        self.kill_periodics()
+        self.status = deactivateChannel(self.portHandle, self.channel)
+        self._printStatus("Deactivate Channel")
+        flushTxQueue(self.portHandle, self.channel)
+        self._printStatus("flushTxQueue")
+        flushRxQueue(self.portHandle)
+        self._printStatus("flushRxQueue")
+        self.status = activateChannel(self.portHandle, self.channel,
+                                      0x00000001, 8)
+        self._printStatus("Activate Channel")
+        return
 
     # pylint: disable=R0912, R0914
     def wait_for(self, timeout, msgID, data, inDatabase=True):
