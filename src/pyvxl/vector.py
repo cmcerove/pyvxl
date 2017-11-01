@@ -64,12 +64,32 @@ setChannelTransceiver = vxDLL.xlCanSetChannelTransceiver
 getEventStr = vxDLL.xlGetEventString
 getEventStr.restype = c_char_p
 
+class messageToFind(object):
+    def __init__(self, msgID, data, mask):
+        self.msgID = msgID
+        self.data = data
+        self.mask = mask
+        self.rxFrames = []
+
+    def getFirstMessage(self):
+        resp = None
+        if self.rxFrames:
+            resp = self.rxFrames[0]
+            self.rxFrames = self.rxFrames[1:]
+        return resp
+
+    def getAllMessages(self):
+        # Copy the list so we don't return the erased version
+        resp = list(self.rxFrames)
+        self.rxFrames = []
+        return resp
+
+
 class receiveThread(Thread):
     """Receive thread for receiving CAN messages"""
     def __init__(self, stpevent, portHandle, msgEvent):
         super(receiveThread, self).__init__()
         self.daemon = True  # thread will die with the program
-        self.messages = []
         self.stopped = stpevent
         self.portHandle = portHandle
         rxEvent = event()
@@ -80,29 +100,21 @@ class receiveThread(Thread):
         flushRxQueue(portHandle)
         resetClock(portHandle)
         self.logging = False
-        self.searching = False
-        self.errorState = False
-        self.found = ''
-        self.mask = 0
-        self.startTime = 0
-        self.searchfor = (0, 0)
-        self.timeout = 0
-        self.numToFind = 0
         self.outfile = None
+        self.errorsFound = False
+        self.messagesToFind = {}
+        self.messages = []
 
     def run(self): # pylint: disable=R0912,R0914
-        while not self.stopped.wait(0.100):
+        # Main receive loop. Runs every 10ms
+        while not self.stopped.wait(0.10):
             msg = c_uint(1)
             self.msgPtr = pointer(msg)
-            WaitForSingleObject(self.msgEvent, 100)
+            WaitForSingleObject(self.msgEvent, 10)
             status = 0
             received = False
             rxMsgs = []
             while not status:
-                tmpTime = time.clock()-self.startTime
-                if self.searching and tmpTime > self.timeout:
-                    logging.info('Expected message was not found - timed out!')
-                    self.searching = False
                 status = receiveMsg(self.portHandle, self.msgPtr,
                                     self.rxEventPtr)
                 if str(getError(status)) != 'XL_ERR_QUEUE_IS_EMPTY':
@@ -110,9 +122,9 @@ class receiveThread(Thread):
                     rxmsg = str(getEventStr(self.rxEventPtr)).split()
                     noError = 'error' not in rxmsg[4].lower()
                     if not noError:
-                        self.errorState = True
+                        self.errorsFound = True
                     else:
-                        self.errorState = False
+                        self.errorsFound = False
 
                     if noError and 'chip' not in rxmsg[0].lower():
                         # TODO: Figure out which part of the message determines
@@ -140,36 +152,35 @@ class receiveThread(Thread):
                         data += '\n'
                         chan = str(int(math.pow(2, int(rxmsg[1][2:-1]))))
                         rxMsgs.append(tstamp+' '+chan+' '+msgid+io+dlc+data)
-                        if self.searching:
+                        if self.messagesToFind:
                             msgid = int(rxmsg[3][3:], 16)
                             if msgid > 0xFFF:
                                 msgid = msgid&0x1FFFFFFF
                             data = ''.join(findall('..?', rxmsg[5]))
-                            if self.searchfor[1]:
-                                try:
-                                    data = int(data, 16)&self.mask
-                                    foundID = msgid == self.searchfor[0]
-                                    if foundID and data == self.searchfor[1]:
-                                        fndMsg = ''.join(findall('[0-9A-F][0-9A-F]?',
-                                                                rxmsg[5]))+' '
-                                        self.found += fndMsg
-                                        self.numToFind -= 1
-                                        txt = 'Received CAN Msg: '+hex(msgid)
-                                        logging.info(txt+' Data: '+fndMsg)
-                                        if not self.numToFind:
-                                            self.searching = False
-                                except ValueError:
-                                    pass
-                            else:
-                                if msgid == self.searchfor[0]:
-                                    foundMsg = ''.join(findall('[0-9A-F][0-9A-F]?',
-                                                               rxmsg[5]))+' '
-                                    self.found += foundMsg
-                                    self.numToFind -= 1
-                                    txt = 'Received CAN Msg: '+hex(msgid)
-                                    logging.info(txt+' Data: '+foundMsg)
-                                    if not self.numToFind:
-                                        self.searching = False
+
+                            # Is the received message one we're looking for?
+                            if self.messagesToFind.has_key(msgid):
+                                fndMsg = ''.join(findall('[0-9A-F][0-9A-F]?',
+                                                         rxmsg[5]))
+                                txt = 'Received CAN Msg: '+hex(msgid)
+                                logging.info(txt+' Data: '+fndMsg)
+                                storeMsg = False
+                                # Are we also looking for specific data?
+                                searchData = self.messagesToFind[msgid].data
+                                mask = self.messagesToFind[msgid].mask
+                                if searchData:
+                                    try:
+                                        data = int(data, 16) & mask
+                                        if data == searchData:
+                                            storeMsg = True
+                                    except ValueError:
+                                        pass
+                                else:
+                                    storeMsg = True
+
+                                if storeMsg:
+                                    self.messagesToFind[msgid].rxFrames.append(fndMsg)
+                                    self.messages.append((msgid, fndMsg))
                 elif received:
                     if self.logging:
                         self.outfile.writelines(rxMsgs)
@@ -178,15 +189,60 @@ class receiveThread(Thread):
         if self.logging:
             self.outfile.close()
 
-    def waitFor(self, msgID, data, mask, timeout, num=1):
+    def searchFor(self, msgID, data, mask):
         """Sets the variables needed to wait for a CAN message"""
-        self.found = ''
-        self.timeout = float(timeout)/1000.0
-        self.searchfor = (msgID, data)
-        self.searching = True
-        self.mask = mask
-        self.startTime = time.clock()
-        self.numToFind = num
+        resp = False
+        if not self.messagesToFind or \
+                (self.messagesToFind and not self.messagesToFind.has_key(msgID)):
+            self.messagesToFind[msgID] = messageToFind(msgID, data, mask)
+            resp = True
+        return resp
+
+    def stopSearchingFor(self, msgID):
+        resp = False
+        if self.messagesToFind:
+            if self.messagesToFind.has_key(msgID):
+                resp = True
+                if len(self.messagesToFind) == 1:
+                    self.clearSearchQueue()
+                else:
+                    del self.messagesToFind[msgID]
+            else:
+                logging.error('Message ID not in the receive queue!')
+        else:
+            logging.error('No messages in the search queue!')
+        return resp
+
+    def _getRxMessages(self, msgID, single=False):
+        resp = False
+        if msgID:
+            if self.messagesToFind.has_key(msgID):
+                if single:
+                    resp = self.messagesToFind[msgID].getFirstMessage()
+                else:
+                    resp = self.messagesToFind[msgID].getAllMessages()
+        else:
+            if single:
+                resp = self.messages[0]
+                self.messages = self.messages[1:]
+            else:
+                resp = list(self.messages)
+                self.messages = []
+        return resp
+
+    def getFirstRxMessage(self, msgID):
+        """Removes the first received message and returns it"""
+        return self._getRxMessages(msgID, single=True)
+
+    def getAllRxMessages(self, msgID):
+        """Removes all received messages and returns them"""
+        return self._getRxMessages(msgID)
+
+    def clearSearchQueue(self):
+        self.messages = []
+        self.messagesToFind = {}
+        self.errorsFound = False
+        return
 
     def logTo(self, path):
         """Begins logging the CAN bus"""
@@ -213,6 +269,9 @@ class receiveThread(Thread):
         lines = [dateLine, 'base hex  timestamps absolute\n',
                  'no internal events logged\n']
         self.outfile.writelines(lines)
+
+    def busy(self):
+        return bool(self.logging or self.messagesToFind)
 
 
 class transmitThread(Thread):
@@ -932,10 +991,10 @@ class CAN(object):
                                           msgEvent)
             self.rxthread.start()
 
-        while not self.rxthread.errorState:
+        while not self.rxthread.errorsFound:
             time.sleep(0.001)
 
-        if not self.rxthread.logging:
+        if not self.rxthread.busy():
             self.stopRxThread.set()
             self.receiving = False
 
@@ -951,10 +1010,39 @@ class CAN(object):
         self._printStatus("Activate Channel")
         return
 
+    def _block_unless_found(self, msgID, timeout):
+        foundData = ''
+        startTime = time.clock()
+        timeout = float(timeout)/1000.0
+
+        while (time.clock() - startTime) < timeout:
+            foundData = self.rxthread.getFirstRxMessage(msgID)
+            if foundData:
+                break
+            time.sleep(0.01)
+
+        if foundData:
+            return foundData
+        else:
+            return False
+
     # pylint: disable=R0912, R0914
-    def wait_for(self, timeout, msgID, data, inDatabase=True):
+    def wait_for(self, msgID, data, timeout, alreadySearching=False,
+                 inDatabase=True):
         """Compares all received messages until message with value
            data is received or the timeout is reached"""
+        resp = False
+        if not alreadySearching:
+            msg = self.search_for(msgID, data, inDatabase=inDatabase)
+            if msg:
+                resp = self._block_unless_found(msg.txId, timeout)
+        else:
+            resp = self._block_unless_found(msgID, timeout)
+
+        return resp
+
+    def search_for(self, msgID, data, inDatabase=True):
+        """Adds a message to the search queue in the receive thread"""
         if not self.initialized:
             logging.error(
                 'Initialization required before messages can be received!')
@@ -985,82 +1073,49 @@ class CAN(object):
             self._printStatus('Set Notification')
             self.rxthread = receiveThread(self.stopRxThread, self.portHandle,
                                           msgEvent)
-            self.rxthread.waitFor(msg.txId, data, mask, timeout)
+            self.rxthread.searchFor(msg.txId, data, mask)
             self.rxthread.start()
         else:
-            self.rxthread.waitFor(msg.txId, data, mask, timeout)
-        while self.rxthread.searching:
-            time.sleep(0.01)
-        if not self.rxthread.logging:
-            self.stopRxThread.set()
-            self.receiving = False
-        if self.rxthread.found:
-            return self.rxthread.found
-        else:
-            return False
+            self.rxthread.searchFor(msg.txId, data, mask)
+
+        return msg
+
+    def clear_search_queue(self):
+        resp = False
+        if self.receiving:
+            self.rxthread.clearSearchQueue()
+            resp = True
+        return resp
+
+    def stop_searching_for(self, msgID, inDatabase=True):
+        resp = False
+        if self.receiving:
+            msg, data = self._get_message(msgID, '', inDatabase)
+            if msg:
+                self.rxthread.stopSearchingFor(msg.txId)
+        return resp
+
+    def get_first_rx_message(self, msgID=False):
+        resp = None
+        if self.receiving:
+            resp = self.rxthread.getFirstRxMessage(msgID)
+        return resp
+
+    def get_all_rx_messages(self, msgID=False):
+        resp = None
+        if self.receiving:
+            resp = self.rxthread.getAllRxMessages(msgID)
+        return resp
 
     # pylint: enable=R0912, R0914
-    def send_diag(self, message, data, respID, numToReceive=1, respData='',
-                  inDatabase=True, timeout=1000):
+    def send_diag(self, sendID, sendData, respID, respData='',
+                  inDatabase=True, timeout=150):
         """Sends a diagnotistic message and returns the response"""
-        msg, respData = self._get_message(respID, respData, inDatabase)
-        if not msg:
-            return False
-        mask = ''
-        if respData:
-            tmpData = []
-            mask = []
-            for x in range(len(respData)):
-                if respData[x] == '*':
-                    tmpData.append('0')
-                    mask.append('0000')
-                else:
-                    tmpData.append(respData[x])
-                    mask.append('1111')
-            mask = ''.join(mask)
-            mask = int(mask, 2)
-            respData = int(''.join(tmpData), 16)
-        '''
-        logger = logging.getLogger()
-        loglevel = logger.getEffectiveLevel()
-        logger.setLevel(logging.CRITICAL)
-        if self.find_message(respID, display=False) == False:
-            return False
-        if self.lastFoundMessage:
-            respID = self.lastFoundMessage.txId
-        else:
-            try:
-                message = int(message, 16)
-            except ValueError:
-                logging.error(
-                    'Unable to wait for a string type message not in the dbc!')
-                return False
-        logger.setLevel(loglevel)
-        '''
-        if not self.receiving:
-            self.receiving = True
-            self.stopRxThread = Event()
-            msgEvent = CreateEvent(None, 0, 0, None)
-            msgPointer = pointer(c_int(msgEvent.handle))
-            self.status = setNotification(self.portHandle, msgPointer, 1)
-            self._printStatus('Set Notification')
-            self.rxthread = receiveThread(self.stopRxThread, self.portHandle,
-                                          msgEvent)
-            self.rxthread.waitFor(msg.txId, respData, mask, timeout, num=numToReceive)
-            self.rxthread.start()
-            self.send_message(message, data, inDatabase=inDatabase)
-        else:
-            self.rxthread.waitFor(msg.txId, respData, mask, timeout, num=numToReceive)
-            self.send_message(message, data, inDatabase=inDatabase)
-        while self.rxthread.searching:
-            time.sleep(0.01)
-        if not self.rxthread.logging:
-            self.stopRxThread.set()
-            self.receiving = False
-        if self.rxthread.found:
-            return self.rxthread.found
-        else:
-            return False
+        msg = self.search_for(respID, respData, inDatabase=inDatabase)
+        if msg:
+            self.send_message(sendID, sendData, inDatabase=inDatabase)
+            return self._block_unless_found(msg.txId, timeout)
+        return False
 
     def log_traffic(self, path):
         """Logs CAN traffic to a file"""

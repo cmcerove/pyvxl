@@ -16,7 +16,7 @@ DEFAULT_DEBUG_MESSAGE = "%(levelname)s: %(message)s"
 if os.path.splitext(__file__)[1] == '.py':  # pragma: no cover
     VERBOSE_DEBUG_MESSAGE = "%(process)d-%(levelname)s: %(message)s (%(filename)s:%(lineno)d)"
 else:  # pragma: no cover
-    VERBOSE_DEBUG_MESSAGE = "%(process)d-%(levelname)s: %(message)s"
+    VERBOSE_DEBUG_MESSAGE = "%(filename)s:%(lineno)d-%(levelname)s: %(message)s"
 DEFAULT_DEBUG_LEVEL = logging.INFO
 VERBOSE_DEBUG_LEVEL = logging.DEBUG
 
