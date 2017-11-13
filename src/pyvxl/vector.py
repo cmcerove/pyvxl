@@ -735,6 +735,7 @@ class CAN(object):
             return False
 
     def import_dbc(self):
+        """ Imports the selected dbc """
         dbcname = self.dbc_path.split('\\')[-1]
         if not os.path.exists(self.dbc_path):
             logging.error('Path: \'{0}\' does not exist!'.format(self.dbc_path))
@@ -980,6 +981,7 @@ class CAN(object):
         return ret
 
     def wait_for_error(self):
+        """ Blocks until the CAN bus goes into an error state """
         if not self.receiving:
             self.receiving = True
             self.stopRxThread = Event()
@@ -1081,6 +1083,7 @@ class CAN(object):
         return msg
 
     def clear_search_queue(self):
+        """ Clears the received message queue """
         resp = False
         if self.receiving:
             self.rxthread.clearSearchQueue()
@@ -1088,6 +1091,7 @@ class CAN(object):
         return resp
 
     def stop_searching_for(self, msgID, inDatabase=True):
+        """ Removes a message from the search queue """
         resp = False
         if self.receiving:
             msg, data = self._get_message(msgID, '', inDatabase)
@@ -1096,12 +1100,14 @@ class CAN(object):
         return resp
 
     def get_first_rx_message(self, msgID=False):
+        """ Returns the first received message """
         resp = None
         if self.receiving:
             resp = self.rxthread.getFirstRxMessage(msgID)
         return resp
 
     def get_all_rx_messages(self, msgID=False):
+        """ Returns all received messages """
         resp = None
         if self.receiving:
             resp = self.rxthread.getAllRxMessages(msgID)

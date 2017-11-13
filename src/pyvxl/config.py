@@ -24,33 +24,27 @@ import os
 import sys
 import ConfigParser
 
-CAN_DRIVER_ENV = 'CAN_DRIVER'
-DBC_PATH_ENV = 'DBC_PATH'
-CAN_BAUD_RATE_ENV = 'CAN_BAUD_RATE'
-LIN_BAUD_RATE_ENV = 'LIN_BAUD_RATE'
-
 # Configuration file locations
 FILENAMES = (
 'setup.cfg',
 '.pyvxl',
 )
+
+# Search directories
 DIRECTORIES = (
 os.getcwd(),  # current working directory
 os.path.expanduser("~"),  # user's home directory
 os.path.dirname(__file__),  # src/pyvxl (or install path)
 )
+
+# setup.cfg sections to parse
 SECTIONS = (
 'pyvxl',
 )
 
 
-def get(name, show_gui=False):  # pylint: disable=W0621
+def get(name):  # pylint: disable=W0621
     """Return the value of a configuration variable."""
-    if show_gui:
-        env_val = os.getenv(name)
-        if not env_val:
-            pass
-
     return os.getenv(name)
 
 
@@ -84,11 +78,11 @@ for directory in DIRECTORIES:
             for section in SECTIONS:
                 if config.has_section(section):
                     for name, value in config.items(section):
-                        if not(get(name.upper())):
+                        if not get(name.upper()):
                             set(name.upper(), value, show=False)
 
 
 # Create global module variables for each environment variable
-for name in list(globals().keys()):
-    if name.endswith('_ENV'):
-        setattr(sys.modules[__name__], name.rsplit('_ENV', 1)[0], get(name))
+#for name in list(globals().keys()):
+#    if name:
+#        setattr(sys.modules[__name__], name, get(name))
