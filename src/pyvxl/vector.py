@@ -892,9 +892,11 @@ class CAN(object):
                 else:
                     msg = self.parser.dbc.messages[msgID]
                 numFound += 1
-                self._printMessage(msg, display=display)
-                for sig in msg.signals:
-                    self._printSignal(sig, display=display)
+                self.lastFoundMessage = msg
+                if display:
+                    self._printMessage(msg)
+                    for sig in msg.signals:
+                        self._printSignal(sig)
             except KeyError:
                 logging.error('Message not found!')
                 self.lastFoundMessage = None
@@ -904,15 +906,19 @@ class CAN(object):
                 if not exact:
                     if msgID.lower() in msg.name.lower():#pylint: disable=E1103
                         numFound += 1
-                        self._printMessage(msg, display=display)
-                        for sig in msg.signals:
-                            self._printSignal(sig, display=display)
+                        self.lastFoundMessage = msg
+                        if display:
+                            self._printMessage(msg)
+                            for sig in msg.signals:
+                                self._printSignal(sig)
                 else:
                     if msgID.lower() == msg.name.lower():#pylint: disable=E1103
                         numFound += 1
-                        self._printMessage(msg, display=display)
-                        for sig in msg.signals:
-                            self._printSignal(sig, display=display)
+                        self.lastFoundMessage = msg
+                        if display:
+                            self._printMessage(msg)
+                            for sig in msg.signals:
+                                self._printSignal(sig)
         if numFound == 0:
             self.lastFoundMessage = None
             if display:
@@ -942,10 +948,12 @@ class CAN(object):
                 if fullName or shortName:
                     numFound += 1
                     self.lastFoundSignal = sig
-                    if not msgPrinted:
-                        self._printMessage(msg, display=display)
-                        msgPrinted = True
-                    self._printSignal(sig, display=display)
+                    self.lastFoundMessage = msg
+                    if display:
+                        if not msgPrinted:
+                            self._printMessage(msg)
+                            msgPrinted = True
+                        self._printSignal(sig)
         if numFound == 0:
             self.lastFoundSignal = None
             logging.info('No signals found for that input')
@@ -1165,16 +1173,20 @@ class CAN(object):
             elif status == 1: # searching periodics by id
                 for periodic in self.currentPeriodics:
                     if periodic.txId == msgID:
+                        self.lastFoundMessage = periodic
                         self._printMessage(periodic)
                         for sig in periodic.signals:
+                            self.lastFoundSignal = sig
                             self._printSignal(sig, value=True)
             else: # searching by string or printing all
                 found = False
                 for msg in self.currentPeriodics:
                     if searchFor.lower() in msg.name.lower():
                         found = True
+                        self.lastFoundMessage = msg
                         self._printMessage(msg)
                         for sig in msg.signals:
+                            self.lastFoundSignal = sig
                             self._printSignal(sig, value=True)
                     else:
                         msgPrinted = False
@@ -1186,17 +1198,21 @@ class CAN(object):
                             if fullName or shortName:
                                 found = True
                                 if not msgPrinted:
+                                    self.lastFoundMessage = msg
                                     self._printMessage(msg)
                                     msgPrinted = True
+                                self.lastFoundSignal = sig
                                 self._printSignal(sig, value=True)
                 if not found:
                     logging.error(
                         'Unable to find a periodic message with that string!')
         else:
             for msg in self.currentPeriodics:
+                self.lastFoundMessage = msg
                 self._printMessage(msg)
                 if info:
                     for sig in msg.signals:
+                        self.lastFoundSignal = sig
                         self._printSignal(sig, value=True)
             if self.sendingPeriodics:
                 print 'Currently sending: '+str(len(self.currentPeriodics))
@@ -1424,12 +1440,10 @@ class CAN(object):
             self.validMsg = (msg, val)
             return True
     #pylint:enable=R0912
-    def _printMessage(self, msg, display=True):
+    def _printMessage(self, msg):
         """Prints a colored CAN message"""
-        if display:
-            print ''
+        print ''
         msgid = hex(msg.txId)
-        self.lastFoundMessage = msg
         data = hex(msg.data)[2:]
         if msgid[-1] == 'L':
             msgid = msgid[:-1]
@@ -1439,31 +1453,28 @@ class CAN(object):
             data = '0'+data
         if msg.endianness != 0:
             data = self._reverse(data, msg.dlc)
-        if display:
-            txt = Style.BRIGHT+Fore.GREEN+'Message: '+msg.name+' - ID: '+msgid
-            print txt+' - Data: 0x'+data
-            if msg.cycleTime != 0:
-                sending = 'Not Sending'
-                color = Fore.WHITE+Back.RED
-                if msg.sending:
-                    sending = 'Sending'
-                    color = Fore.WHITE+Back.GREEN
-                txt = ' - Cycle time(ms): '+str(msg.cycleTime)+' - Status: '
-                txt2 = color+sending+Back.RESET+Fore.MAGENTA+' - TX Node: '
-                print txt+txt2+msg.sender+Fore.RESET+Style.RESET_ALL
-            else:
-                txt = ' - Non-periodic'+Fore.MAGENTA+' - TX Node: '
-                print txt+msg.sender+Fore.RESET+Style.RESET_ALL
+        txt = Style.BRIGHT+Fore.GREEN+'Message: '+msg.name+' - ID: '+msgid
+        print txt+' - Data: 0x'+data
+        if msg.cycleTime != 0:
+            sending = 'Not Sending'
+            color = Fore.WHITE+Back.RED
+            if msg.sending:
+                sending = 'Sending'
+                color = Fore.WHITE+Back.GREEN
+            txt = ' - Cycle time(ms): '+str(msg.cycleTime)+' - Status: '
+            txt2 = color+sending+Back.RESET+Fore.MAGENTA+' - TX Node: '
+            print txt+txt2+msg.sender+Fore.RESET+Style.RESET_ALL
+        else:
+            txt = ' - Non-periodic'+Fore.MAGENTA+' - TX Node: '
+            print txt+msg.sender+Fore.RESET+Style.RESET_ALL
 
     # pylint: disable=R0912,R0201
-    def _printSignal(self, sig, shortName=False, display=True, value=False):
+    def _printSignal(self, sig, shortName=False, value=False):
         """Prints a colored CAN signal"""
         color = Fore.CYAN+Style.BRIGHT
         rst = Fore.RESET+Style.RESET_ALL
         if not shortName and not sig.fullName:
             shortName = True
-        if not display:
-            return
         if shortName:
             name = sig.name
         else:
