@@ -80,6 +80,7 @@ for directory in DIRECTORIES:
                     for name, value in config.items(section):
                         if not get(name.upper()):
                             set(name.upper(), value, show=False)
+                            setattr(sys.modules[__name__], name, get(name))
 
 
 # Create global module variables for each environment variable
