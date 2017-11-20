@@ -25,41 +25,11 @@ def initialize_bus(can, node=None):
     if node:
         can.start_periodics(node)
     else:
-        # Calls initbus() within initbus.py - currently being used in GM_B4 to
+        # Calls initbus() within initbus.py - currently being used in to
         # send required periodics not found in the database and inital signal
         # values simulating a running vehicle.
         initbus(can)
 
-def set_did(can, data, num=1):
-    """Sets a GM_B4 diagnostic ID"""
-    resp = can.send_diag(0x24c, data[0], 0x64c)
-    if not resp:
-        return ''
-    if len(data) == 1:
-        return resp
-    data = data[1:]
-    for msg in data[:-1]:
-        can.send_message(0x24c, msg)
-    resp = can.send_diag(0x24c, data[-1], 0x64c, numToReceive=num)
-    if resp:
-        return resp
-    return ''
-
-def read_did(can, data, num):
-    """Reads a GM_B4 diagnostic ID"""
-    num -= 1
-    data = can.send_diag(0x24c, data, 0x64c)
-    if not data:
-        return False
-    if num:
-        resp = can.send_diag(0x24c, '3000000000000000', 0x64c, numToReceive=num)
-        if resp:
-            data = data+resp
-            return data
-        else:
-            return False
-    else:
-        return data
 def print_help():
     """Called by the command h or help"""
     # pylint: disable=C0301
@@ -162,10 +132,6 @@ def main():
                             'interface to the CAN bus')
     parser.add_argument('-v', '--verbose', action='store_true',
                         help="enable verbose output")
-    parser.add_argument('-d',
-                        '--driver',
-                        help='the type of CAN driver to use. valid options are'+
-                        ' can232 or vector')
     parser.add_argument('-c', '--channel', help='the CAN channel or port to'+
                         ' connect to')
     parser.add_argument('-e', '--example-script', action='store_true',
@@ -204,9 +170,7 @@ def main():
             sys.exit(1)
         sendSock.sendall(' '.join(messages))
         if len(messages) > 2:
-            if messages[1] == 'diag' or \
-               messages[0] == 'readdid' or \
-               messages[0] == 'setdid':
+            if messages[1] == 'diag':
                 print sendSock.recv(128)
         sendSock.close()
         sys.exit(0)
@@ -230,15 +194,9 @@ def main():
     else:
         logging.basicConfig(format=settings.DEFAULT_DEBUG_MESSAGE,
                             level=logging.INFO)
-    dbcPath = config.get(config.DBC_PATH_ENV)
-    baudRate = config.get(config.CAN_BAUD_RATE_ENV)
-    channel = config.get(config.PORT_CAN_ENV)
-    driver = config.get(config.CAN_DRIVER_ENV).lower()
-    if not args.driver and not driver:
-        parser.error("please specify a CAN driver")
-    else:
-        if args.driver:
-            driver = args.driver.lower()
+    dbcPath = config.get(config.DBC_PATH_1)
+    baudRate = config.get(config.CAN_BAUD_RATE_1)
+    channel = config.get(config.CAN_CHANNEL_1)
     if args.channel:
         channel = args.channel
     try:
@@ -293,7 +251,7 @@ def main():
         logging.info('Starting in CAN only mode')
     validCommands = ['send', 'kill', 'killall', 'find', 'killnode', 'log',
                      'periodics', 'config', 'h', 'waitfor', 'help', 'exit',
-                     'q', 'init', 'restart', 'setdid', 'readdid', 'hb']
+                     'q', 'init', 'restart']
     HOST = ''
     PORT = 50000+(2*channel)
     sock = None
@@ -321,7 +279,7 @@ def main():
                 value = s[-1]
                 if command in validCommands:
                     if command == 'restart':
-                        can.terminate()
+                        can.stop()
                         can.start()
                     elif command == 'send': # send message
                         if len(s) == 1:
@@ -381,13 +339,9 @@ def main():
                                     msg = 'Invalid signal name or value!'
                                     logging.error(msg)
                         elif s[1] == 'diag':
-                            if len(s) == 7:
+                            if len(s) == 6:
                                 data = can.send_diag(s[2], s[3], s[4],
-                                                     numToReceive=int(s[5]),
-                                                     respData=s[6])
-                            elif len(s) == 6:
-                                data = can.send_diag(s[2], s[3], s[4],
-                                                     numToReceive=int(s[5]))
+                                                     respData=s[5])
                             elif len(s) == 5:
                                 data = can.send_diag(s[2], s[3], s[4])
                             elif len(s) == 4:
@@ -432,42 +386,6 @@ def main():
                         can.kill_node(s[1])
                     elif command == 'killall': # stopall
                         can.kill_periodics()
-                    elif command == 'hb':
-                        if len(s) == 1:
-                            print 'Correct syntax is: hb [command]'
-                        elif s[1] == 'enable':
-                            can.send_diag(0x24c, '07AE187901000000', 0x64c)
-                        elif s[1] == 'disable':
-                            can.send_diag(0x24c, '07AE187900000000', 0x64c)
-                        else:
-                            print 'Invalid command for hb!'
-                    elif command == 'readdid':
-                        if len(s) == 3:
-                            data = read_did(can, s[1], int(s[2]))
-                            if args.network_listen:
-                                if data != False:
-                                    conn.sendall(data)
-                                else:
-                                    conn.sendall('')
-                        else:
-                            logging.error('Invalid DID length!')
-                    elif command == 'setdid':
-                        if len(s) > 1:
-                            dids = s[1:]
-                            if len(dids[-1]) == 1:
-                                try:
-                                    sendNum = int(dids[-1])
-                                    dids = dids[:-1]
-                                    data = set_did(can, dids, num=sendNum)
-                                except ValueError:
-                                    logging.error('Number to receive must be a'+
-                                                  ' number!')
-                            else:
-                                data = set_did(can, dids)
-                            if args.network_listen:
-                                conn.sendall(data)
-                        else:
-                            logging.error('Invalid DID length!')
                     elif command == 'find': # find
                         if s[1] == 'node':
                             if len(s) > 2:
@@ -553,7 +471,7 @@ def main():
             print '-' * 60
             break
     sys.stdout.flush()
-    can.terminate()
+    can.stop()
 
 if __name__ == "__main__":
     main()

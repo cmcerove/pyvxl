@@ -42,10 +42,25 @@ SECTIONS = (
 'pyvxl',
 )
 
+CAN_CHANNEL_1 = 2
+CAN_BAUD_RATE_1 = 500000
+DBC_PATH_1 = ''
+
+CAN_CHANNEL_2 = 3
+CAN_BAUD_RATE_2 = 500000
+DBC_PATH_2 = ''
+
+LIN_CHANNEL_1 = 1
+
 
 def get(name):  # pylint: disable=W0621
     """Return the value of a configuration variable."""
-    return os.getenv(name)
+    val = ''
+    try:
+        val = os.getenv(name)
+    except AttributeError:
+        pass
+    return val
 
 
 def get_with_reason(name):  # pylint: disable=W0621
@@ -84,6 +99,9 @@ for directory in DIRECTORIES:
 
 
 # Create global module variables for each environment variable
-#for name in list(globals().keys()):
-#    if name:
-#        setattr(sys.modules[__name__], name, get(name))
+for name in list(globals().keys()):
+    if name:
+        for config_name in ['CAN', 'LIN', 'DBC']:
+            if config_name in name:
+                setattr(sys.modules[__name__], name, get(name))
+                break
