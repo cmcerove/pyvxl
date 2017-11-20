@@ -106,8 +106,8 @@ class receiveThread(Thread):
         self.messages = []
 
     def run(self): # pylint: disable=R0912,R0914
-        # Main receive loop. Runs every 10ms
-        while not self.stopped.wait(0.10):
+        # Main receive loop. Runs every 1ms
+        while not self.stopped.wait(0.001):
             msg = c_uint(1)
             self.msgPtr = pointer(msg)
             WaitForSingleObject(self.msgEvent, 10)
@@ -1026,10 +1026,10 @@ class CAN(object):
         timeout = float(timeout)/1000.0
 
         while (time.clock() - startTime) < timeout:
+            time.sleep(0.01)
             foundData = self.rxthread.getFirstRxMessage(msgID)
             if foundData:
                 break
-            time.sleep(0.01)
 
         if foundData:
             return foundData
