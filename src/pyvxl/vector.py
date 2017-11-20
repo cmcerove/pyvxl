@@ -533,7 +533,6 @@ class CAN(object):
         # Check endianness here and reverse if necessary
         txID = msg.txId
         dlc = msg.dlc
-        period = msg.cycleTime
         endianness = msg.endianness
         if endianness != 0: # Motorola(Big endian byte order) need to reverse
             dataString = self._reverse(dataString, dlc)
@@ -546,10 +545,10 @@ class CAN(object):
         if display:
             if dlc == 0:
                 logging.info(
-                        "Sending CAN Msg: 0x{0:X} Data: None".format(int(txID)))
+                        "Sending CAN Msg: 0x{0:X} Data: None".format(txID))
             else:
                 logging.info(
-                        "Sending CAN Msg: 0x{0:X} Data: {1}".format(int(txID),
+                        "Sending CAN Msg: 0x{0:X} Data: {1}".format(txID&~0x80000000,
                                                             hexlify(dataString).upper()))
         if dlc > 8:
             logging.error(
@@ -887,7 +886,8 @@ class CAN(object):
         elif status == 1: # number
             try:
                 if msgID > 0x8000:
-                    msgID = (msgID&~0xF0000FFF)|0x80000000
+                    #msgID = (msgID&~0xF0000FFF)|0x80000000
+                    msgID |= 0x80000000
                     msg = self.parser.dbc.messages[msgID]
                 else:
                     msg = self.parser.dbc.messages[msgID]
