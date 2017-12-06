@@ -116,12 +116,16 @@ class receiveThread(Thread):
         self.messagesToFind = {}
         self.messages = []
 
-    def run(self): # pylint: disable=R0912,R0914
+    def run(self):  # pylint: disable=R0912,R0914
         # Main receive loop. Runs every 1ms
-        while not self.stopped.wait(0.001):
+        while not self.stopped.wait(0.01):
+            # Blocks until a message is received or the timeout (ms) expires.
+            # This event is passed to vxlApi via the setNotification function.
+            # TODO: look into why setNotification isn't working and either
+            #       remove or fix this.
+            # WaitForSingleObject(self.msgEvent, 100)
             msg = c_uint(1)
             self.msgPtr = pointer(msg)
-            WaitForSingleObject(self.msgEvent, 1)
             status = 0
             received = False
             rxMsgs = []
