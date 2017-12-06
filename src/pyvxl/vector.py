@@ -5,10 +5,17 @@ Contains the CAN object which can be used to interface with vector hardware
 """
 
 # pylint: disable=W0223, R0911, C0103
-import traceback, time, logging, os, math, sys, inspect, socket, select, shlex
-import pydbc
-from vector_data_types import event, driverConfig
-import settings, config
+import traceback
+import time
+import logging
+import os
+import math
+import sys
+import inspect
+import socket
+import select
+import shlex
+from re import findall
 from argparse import ArgumentParser
 from threading import Thread, Event
 from ctypes import cdll, CDLL, c_uint, c_int, c_char_p, c_ubyte, c_ulong, cast
@@ -16,11 +23,12 @@ from ctypes import c_ushort, c_ulonglong, WinDLL, pointer, sizeof, POINTER
 from ctypes import c_short, c_long, create_string_buffer
 from binascii import unhexlify, hexlify
 from fractions import gcd
+from types import IntType, LongType
+from pyvxl import pydbc, settings, config
+from pyvxl.vector_data_types import event, driverConfig
 from colorama import init, deinit, Fore, Back, Style
 if os.name == 'nt':
     from win32event import WaitForSingleObject, CreateEvent #pylint: disable=E0611
-from re import findall
-from types import IntType, LongType
 
 __program__ = 'can'
 
@@ -65,6 +73,7 @@ getEventStr = vxDLL.xlGetEventString
 getEventStr.restype = c_char_p
 
 class messageToFind(object):
+    """ Helper class for the receive thread """
     def __init__(self, msgID, data, mask):
         self.msgID = msgID
         self.data = data
@@ -72,6 +81,7 @@ class messageToFind(object):
         self.rxFrames = []
 
     def getFirstMessage(self):
+        """ Returns the first found message """
         resp = None
         if self.rxFrames:
             resp = self.rxFrames[0]
@@ -79,6 +89,7 @@ class messageToFind(object):
         return resp
 
     def getAllMessages(self):
+        """ Returns all found messages """
         # Copy the list so we don't return the erased version
         resp = list(self.rxFrames)
         self.rxFrames = []
@@ -110,7 +121,7 @@ class receiveThread(Thread):
         while not self.stopped.wait(0.001):
             msg = c_uint(1)
             self.msgPtr = pointer(msg)
-            WaitForSingleObject(self.msgEvent, 10)
+            WaitForSingleObject(self.msgEvent, 1)
             status = 0
             received = False
             rxMsgs = []
@@ -574,7 +585,7 @@ class CAN(object):
             eventPtr = pointer(xlEvent)
             #Send the CAN message
             transmitMsg(self.portHandle, self.channel, msgPtr,
-                                 eventPtr)
+                    eventPtr)
 
     def _send_periodic(self, msg, dataString, display=False):
         """Sends a periodic CAN message"""
@@ -681,6 +692,7 @@ class CAN(object):
         else:
             logging.error('No periodics to stop!')
             return False
+     
     def kill_node(self, node): #pylint: disable=R0912
         """Stops all periodic messages sent from a node
         @param node: the node to be killed
