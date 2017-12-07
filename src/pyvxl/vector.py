@@ -411,11 +411,6 @@ class CAN(object):
         self.rxthread = None
         self.validMsg = (None, None)
 
-    def __del__(self):
-        """A destructor to ensure the object is properly terminated
-        """
-        self.stop()
-
     def hvWakeUp(self):
         """Send a high voltage wakeup message on the bus"""
         if not self.initialized:
@@ -530,7 +525,7 @@ class CAN(object):
         deinit()
         if self.initialized:
             if self.sendingPeriodics:
-                self.kill_periodics()
+                self.stop_periodics()
             if self.receiving:
                 self.receiving = False
                 self.stopRxThread.set()
@@ -645,7 +640,7 @@ class CAN(object):
                 self.send_message(periodic.name, data)
         return True
 
-    def kill_periodic(self, name): # pylint: disable=R0912
+    def stop_periodic(self, name):  # pylint: disable=R0912
         """Stops a periodic message
         @param name: signal name or message name or message id
         """
@@ -654,19 +649,19 @@ class CAN(object):
                 "Initialization required before a message can be sent!")
             return False
         if not name:
-            logging.error('Unable to kill that which does not exist!')
+            logging.error('Input argument \'name\' is invalid')
             return False
         msgFound = None
         if self.sendingPeriodics:
             (status, msgID) = self._checkMsgID(name)
-            if status == 0: # invalid
+            if status == 0:  # invalid
                 return False
-            elif status == 1: # number
+            elif status == 1:  # number
                 for msg in self.currentPeriodics:
                     if msgID == msg.txId:
                         msgFound = msg
                         break
-            else: # string
+            else:  # string
                 self.find_message(msgID, display=False)
                 msg = None
                 if self.lastFoundMessage:
@@ -681,9 +676,9 @@ class CAN(object):
             if msgFound:
                 self.txthread.remove(msg.txId)
                 if msg.name != 'Unknown':
-                    logging.info('Stopping Periodic Msg: '+msg.name)
+                    logging.info('Stopping Periodic Msg: ' + msg.name)
                 else:
-                    logging.info('Stopping Periodic Msg: '+hex(msg.txId)[2:])
+                    logging.info('Stopping Periodic Msg: ' + hex(msg.txId)[2:])
                 self.currentPeriodics.remove(msg)
                 msg.sending = False
                 if len(self.currentPeriodics) == 0:
@@ -696,10 +691,10 @@ class CAN(object):
         else:
             logging.error('No periodics to stop!')
             return False
-     
-    def kill_node(self, node): #pylint: disable=R0912
-        """Stops all periodic messages sent from a node
-        @param node: the node to be killed
+
+    def stop_node(self, node):  #pylint: disable=R0912
+        """Stop all periodic messages sent from a node
+        @param node: the node to be stopped
         """
         if not self.sendingPeriodics:
             logging.error('No periodics to stop!')
@@ -732,10 +727,10 @@ class CAN(object):
             logging.error('No periodics currently being sent by that node!')
             return False
         for msgid in periodicsToRemove:
-            self.kill_periodic(msgid)
+            self.stop_periodic(msgid)
         return True
 
-    def kill_periodics(self):
+    def stop_periodics(self):
         """Stops all periodic messages currently being sent"""
         if self.sendingPeriodics:
             self.stopTxThread.set()
@@ -1024,7 +1019,7 @@ class CAN(object):
             self.stopRxThread.set()
             self.receiving = False
 
-        self.kill_periodics()
+        self.stop_periodics()
         self.status = deactivateChannel(self.portHandle, self.channel)
         self._printStatus("Deactivate Channel")
         flushTxQueue(self.portHandle, self.channel)
@@ -1186,7 +1181,7 @@ class CAN(object):
             (status, msgID) = self._checkMsgID(searchFor)
             if not status:
                 return False
-            elif status == 1: # searching periodics by id
+            elif status == 1:  # searching periodics by id
                 for periodic in self.currentPeriodics:
                     if periodic.txId == msgID:
                         self.lastFoundMessage = periodic
@@ -1194,7 +1189,7 @@ class CAN(object):
                         for sig in periodic.signals:
                             self.lastFoundSignal = sig
                             self._printSignal(sig, value=True)
-            else: # searching by string or printing all
+            else:  # searching by string or printing all
                 found = False
                 for msg in self.currentPeriodics:
                     if searchFor.lower() in msg.name.lower():

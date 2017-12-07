@@ -82,16 +82,16 @@ def print_help():
     print '              ""   ""      ""     02'
     print '              ""   ""      ""     *2'
     print ''
-    print '  kill <signal|msgID>'
+    print '  stop <signal|msgID>'
     print '     - Stops sending a periodic message'
     print '       e.g., stop system power mode'
     print '             stop syspwrmd'
     print '             stop 0x10242040'
     print ''
-    print '  killnode <node>'
+    print '  stopnode <node>'
     print '     - Stops all periodic messages sent from <node>'
     print ''
-    print '  killall'
+    print '  stopall'
     print '     - Stops all periodic messages'
     print ''
     print ' - Database & Bus Information -------------------------------------------------'
@@ -249,7 +249,7 @@ def main():
         logging.info('Starting in database only mode')
     elif not can.imported:
         logging.info('Starting in CAN only mode')
-    validCommands = ['send', 'kill', 'killall', 'find', 'killnode', 'log',
+    validCommands = ['send', 'stop', 'stopall', 'find', 'stopnode', 'log',
                      'periodics', 'config', 'h', 'waitfor', 'help', 'exit',
                      'q', 'init', 'restart']
     HOST = ''
@@ -379,13 +379,13 @@ def main():
                                               ' type and value!')
                         else:
                             logging.error('Invalid send type!')
-                    elif command == 'kill': # stop
+                    elif command == 'stop': # stop
                         name = ' '.join(s[1:])
-                        can.kill_periodic(name)
-                    elif command == 'killnode':
-                        can.kill_node(s[1])
-                    elif command == 'killall': # stopall
-                        can.kill_periodics()
+                        can.stop_periodic(name)
+                    elif command == 'stopnode':
+                        can.stop_node(s[1])
+                    elif command == 'stopall': # stopall
+                        can.stop_periodics()
                     elif command == 'find': # find
                         if s[1] == 'node':
                             if len(s) > 2:
@@ -407,7 +407,7 @@ def main():
                     elif command == 'config':
                         can.print_config()
                         print ('Connected to channel: '+str(can.channel.value)+
-                                ' @ '+str(can.baud_rate)+'Bd!')
+                               ' @ '+str(can.baud_rate)+'Bd!')
                     elif command == 'waitfor':
                         data = ''
                         if len(s) == 3:

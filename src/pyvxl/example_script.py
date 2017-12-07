@@ -123,16 +123,16 @@ def main(): # pylint: disable=C0111
     # also similar to send message, known issue with this, to be fixed shortly
     can.wait_for(1100, 0x13FFE040, '', inDatabase=False)
 
-    """kill_periodic - stop transmitting periodic messages"""
+    """stop_periodic - stop transmitting periodic messages"""
     logging.info('='*60)
     logging.info('Killing single periodics')
     logging.info('-'*60)
     # message by name or by hex value
-    can.kill_periodic(0x13FFE040)
-    can.kill_periodic('engine_information_1_ls')
+    can.stop_periodic(0x13FFE040)
+    can.stop_periodic('engine_information_1_ls')
     # signal by full name or short name
-    can.kill_periodic('vehicle speed average driven')
-    can.kill_periodic('syspwrmd')
+    can.stop_periodic('vehicle speed average driven')
+    can.stop_periodic('syspwrmd')
 
     """Starting or stopping more than one message at a time"""
     logging.info('='*60)
@@ -145,7 +145,7 @@ def main(): # pylint: disable=C0111
     logging.info('Killing node BCM_LS')
     logging.info('-'*60)
     # Kill all periodic messages currently being transmitted by node 'BCM_LS'
-    can.kill_node('bcm_ls')
+    can.stop_node('bcm_ls')
     logging.info('='*60)
     logging.info('Calling initbus')
     logging.info('-'*60)
@@ -156,7 +156,7 @@ def main(): # pylint: disable=C0111
     logging.info('Killing all periodics')
     logging.info('-'*60)
     # Kill all periodics
-    can.kill_periodics()
+    can.stop_periodics()
     # Sends a high voltage wake up message to all ECUs on the bus. Some
     # projects require this to be sent before nodes will up from sleep.
     can.hvWakeUp()
@@ -164,7 +164,7 @@ def main(): # pylint: disable=C0111
     can.stop_logging()
 
     # Disconnect from the driver
-    can.terminate()
+    can.stop()
 
 if __name__ == "__main__":
     main()
