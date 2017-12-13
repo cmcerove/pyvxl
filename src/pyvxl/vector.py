@@ -909,7 +909,7 @@ class CAN(object):
                     for sig in msg.signals:
                         self._printSignal(sig)
             except KeyError:
-                logging.error('Message not found!')
+                logging.error('Message ID 0x{:X} not found!'.format(msgID))
                 self.lastFoundMessage = None
                 return False
         else: # string
