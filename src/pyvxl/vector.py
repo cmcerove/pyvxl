@@ -1,8 +1,6 @@
 #!/usr/bin/env python
 
-"""
-Contains the CAN object which can be used to interface with vector hardware
-"""
+"""Contains the CAN class for interacting with vector hardware."""
 
 # pylint: disable=W0223, R0911, C0103
 import traceback
@@ -18,17 +16,17 @@ import shlex
 from re import findall
 from argparse import ArgumentParser
 from threading import Thread, Event
-from ctypes import cdll, CDLL, c_uint, c_int, c_char_p, c_ubyte, c_ulong, cast
-from ctypes import c_ushort, c_ulonglong, WinDLL, pointer, sizeof, POINTER
+from ctypes import cdll, CDLL, c_uint, c_int, c_ubyte, c_ulong, cast
+from ctypes import c_ushort, c_ulonglong, pointer, sizeof, POINTER
 from ctypes import c_short, c_long, create_string_buffer
 from binascii import unhexlify, hexlify
 from fractions import gcd
 from types import IntType, LongType
 from pyvxl import pydbc, settings, config
-from pyvxl.vector_data_types import event, driverConfig
+from pyvxl.vxl_data_types import event, driverConfig
 from colorama import init, deinit, Fore, Back, Style
 if os.name == 'nt':
-    from win32event import WaitForSingleObject, CreateEvent #pylint: disable=E0611
+    from win32event import CreateEvent  # pylint: disable=E0611
 
 __program__ = 'can'
 
@@ -42,39 +40,12 @@ strncpy = libc.strncpy
 memset = libc.memset
 memcpy = libc.memcpy
 
-# Import the vector DLL
-if os.name == 'nt':
-    try:
-        docPath = "c:\\Users\\Public\\Documents\\"
-        vxDLL = WinDLL(docPath+"Vector XL Driver Library\\bin\\vxlapi.dll")
-    except WindowsError:
-        docPath = "c:\\Documents and Settings\\All Users\\Documents\\"
-        vxDLL = WinDLL(docPath+"Vector XL Driver Library\\bin\\vxlapi.dll")
-
-# Redefine dll functions
-openDriver = vxDLL.xlOpenDriver
-closeDriver = vxDLL.xlCloseDriver
-openPort = vxDLL.xlOpenPort
-closePort = vxDLL.xlClosePort
-transmitMsg = vxDLL.xlCanTransmit
-receiveMsg = vxDLL.xlReceive
-getError = vxDLL.xlGetErrorString
-getError.restype = c_char_p
-getDriverConfig = vxDLL.xlGetDriverConfig
-setBaudrate = vxDLL.xlCanSetChannelBitrate
-activateChannel = vxDLL.xlActivateChannel
-flushTxQueue = vxDLL.xlCanFlushTransmitQueue
-flushRxQueue = vxDLL.xlFlushReceiveQueue
-resetClock = vxDLL.xlResetClock
-setNotification = vxDLL.xlSetNotification
-deactivateChannel = vxDLL.xlDeactivateChannel
-setChannelTransceiver = vxDLL.xlCanSetChannelTransceiver
-getEventStr = vxDLL.xlGetEventString
-getEventStr.restype = c_char_p
 
 class messageToFind(object):
-    """ Helper class for the receive thread """
+    """Helper class for the receive thread."""
+
     def __init__(self, msgID, data, mask):
+        """."""
         self.msgID = msgID
         self.data = data
         self.mask = mask
@@ -115,6 +86,7 @@ class receiveThread(Thread):
         self.errorsFound = False
         self.messagesToFind = {}
         self.messages = []
+        self.outfile = None
 
     def run(self):  # pylint: disable=R0912,R0914
         # Main receive loop. Runs every 1ms
@@ -123,7 +95,7 @@ class receiveThread(Thread):
             # This event is passed to vxlApi via the setNotification function.
             # TODO: look into why setNotification isn't working and either
             #       remove or fix this.
-            # WaitForSingleObject(self.msgEvent, 100)
+            # WaitForSingleObject(self.msgEvent, 1)
             msg = c_uint(1)
             self.msgPtr = pointer(msg)
             status = 0
@@ -208,7 +180,7 @@ class receiveThread(Thread):
         """Sets the variables needed to wait for a CAN message"""
         resp = False
         if not self.messagesToFind or \
-                (self.messagesToFind and not self.messagesToFind.has_key(msgID)):
+                (self.messagesToFind and msgID not in self.messagesToFind):
             self.messagesToFind[msgID] = messageToFind(msgID, data, mask)
             resp = True
         return resp
@@ -261,29 +233,37 @@ class receiveThread(Thread):
 
     def logTo(self, path):
         """Begins logging the CAN bus"""
-        self.logging = True
-        tmstr = time.localtime()
-        hr = tmstr.tm_hour
-        hr = str(hr) if hr < 12 else str(hr-12)
-        mn = str(tmstr.tm_min)
-        sc = str(tmstr.tm_sec)
-        mo = tmstr.tm_mon
-        da = str(tmstr.tm_mday)
-        wda = tmstr.tm_wday
-        yr = str(tmstr.tm_year)
-        path = path+'['+hr+'-'+mn+'-'+sc+'].asc'
-        if os.path.isfile(path):
-            path = path[:-4]+'_1.asc'
-        logging.info('Logging to: '+os.getcwd()+'\\'+path)
-        self.outfile = open(path, 'w+')
-        days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
-        months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug',
-                  'Sep', 'Oct', 'Nov', 'Dec']
-        enddate = months[mo-1]+' '+da+' '+hr+':'+mn+':'+sc+' '+yr+'\n'
-        dateLine = 'date '+days[wda]+' '+enddate
-        lines = [dateLine, 'base hex  timestamps absolute\n',
-                 'no internal events logged\n']
-        self.outfile.writelines(lines)
+        if not self.logging:
+            self.logging = True
+            tmstr = time.localtime()
+            hr = tmstr.tm_hour
+            hr = str(hr) if hr < 12 else str(hr-12)
+            mn = str(tmstr.tm_min)
+            sc = str(tmstr.tm_sec)
+            mo = tmstr.tm_mon
+            da = str(tmstr.tm_mday)
+            wda = tmstr.tm_wday
+            yr = str(tmstr.tm_year)
+            path = path+'['+hr+'-'+mn+'-'+sc+'].asc'
+            if os.path.isfile(path):
+                path = path[:-4]+'_1.asc'
+            logging.info('Logging to: '+os.getcwd()+'\\'+path)
+            self.outfile = open(path, 'w+')
+            days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+            months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug',
+                      'Sep', 'Oct', 'Nov', 'Dec']
+            enddate = months[mo-1]+' '+da+' '+hr+':'+mn+':'+sc+' '+yr+'\n'
+            dateLine = 'date '+days[wda]+' '+enddate
+            lines = [dateLine, 'base hex  timestamps absolute\n',
+                     'no internal events logged\n']
+            self.outfile.writelines(lines)
+        return ''
+
+    def stopLogging(self):
+        """Stop logging."""
+        if self.logging:
+            self.logging = False
+            self.outfile.close()
 
     def busy(self):
         return bool(self.logging or self.messagesToFind)
@@ -424,14 +404,14 @@ class CAN(object):
         return True
 
     def open_driver(self, display=False):
-        """Open the vector driver"""
+        """Open a connection to the vxlAPI driver."""
         # Open the driver
         if not self.initialized:
             self.status = openDriver()
             self.initialized = True
             self._printStatus("Open Driver")
 
-            # Get the current driver configuration
+            # Get the current state of the driver configuration
             drvPtr = pointer(driverConfig())
             self.status = getDriverConfig(drvPtr)
             self._printStatus("Read Configuration")
@@ -440,24 +420,25 @@ class CAN(object):
                 self.print_config()
 
     def set_channel(self, channel):
-        """Sets the vector hardware channel"""
+        """Sets the vector hardware channel."""
         self.init_channel = int(channel)
-        self.channel = c_ulonglong(2**(self.init_channel-1))
+        self.channel = c_ulonglong(1 << (self.init_channel - 1))
 
-    def start(self, display=False): # pylint: disable=R0914
-        """Initializes and connects to a CANpiggy"""
-        init()
+    def start(self, display=False):
+        """Initializes and connects to a CAN channel."""
+        init()  # Initialize colorama
+
         self.open_driver(display=display)
-        openIndex = c_ubyte(self.init_channel-1)
+
         # split chMask into a array of two longs
         chPtr = pointer(c_ulonglong(0x0))
         maskPtr = cast(chPtr, POINTER(c_ulong))
         foundChannel = False
         for i in range(self.drvConfig.channelCount):
+            # Check that the connected piggy supports CAN
             if self.drvConfig.channel[i].channelBusCapabilities & 0x10000:
                 if not self.channel.value:
                     self.channel.value = self.drvConfig.channel[i].channelMask
-                    openIndex.value = self.drvConfig.channel[i].channelIndex
                 # Need to split channelMask into two longs for 32 bit only
                 # operations
                 tocast = c_ulonglong(self.drvConfig.channel[i].channelMask)
@@ -558,7 +539,7 @@ class CAN(object):
                         "Sending CAN Msg: 0x{0:X} Data: None".format(txID))
             else:
                 logging.info(
-                        "Sending CAN Msg: 0x{0:X} Data: {1}".format(txID&~0x80000000,
+                        "Sending CAN Msg: 0x{0:X} Data: {1}".format(txID & ~0x80000000,
                                                             hexlify(dataString).upper()))
         if dlc > 8:
             logging.error(
@@ -1142,7 +1123,7 @@ class CAN(object):
             return self._block_unless_found(msg.txId, timeout)
         return False
 
-    def log_traffic(self, path):
+    def start_logging(self, path):
         """Logs CAN traffic to a file"""
         if not self.initialized:
             logging.error('Initialization required to begin logging!')
@@ -1156,20 +1137,24 @@ class CAN(object):
             self._printStatus('Set Notification')
             self.rxthread = receiveThread(self.stopRxThread, self.portHandle,
                                           msgEvent)
-            self.rxthread.logTo(path)
+            path = self.rxthread.logTo(path)
             self.rxthread.start()
         else:
-            self.rxthread.logTo(path)
-        return True
+            path = self.rxthread.logTo(path)
+        return path
 
     def stop_logging(self):
         """Stops CAN logging"""
         if not self.receiving:
             logging.error('Not currently logging!')
             return False
-        else:
-            self.receiving = False
+
+        self.rxthread.stopLogging()
+
+        if not self.rxthread.busy():
             self.stopRxThread.set()
+            self.receiving = False
+
         return True
 
     def print_periodics(self, info=False, searchFor=''):# pylint: disable=R0912
