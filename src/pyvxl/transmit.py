@@ -3,7 +3,8 @@
 """pyvxl's transmit process."""
 
 import logging
-from pysib.daemon import Daemon
+from pyvxl.daemon import Daemon
+from pyvxl.vxl import VxlCAN
 
 logging.basicConfig(level=logging.INFO)
 
