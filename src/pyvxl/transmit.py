@@ -3,16 +3,20 @@
 """pyvxl's transmit process."""
 
 import logging
-from pyvxl.daemon import Daemon
+from pyvxl.daemon import Daemon, Task
 from pyvxl.vxl import VxlCAN
 
 logging.basicConfig(level=logging.INFO)
+
+# TODO: Make sure that all locations where dbc data was assumed to be updated in Vector are now
+#       properly updating these values in the daemon as well
 
 
 class Transmit(Daemon):
     """."""
 
     def __init__(self, channel):
+        """."""
         # TODO: Channel handling with ports
         # Initialize the daemon
         super(Transmit, self).__init__()
@@ -31,22 +35,10 @@ class Transmit(Daemon):
         memcpy(eventPtr, msg[0], sizeof(tempEvent))
         transmitMsg(self.portHandle, self.channel, msgPtr, eventPtr)
 
-class transmitThread(Thread):
-    """Transmit thread for transmitting all periodic CAN messages"""
-    def __init__(self, stpevent, channel, portHandle):
-        super(transmitThread, self).__init__()
-        self.daemon = True  # thread will die with the program
-        self.messages = []
-        self.channel = channel
-        self.stopped = stpevent
-        self.portHandle = portHandle
-        self.elapsed = 0
-        self.increment = 0
-        self.currGcd = 0
-        self.currLcm = 0
-
     def add(self, txID, dlc, data, cycleTime, message):
         """Adds a periodic message to the list of periodics being sent"""
+        if not self._is_daemon():
+            self._send_task(Task())
         xlEvent = event()
         memset(pointer(xlEvent), 0, sizeof(xlEvent))
         xlEvent.tag = c_ubyte(0x0A)
@@ -82,6 +74,21 @@ class transmitThread(Thread):
             if msg[0].contents.tagData.msg.id == ID:
                 self.messages.remove(msg)
                 break
+
+class transmitThread(Thread):
+    """Transmit thread for transmitting all periodic CAN messages"""
+    def __init__(self, stpevent, channel, portHandle):
+        super(transmitThread, self).__init__()
+        self.daemon = True  # thread will die with the program
+        self.messages = []
+        self.channel = channel
+        self.stopped = stpevent
+        self.portHandle = portHandle
+        self.elapsed = 0
+        self.increment = 0
+        self.currGcd = 0
+        self.currLcm = 0
+
 
 
 if __name__ == '__main__':

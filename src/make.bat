@@ -109,7 +109,6 @@ IF ERRORLEVEL 1 GOTO setup_error
 ECHO.
 ECHO.pyvxl installed correctly
 echo.
-pause
 ECHO.
 GOTO clean
 
