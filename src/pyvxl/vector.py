@@ -19,11 +19,12 @@ from threading import Thread, Event
 from ctypes import cdll, CDLL, c_uint, c_int, c_ubyte, c_ulong, cast
 from ctypes import c_ushort, c_ulonglong, pointer, sizeof, POINTER
 from ctypes import c_short, c_long, create_string_buffer
+from ctypes import WinDLL, c_char_p
 from binascii import unhexlify, hexlify
 from fractions import gcd
 from types import IntType, LongType
 from pyvxl import pydbc, settings, config
-from pyvxl.vxl_data_types import event, driverConfig
+from pyvxl.vector_data_types import event, driverConfig
 from colorama import init, deinit, Fore, Back, Style
 if os.name == 'nt':
     from win32event import CreateEvent  # pylint: disable=E0611
@@ -40,6 +41,35 @@ strncpy = libc.strncpy
 memset = libc.memset
 memcpy = libc.memcpy
 
+# Import the vector DLL
+if os.name == 'nt':
+    try:
+        docPath = "c:\\Users\\Public\\Documents\\"
+        vxDLL = WinDLL(docPath + "Vector XL Driver Library\\bin\\vxlapi.dll")
+    except WindowsError:
+        docPath = "c:\\Documents and Settings\\All Users\\Documents\\"
+        vxDLL = WinDLL(docPath + "Vector XL Driver Library\\bin\\vxlapi.dll")
+
+# Redefine dll functions
+openDriver = vxDLL.xlOpenDriver
+closeDriver = vxDLL.xlCloseDriver
+openPort = vxDLL.xlOpenPort
+closePort = vxDLL.xlClosePort
+transmitMsg = vxDLL.xlCanTransmit
+receiveMsg = vxDLL.xlReceive
+getError = vxDLL.xlGetErrorString
+getError.restype = c_char_p
+getDriverConfig = vxDLL.xlGetDriverConfig
+setBaudrate = vxDLL.xlCanSetChannelBitrate
+activateChannel = vxDLL.xlActivateChannel
+flushTxQueue = vxDLL.xlCanFlushTransmitQueue
+flushRxQueue = vxDLL.xlFlushReceiveQueue
+resetClock = vxDLL.xlResetClock
+setNotification = vxDLL.xlSetNotification
+deactivateChannel = vxDLL.xlDeactivateChannel
+setChannelTransceiver = vxDLL.xlCanSetChannelTransceiver
+getEventStr = vxDLL.xlGetEventString
+getEventStr.restype = c_char_p
 
 class messageToFind(object):
     """Helper class for the receive thread."""
