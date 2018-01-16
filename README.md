@@ -1,7 +1,20 @@
+.. image:: http://img.shields.io/pypi/v/pyvxl.svg
+   :target: https://pypi.python.org/pypi/pyvxl
+
+.. image:: http://img.shields.io/badge/license-MIT-green.svg
+   :target: https://github.com/cmcerove/pyvxl/blob/develop/LICENSE
+
 # pyvxl
-A python library for working with the CAN bus through Vector's vxlAPI
+A python library for working with the CAN bus through Vector's vxlAPI.
 
+## Features
+- Importing databases in .dbc format
+    - Multiple helper functions for imported databases
+- Logging message traffic in .asc format
+- Sending periodic messages
 
-# Installation Instructions
+## Operating Systems
+- Windows (developed and tested on Windows 10)
 
-- Run install.bat
+## Installation
+Run `make.bat` or `setup.py install` to install.

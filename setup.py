@@ -8,33 +8,18 @@ Run "python setup.py install" to install script shortcuts in your path.
 Requires setuptools (http://pypi.python.org/pypi/setuptools/).
 """
 
+from setuptools import setup, find_packages
+
 import os
 import sys
-import platform
-import subprocess
-import pkg_resources
+import admin
 if os.name == 'nt':
     from ctypes import WinDLL
-from setuptools import setup, find_packages
-import admin
+
 
 LIB_PATH = os.path.normpath(os.path.join(os.path.dirname(__file__), 'lib'))
 
 missing_dependencies = []
-
-#TODO: Uncomment this are once unit tests have been imported
-'''
-# Install 3rd-party libraries (Python sources)
-for library_version in ('argparse-1.2.1',
-                        'nose-1.2.1',
-                        'unittest2-0.5.1'):
-    library, version = library_version.rsplit('-', 1)
-    try:
-        if pkg_resources.get_distribution(library).version < version:
-            raise pkg_resources.DistributionNotFound
-    except pkg_resources.DistributionNotFound:
-        install_package(library_version)
-'''
 
 # Install the vector dll
 try:
@@ -52,41 +37,30 @@ except WindowsError:
         install_exe('xl_lib97.exe')
 
 
-# Install colorama
-try:
-    import colorama
-except ImportError:
-    install_package('colorama-0.2.7')
-
-# Install ply
-try:
-    import ply
-except ImportError:
-    install_package('ply-3.4')
-
-if os.name == 'nt':
-    sys.path.append('C:\\Python27\\Lib\\site-packages\\win32')
-
 # Install pyvxl
 console_scripts = []  # pylint: disable=C0103
 warnings = []  # pylint: disable=C0103
+
 from pyvxl import __program__
 console_scripts.append(__program__ + " = pyvxl:main")
 #
 # Create scripts
 setup(
 
-name='pyvxl',
-version='0.1.0',
+    name='pyvxl',
+    version='0.1.0',
 
-description=("A python interface to the vector vxlapi.dll for CAN communication."),
-author="Chris Cerovec",
-author_email="chris.cerovec@gmail.com",
+    description=("A python interface to the vector vxlapi.dll for CAN communication."),
+    author="Chris Cerovec",
+    author_email="chris.cerovec@gmail.com",
 
-packages=find_packages(),
-package_data={'pyvxl': ['*.dbc']},
+    packages=find_packages(),
+    package_data={'pyvxl': ['*.dbc']},
 
-entry_points={'console_scripts': console_scripts},
+    entry_points={'console_scripts': console_scripts},
+
+    install_requires=["colorama >= 0.2.7",
+                      "ply >= 3.4"],
 )
 
 # Show warnings
