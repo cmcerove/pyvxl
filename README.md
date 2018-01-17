@@ -1,8 +1,6 @@
-.. image:: http://img.shields.io/pypi/v/pyvxl.svg
-   :target: https://pypi.python.org/pypi/pyvxl
+![](http://img.shields.io/pypi/v/pyvxl.svg)
 
-.. image:: http://img.shields.io/badge/license-MIT-green.svg
-   :target: https://github.com/cmcerove/pyvxl/blob/develop/LICENSE
+![](http://img.shields.io/badge/license-MIT-green.svg)
 
 # pyvxl
 A python library for working with the CAN bus through Vector's vxlAPI.
