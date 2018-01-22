@@ -3,8 +3,8 @@
 """pyvxl's transmit process."""
 
 import logging
-from pyvxl.daemon import Daemon, Task
-from pyvxl.vxl import VxlCAN
+from pywindaemon import Daemon, Task
+from pyvxl.vxl import VxlCan
 
 logging.basicConfig(level=logging.INFO)
 
@@ -15,80 +15,50 @@ logging.basicConfig(level=logging.INFO)
 class Transmit(Daemon):
     """."""
 
-    def __init__(self, channel):
+    def __init__(self, channel=0):
         """."""
-        # TODO: Channel handling with ports
+        port = 50100 + channel
         # Initialize the daemon
-        super(Transmit, self).__init__()
+        super(Transmit, self).__init__(port=port, file=__file__)
+        self.vxl = VxlCan(channel)
+        self.vxl.start()
+        self.messages = {}
 
-    def transmit_msg(self, ):
-        if msg[2].updateFunc:
+    def transmit(self, msg_id, msg_data, update_task):
+        """Transmit a periodic CAN message."""
+        if update_task:
+            """
             #msg[3](''.join(['{:02X}'.format(x) for x in msg[0][0].tagData.msg.data]))
             data = unhexlify(msg[2].updateFunc(msg[2]))
             data = create_string_buffer(data, len(data))
             tmpPtr = pointer(data)
             dataPtr = cast(tmpPtr, POINTER(c_ubyte*8))
             msg[0][0].tagData.msg.data = dataPtr.contents
-        msgPtr = pointer(c_uint(1))
-        tempEvent = event()
-        eventPtr = pointer(tempEvent)
-        memcpy(eventPtr, msg[0], sizeof(tempEvent))
-        transmitMsg(self.portHandle, self.channel, msgPtr, eventPtr)
+            """
+            pass
+        self.vxl.send(msg_id, msg_data)
 
-    def add(self, txID, dlc, data, cycleTime, message):
-        """Adds a periodic message to the list of periodics being sent"""
+    def add(self, msg_id, msg_data, period, update_task=None):
+        """Begin transmitting a message periodically."""
         if not self._is_daemon():
-            self._send_task(Task())
-        xlEvent = event()
-        memset(pointer(xlEvent), 0, sizeof(xlEvent))
-        xlEvent.tag = c_ubyte(0x0A)
-        if txID > 0x8000:
-            xlEvent.tagData.msg.id = c_ulong(txID | 0x80000000)
+            if msg_id in self.messages:
+                self._remove_task(self.messages[msg_id])
+            args = (msg_id, msg_data, update_task)
+            self.messages[msg_id] = Task(command='transmit', args=args, period=period)
+            self._add_task(self.messages[msg_id])
         else:
-            xlEvent.tagData.msg.id = c_ulong(txID)
-        xlEvent.tagData.msg.dlc = c_ushort(dlc)
-        xlEvent.tagData.msg.flags = c_ushort(0)
-        # Converting from a string to a c_ubyte array
-        tmpPtr = pointer(data)
-        dataPtr = cast(tmpPtr, POINTER(c_ubyte*8))
-        xlEvent.tagData.msg.data = dataPtr.contents
-        msgCount = c_uint(1)
-        msgPtr = pointer(msgCount)
-        eventPtr = pointer(xlEvent)
-        for msg in self.messages:
-            # If the message is already being sent, replace it with new data
-            if msg[0].contents.tagData.msg.id == xlEvent.tagData.msg.id:
-                msg[0] = eventPtr
-                break
+            logging.error("Transmit.add() called from the Daemon!")
+
+    def remove(self, msg_id):
+        """Stop transmitting a message periodically."""
+        if not self._is_daemon():
+            if msg_id in self.messages:
+                self.messages.pop(msg_id)
+                self._remove_task(self.messages[msg_id])
+            else:
+                logging.warning("Message ID {} isn't being transmitted".format(msg_id))
         else:
-            self.messages.append([eventPtr, cycleTime, message])
-        self.updateTimes()
-
-    def remove(self, txID):
-        """Removes a periodic from the list of currently sending periodics"""
-        if txID > 0x8000:
-            ID = txID | 0x80000000
-        else:
-            ID = txID
-        for msg in self.messages:
-            if msg[0].contents.tagData.msg.id == ID:
-                self.messages.remove(msg)
-                break
-
-class transmitThread(Thread):
-    """Transmit thread for transmitting all periodic CAN messages"""
-    def __init__(self, stpevent, channel, portHandle):
-        super(transmitThread, self).__init__()
-        self.daemon = True  # thread will die with the program
-        self.messages = []
-        self.channel = channel
-        self.stopped = stpevent
-        self.portHandle = portHandle
-        self.elapsed = 0
-        self.increment = 0
-        self.currGcd = 0
-        self.currLcm = 0
-
+            logging.error("Transmit.remove() called from the Daemon!")
 
 
 if __name__ == '__main__':

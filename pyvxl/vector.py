@@ -7,369 +7,28 @@ import traceback
 import time
 import logging
 import os
-import math
 import sys
 import inspect
 import socket
 import select
 import shlex
-from re import findall
 from argparse import ArgumentParser
-from threading import Thread, Event
-from ctypes import cdll, CDLL, c_uint, c_int, c_ubyte, c_ulong, cast
-from ctypes import c_ushort, c_ulonglong, pointer, sizeof, POINTER
-from ctypes import c_short, c_long, create_string_buffer
+from threading import Event
 from binascii import unhexlify, hexlify
-from fractions import gcd
 from types import IntType, LongType
 from pyvxl import pydbc, settings, config
-from pyvxl.vxl_data_types import event, driverConfig
+from pyvxl.vxl import VxlCan
 from colorama import init, deinit, Fore, Back, Style
-if os.name == 'nt':
-    from win32event import CreateEvent  # pylint: disable=E0611
 
 __program__ = 'can'
-
-# Grab the c library and some functions from it
-if os.name == 'nt':
-    libc = cdll.msvcrt
-else:
-    libc = CDLL("libc.so.6")
-printf = libc.printf
-strncpy = libc.strncpy
-memset = libc.memset
-memcpy = libc.memcpy
-
-
-class messageToFind(object):
-    """Helper class for the receive thread."""
-
-    def __init__(self, msgID, data, mask):
-        """."""
-        self.msgID = msgID
-        self.data = data
-        self.mask = mask
-        self.rxFrames = []
-
-    def getFirstMessage(self):
-        """ Returns the first found message """
-        resp = None
-        if self.rxFrames:
-            resp = self.rxFrames[0]
-            self.rxFrames = self.rxFrames[1:]
-        return resp
-
-    def getAllMessages(self):
-        """ Returns all found messages """
-        # Copy the list so we don't return the erased version
-        resp = list(self.rxFrames)
-        self.rxFrames = []
-        return resp
-
-
-class receiveThread(Thread):
-    """Receive thread for receiving CAN messages"""
-    def __init__(self, stpevent, portHandle, msgEvent):
-        super(receiveThread, self).__init__()
-        self.daemon = True  # thread will die with the program
-        self.stopped = stpevent
-        self.portHandle = portHandle
-        rxEvent = event()
-        self.rxEventPtr = pointer(rxEvent)
-        msg = c_uint(1)
-        self.msgPtr = pointer(msg)
-        self.msgEvent = msgEvent
-        flushRxQueue(portHandle)
-        resetClock(portHandle)
-        self.logging = False
-        self.outfile = None
-        self.errorsFound = False
-        self.messagesToFind = {}
-        self.messages = []
-        self.outfile = None
-
-    def run(self):  # pylint: disable=R0912,R0914
-        # Main receive loop. Runs every 1ms
-        while not self.stopped.wait(0.01):
-            # Blocks until a message is received or the timeout (ms) expires.
-            # This event is passed to vxlApi via the setNotification function.
-            # TODO: look into why setNotification isn't working and either
-            #       remove or fix this.
-            # WaitForSingleObject(self.msgEvent, 1)
-            msg = c_uint(1)
-            self.msgPtr = pointer(msg)
-            status = 0
-            received = False
-            rxMsgs = []
-            while not status:
-                status = receiveMsg(self.portHandle, self.msgPtr,
-                                    self.rxEventPtr)
-                if str(getError(status)) != 'XL_ERR_QUEUE_IS_EMPTY':
-                    received = True
-                    rxmsg = str(getEventStr(self.rxEventPtr)).split()
-                    noError = 'error' not in rxmsg[4].lower()
-                    if not noError:
-                        self.errorsFound = True
-                    else:
-                        self.errorsFound = False
-
-                    if noError and 'chip' not in rxmsg[0].lower():
-                        # TODO: Figure out which part of the message determines
-                        # absolute/relative
-                        # print ' '.join(rxmsg)
-                        tstamp = float(rxmsg[2][2:-1])
-                        tstamp = str(tstamp/1000000000.0).split('.')
-                        decVals = tstamp[1][:6]+((7-len(tstamp[1][:6]))*' ')
-                        tstamp = ((4-len(tstamp[0]))*' ')+tstamp[0]+'.'+decVals
-                        msgid = rxmsg[3][3:]
-                        if len(msgid) > 4:
-                            try:
-                                msgid = hex(int(msgid, 16)&0x1FFFFFFF)[2:-1]+'x'
-                            except ValueError:
-                                print ' '.join(rxmsg)
-                        msgid = msgid+((16-len(msgid))*' ')
-                        dlc = rxmsg[4][2]+' '
-                        io = 'Rx   d'
-                        if int(dlc) > 0:
-                            if rxmsg[6].lower() == 'tx':
-                                io = 'Tx   d'
-                        data = ''
-                        if int(dlc) > 0:
-                            data = ' '.join(findall('..?', rxmsg[5]))
-                        data += '\n'
-                        chan = str(int(math.pow(2, int(rxmsg[1][2:-1]))))
-                        rxMsgs.append(tstamp+' '+chan+' '+msgid+io+dlc+data)
-                        if self.messagesToFind:
-                            msgid = int(rxmsg[3][3:], 16)
-                            if msgid > 0xFFF:
-                                msgid = msgid&0x1FFFFFFF
-                            data = ''.join(findall('..?', rxmsg[5]))
-
-                            # Is the received message one we're looking for?
-                            if self.messagesToFind.has_key(msgid):
-                                fndMsg = ''.join(findall('[0-9A-F][0-9A-F]?',
-                                                         rxmsg[5]))
-                                txt = 'Received CAN Msg: '+hex(msgid)
-                                logging.info(txt+' Data: '+fndMsg)
-                                storeMsg = False
-                                # Are we also looking for specific data?
-                                searchData = self.messagesToFind[msgid].data
-                                mask = self.messagesToFind[msgid].mask
-                                if searchData:
-                                    try:
-                                        data = int(data, 16) & mask
-                                        if data == searchData:
-                                            storeMsg = True
-                                    except ValueError:
-                                        pass
-                                else:
-                                    storeMsg = True
-
-                                if storeMsg:
-                                    self.messagesToFind[msgid].rxFrames.append(fndMsg)
-                                    self.messages.append((msgid, fndMsg))
-                elif received:
-                    if self.logging:
-                        self.outfile.writelines(rxMsgs)
-            if self.logging:
-                self.outfile.flush()
-        if self.logging:
-            self.outfile.close()
-
-    def searchFor(self, msgID, data, mask):
-        """Sets the variables needed to wait for a CAN message"""
-        resp = False
-        if not self.messagesToFind or \
-                (self.messagesToFind and msgID not in self.messagesToFind):
-            self.messagesToFind[msgID] = messageToFind(msgID, data, mask)
-            resp = True
-        return resp
-
-    def stopSearchingFor(self, msgID):
-        resp = False
-        if self.messagesToFind:
-            if self.messagesToFind.has_key(msgID):
-                resp = True
-                if len(self.messagesToFind) == 1:
-                    self.clearSearchQueue()
-                else:
-                    del self.messagesToFind[msgID]
-            else:
-                logging.error('Message ID not in the receive queue!')
-        else:
-            logging.error('No messages in the search queue!')
-        return resp
-
-    def _getRxMessages(self, msgID, single=False):
-        resp = False
-        if msgID:
-            if self.messagesToFind.has_key(msgID):
-                if single:
-                    resp = self.messagesToFind[msgID].getFirstMessage()
-                else:
-                    resp = self.messagesToFind[msgID].getAllMessages()
-        else:
-            if single:
-                resp = self.messages[0]
-                self.messages = self.messages[1:]
-            else:
-                resp = list(self.messages)
-                self.messages = []
-        return resp
-
-    def getFirstRxMessage(self, msgID):
-        """Removes the first received message and returns it"""
-        return self._getRxMessages(msgID, single=True)
-
-    def getAllRxMessages(self, msgID):
-        """Removes all received messages and returns them"""
-        return self._getRxMessages(msgID)
-
-    def clearSearchQueue(self):
-        self.messages = []
-        self.messagesToFind = {}
-        self.errorsFound = False
-        return
-
-    def logTo(self, path):
-        """Begins logging the CAN bus"""
-        if not self.logging:
-            self.logging = True
-            tmstr = time.localtime()
-            hr = tmstr.tm_hour
-            hr = str(hr) if hr < 12 else str(hr-12)
-            mn = str(tmstr.tm_min)
-            sc = str(tmstr.tm_sec)
-            mo = tmstr.tm_mon
-            da = str(tmstr.tm_mday)
-            wda = tmstr.tm_wday
-            yr = str(tmstr.tm_year)
-            path = path+'['+hr+'-'+mn+'-'+sc+'].asc'
-            if os.path.isfile(path):
-                path = path[:-4]+'_1.asc'
-            logging.info('Logging to: '+os.getcwd()+'\\'+path)
-            self.outfile = open(path, 'w+')
-            days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
-            months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug',
-                      'Sep', 'Oct', 'Nov', 'Dec']
-            enddate = months[mo-1]+' '+da+' '+hr+':'+mn+':'+sc+' '+yr+'\n'
-            dateLine = 'date '+days[wda]+' '+enddate
-            lines = [dateLine, 'base hex  timestamps absolute\n',
-                     'no internal events logged\n']
-            self.outfile.writelines(lines)
-        return ''
-
-    def stopLogging(self):
-        """Stop logging."""
-        if self.logging:
-            self.logging = False
-            self.outfile.close()
-
-    def busy(self):
-        return bool(self.logging or self.messagesToFind)
-
-
-class transmitThread(Thread):
-    """Transmit thread for transmitting all periodic CAN messages"""
-    def __init__(self, stpevent, channel, portHandle):
-        super(transmitThread, self).__init__()
-        self.daemon = True  # thread will die with the program
-        self.messages = []
-        self.channel = channel
-        self.stopped = stpevent
-        self.portHandle = portHandle
-        self.elapsed = 0
-        self.increment = 0
-        self.currGcd = 0
-        self.currLcm = 0
-
-    def run(self):
-        while not self.stopped.wait(self.currGcd):
-            for msg in self.messages:
-                if self.elapsed % msg[1] == 0:
-                    if msg[2].updateFunc:
-                        #msg[3](''.join(['{:02X}'.format(x) for x in msg[0][0].tagData.msg.data]))
-                        data = unhexlify(msg[2].updateFunc(msg[2]))
-                        data = create_string_buffer(data, len(data))
-                        tmpPtr = pointer(data)
-                        dataPtr = cast(tmpPtr, POINTER(c_ubyte*8))
-                        msg[0][0].tagData.msg.data = dataPtr.contents
-                    msgPtr = pointer(c_uint(1))
-                    tempEvent = event()
-                    eventPtr = pointer(tempEvent)
-                    memcpy(eventPtr, msg[0], sizeof(tempEvent))
-                    transmitMsg(self.portHandle, self.channel,
-                                              msgPtr,
-                                              eventPtr)
-            if self.elapsed >= self.currLcm:
-                self.elapsed = self.increment
-            else:
-                self.elapsed += self.increment
-
-    def updateTimes(self):
-        """Updates the GCD and LCM used in the run loop to ensure it's
-           looping most efficiently"""
-        if len(self.messages) == 1:
-            self.currGcd = float(self.messages[0][1])/float(1000)
-            self.currLcm = self.elapsed = self.increment = self.messages[0][1]
-        else:
-            cGcd = self.increment
-            cLcm = self.currLcm
-            for i in range(len(self.messages)-1):
-                tmpGcd = gcd(self.messages[i][1], self.messages[i+1][1])
-                tmpLcm = (self.messages[i][1]*self.messages[i+1][1])/tmpGcd
-                if tmpGcd < cGcd:
-                    cGcd = tmpGcd
-                if tmpLcm > cLcm:
-                    cLcm = tmpLcm
-            self.increment = cGcd
-            self.currGcd = float(cGcd)/float(1000)
-            self.currLcm = cLcm
-
-    def add(self, txID, dlc, data, cycleTime, message):
-        """Adds a periodic message to the list of periodics being sent"""
-        xlEvent = event()
-        memset(pointer(xlEvent), 0, sizeof(xlEvent))
-        xlEvent.tag = c_ubyte(0x0A)
-        if txID > 0x8000:
-            xlEvent.tagData.msg.id = c_ulong(txID | 0x80000000)
-        else:
-            xlEvent.tagData.msg.id = c_ulong(txID)
-        xlEvent.tagData.msg.dlc = c_ushort(dlc)
-        xlEvent.tagData.msg.flags = c_ushort(0)
-        # Converting from a string to a c_ubyte array
-        tmpPtr = pointer(data)
-        dataPtr = cast(tmpPtr, POINTER(c_ubyte*8))
-        xlEvent.tagData.msg.data = dataPtr.contents
-        msgCount = c_uint(1)
-        msgPtr = pointer(msgCount)
-        eventPtr = pointer(xlEvent)
-        for msg in self.messages:
-            # If the message is already being sent, replace it with new data
-            if msg[0].contents.tagData.msg.id == xlEvent.tagData.msg.id:
-                msg[0] = eventPtr
-                break
-        else:
-            self.messages.append([eventPtr, cycleTime, message])
-        self.updateTimes()
-
-    def remove(self, txID):
-        """Removes a periodic from the list of currently sending periodics"""
-        if txID > 0x8000:
-            ID = txID | 0x80000000
-        else:
-            ID = txID
-        for msg in self.messages:
-            if msg[0].contents.tagData.msg.id == ID:
-                self.messages.remove(msg)
-                break
 
 
 class CAN(object):
     """Class to manage Vector hardware"""
-    def __init__(self, channel, dbc_path, baud_rate):
+    def __init__(self, channel, dbc_path, baudrate):
         self.dbc_path = dbc_path
-        self.baud_rate = baud_rate
+        self.vxl = VxlCan(channel, baudrate)
+        self.baudrate = baudrate
         self.status = c_short(0)
         self.drvConfig = None
         self.initialized = False
@@ -391,34 +50,6 @@ class CAN(object):
         self.rxthread = None
         self.validMsg = (None, None)
 
-    def hvWakeUp(self):
-        """Send a high voltage wakeup message on the bus"""
-        if not self.initialized:
-            logging.error("Not initialized!")
-            return False
-        linModeWakeup = c_uint(0x0007)
-        self.status = setChannelTransceiver(self.portHandle, self.channel,
-                                            c_int(0x0006), linModeWakeup,
-                                            c_uint(100))
-        self._printStatus("High Voltage Wakeup")
-        return True
-
-    def open_driver(self, display=False):
-        """Open a connection to the vxlAPI driver."""
-        # Open the driver
-        if not self.initialized:
-            self.status = openDriver()
-            self.initialized = True
-            self._printStatus("Open Driver")
-
-            # Get the current state of the driver configuration
-            drvPtr = pointer(driverConfig())
-            self.status = getDriverConfig(drvPtr)
-            self._printStatus("Read Configuration")
-            self.drvConfig = drvPtr.contents
-            if display:
-                self.print_config()
-
     def set_channel(self, channel):
         """Sets the vector hardware channel."""
         self.init_channel = int(channel)
@@ -427,79 +58,7 @@ class CAN(object):
     def start(self, display=False):
         """Initializes and connects to a CAN channel."""
         init()  # Initialize colorama
-
-        self.open_driver(display=display)
-
-        # split chMask into a array of two longs
-        chPtr = pointer(c_ulonglong(0x0))
-        maskPtr = cast(chPtr, POINTER(c_ulong))
-        foundChannel = False
-        for i in range(self.drvConfig.channelCount):
-            # Check that the connected piggy supports CAN
-            if self.drvConfig.channel[i].channelBusCapabilities & 0x10000:
-                if not self.channel.value:
-                    self.channel.value = self.drvConfig.channel[i].channelMask
-                # Need to split channelMask into two longs for 32 bit only
-                # operations
-                tocast = c_ulonglong(self.drvConfig.channel[i].channelMask)
-                castPtr = pointer(tocast)
-                tmpPtr = cast(castPtr, POINTER(c_ulong))
-                if self.drvConfig.channel[i].channelMask == self.channel.value:
-                    foundChannel = True
-                    maskPtr[0] |= tmpPtr[0]
-                    maskPtr[1] |= tmpPtr[1]
-
-        # recombine into a single 64 bit
-        if foundChannel:
-            chPtr = cast(maskPtr, POINTER(c_ulonglong))
-            permPtr = chPtr
-            self.channel = permPtr.contents
-
-            if not self.channel.value:
-                logging.error("No available channels found!")
-                closeDriver()
-                self.initialized = False
-                return False
-            appName = create_string_buffer("pyvxl", 32)
-            phPtr = pointer(c_long(-1))
-            desiredChannel = self.channel.value
-            self.status = openPort(phPtr, appName, self.channel, permPtr, 8192,
-                                   3, 0x00000001)
-            self._printStatus("Open Port")
-            if str(getError(self.status)) != 'XL_SUCCESS':
-                txt = "Unable to open port - run again"
-                logging.error(txt+" with '-v' for more info")
-                closeDriver()
-                self.initialized = False
-                return False
-            if desiredChannel != self.channel.value:
-                print ''
-                logging.error('Unable to connect to desired channel!')
-                print ''
-                self.stop()
-                return False
-            self.portHandle = phPtr.contents
-            self.status = setBaudrate(self.portHandle, self.channel,
-                                      int(self.baud_rate))
-            self._printStatus("Set Baudrate")
-            resetClock(self.portHandle)
-            self._printStatus("resetClock")
-            flushTxQueue(self.portHandle, self.channel)
-            self._printStatus("flushTxQueue")
-            flushRxQueue(self.portHandle)
-            self._printStatus("flushRxQueue")
-            self.status = activateChannel(self.portHandle, self.channel,
-                                          0x00000001, 8)
-            self._printStatus("Activate Channel")
-            txt = 'Successfully connected to Channel '
-            logging.info(txt+str(self.channel.value)+' @ '
-                         +str(self.baud_rate)+'Bd!')
-        else:
-            logging.error(
-                'Unable to connect to Channel '+str(self.init_channel))
-            self.initialized = False
-            return False
-        return True
+        return self.vxl.start()
 
     def stop(self):
         """Cleanly disconnects from the CANpiggy"""
@@ -510,75 +69,23 @@ class CAN(object):
             if self.receiving:
                 self.receiving = False
                 self.stopRxThread.set()
-            self.status = deactivateChannel(self.portHandle, self.channel)
-            self._printStatus("Deactivate Channel")
-            self.status = closePort(self.portHandle)
-            self._printStatus("Close Port")
-            self.status = closeDriver()
-            self._printStatus("Close Driver")
-            self.initialized = False
+            self.vxl.stop()
         return True
-
-    def _send(self, msg, dataString, display=False):
-        """Sends a spontaneous CAN message"""
-        # Check endianness here and reverse if necessary
-        txID = msg.txId
-        dlc = msg.dlc
-        endianness = msg.endianness
-        if endianness != 0: # Motorola(Big endian byte order) need to reverse
-            dataString = self._reverse(dataString, dlc)
-
-        if msg.updateFunc:
-            dataString = unhexlify(msg.updateFunc(msg))
-        else:
-            dataString = unhexlify(dataString)
-
-        if display:
-            if dlc == 0:
-                logging.info(
-                        "Sending CAN Msg: 0x{0:X} Data: None".format(txID))
-            else:
-                logging.info(
-                        "Sending CAN Msg: 0x{0:X} Data: {1}".format(txID & ~0x80000000,
-                                                            hexlify(dataString).upper()))
-        if dlc > 8:
-            logging.error(
-                'Sending of multiframe messages currently isn\'t supported!')
-            return False
-        else:
-            xlEvent = event()
-            data = create_string_buffer(dataString, 8)
-            memset(pointer(xlEvent), 0, sizeof(xlEvent))
-            xlEvent.tag = c_ubyte(0x0A)
-            if txID > 0x8000:
-                xlEvent.tagData.msg.id = c_ulong(txID | 0x80000000)
-            else:
-                xlEvent.tagData.msg.id = c_ulong(txID)
-            xlEvent.tagData.msg.dlc = c_ushort(dlc)
-            xlEvent.tagData.msg.flags = c_ushort(0)
-            # Converting from a string to a c_ubyte array
-            tmpPtr = pointer(data)
-            dataPtr = cast(tmpPtr, POINTER(c_ubyte*8))
-            xlEvent.tagData.msg.data = dataPtr.contents
-            msgCount = c_uint(1)
-            msgPtr = pointer(msgCount)
-            eventPtr = pointer(xlEvent)
-            #Send the CAN message
-            transmitMsg(self.portHandle, self.channel, msgPtr,
-                    eventPtr)
 
     def _send_periodic(self, msg, dataString, display=False):
         """Sends a periodic CAN message"""
-        txID = msg.txId
-        dlc = msg.dlc
-        period = msg.cycleTime
-        endianness = msg.endianness
         if not self.initialized:
             logging.error(
                 "Initialization required before a message can be sent!")
             return False
+
+        txID = msg.txId
+        dlc = msg.dlc
+        period = msg.cycleTime
+        endianness = msg.endianness
         if endianness != 0: # Motorola(Big endian byte order) need to reverse
             dataString = self._reverse(dataString, dlc)
+
         dataOrig = dataString
         if msg.updateFunc:
             dataString = unhexlify(msg.updateFunc(msg))
@@ -586,12 +93,10 @@ class CAN(object):
             dataString = unhexlify(dataOrig)
         if display:
             if dlc > 0:
-                logging.info(
-                    "Sending Periodic CAN Msg: 0x{0:X} Data: {1}".format(int(txID),
-                                                                hexlify(dataString).upper()))
+                logging.info("Sending Periodic CAN Msg: 0x{0:X} Data: {1}".format(int(txID),
+                             hexlify(dataString).upper()))
             else:
-                logging.info(
-                    "Sending Periodic CAN Msg: 0x{0:X} Data: None".format(int(txID)))
+                logging.info("Sending Periodic CAN Msg: 0x{0:X} Data: None".format(int(txID)))
         dlc = len(dataString)
         data = create_string_buffer(dataString, 8)
         if not self.sendingPeriodics:
@@ -1001,15 +506,7 @@ class CAN(object):
             self.receiving = False
 
         self.stop_periodics()
-        self.status = deactivateChannel(self.portHandle, self.channel)
-        self._printStatus("Deactivate Channel")
-        flushTxQueue(self.portHandle, self.channel)
-        self._printStatus("flushTxQueue")
-        flushRxQueue(self.portHandle)
-        self._printStatus("flushRxQueue")
-        self.status = activateChannel(self.portHandle, self.channel,
-                                      0x00000001, 8)
-        self._printStatus("Activate Channel")
+        self.vxl.reconnect()
         return
 
     def _block_unless_found(self, msgID, timeout):
@@ -1027,7 +524,6 @@ class CAN(object):
             return foundData
         else:
             return False
-
     # pylint: disable=R0912, R0914
     def wait_for(self, msgID, data, timeout, alreadySearching=False,
                  inDatabase=True):
@@ -1112,7 +608,6 @@ class CAN(object):
         if self.receiving:
             resp = self.rxthread.getAllRxMessages(msgID)
         return resp
-
     # pylint: enable=R0912, R0914
     def send_diag(self, sendID, sendData, respID, respData='',
                   inDatabase=True, timeout=150):
@@ -1212,36 +707,6 @@ class CAN(object):
                         self._printSignal(sig, value=True)
             if self.sendingPeriodics:
                 print 'Currently sending: '+str(len(self.currentPeriodics))
-
-    def print_config(self):
-        """Prints the current hardware configuration"""
-        if not self.initialized:
-            logging.warning(
-        "Initialization required before hardware configuration can be printed")
-            return False
-        foundPiggy = False
-        buff = create_string_buffer(32)
-        printf("----------------------------------------------------------\n")
-        printf("- %2d channels       Hardware Configuration              -\n",
-               self.drvConfig.channelCount)
-        printf("----------------------------------------------------------\n")
-        for i in range(self.drvConfig.channelCount):
-            chan = str(int(math.pow(2, self.drvConfig.channel[i].channelIndex)))
-            sys.stdout.write('- Channel '+chan+',    ')
-            strncpy(buff, self.drvConfig.channel[i].name, 23)
-            printf(" %23s, ", buff)
-            memset(buff, 0, sizeof(buff))
-            if self.drvConfig.channel[i].transceiverType != 0x0000:
-                foundPiggy = True
-                strncpy(buff, self.drvConfig.channel[i].transceiverName, 13)
-                printf("%13s -\n", buff)
-            else:
-                printf("    no Cab!   -\n", buff)
-
-        printf("----------------------------------------------------------\n")
-        if not foundPiggy:
-            logging.info("Virtual channels only!")
-            return False
 
     def _get_message(self, msgID, data, inDatabase):
         """ Gets a message and data to be used for searching received messages
@@ -1371,7 +836,6 @@ class CAN(object):
         if dlc > 7:
             out = num[14:] + out
         return out
-
     #pylint:disable=R0912
     def _isValid(self, signal, value=None, dis=True, force=False):
         """Checks the validity of a signal and optionally it's value"""
@@ -1463,7 +927,6 @@ class CAN(object):
         else:
             txt = ' - Non-periodic'+Fore.MAGENTA+' - TX Node: '
             print txt+msg.sender+Fore.RESET+Style.RESET_ALL
-
     # pylint: disable=R0912,R0201
     def _printSignal(self, sig, shortName=False, value=False):
         """Prints a colored CAN signal"""
@@ -1614,7 +1077,7 @@ def main():
     validCommands = [x[0] for x in methods]
 
     dbc_path = config.get(config.DBC_PATH_ENV)
-    baud_rate = config.get(config.CAN_BAUD_RATE_ENV)
+    baudrate = config.get(config.CAN_BAUD_RATE_ENV)
     HOST = ''
     PORT = 50000+(2*channel)
     sock = None
@@ -1623,7 +1086,7 @@ def main():
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.bind((HOST, PORT))
         sock.listen(1)
-    can = CAN(channel, dbc_path, baud_rate)
+    can = CAN(channel, dbc_path, baudrate)
     can.start()
     print 'Type an invalid command to see help'
     while 1:

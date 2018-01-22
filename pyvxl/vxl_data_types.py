@@ -13,7 +13,7 @@ struct s_xl_event {
     };
 """
 
-class can(Structure):
+class vxl_can_type(Structure):
     _fields_ = [("bitRate", c_uint),
                 ("sjw", c_ubyte),
                 ("tseg1", c_ubyte),
@@ -21,26 +21,26 @@ class can(Structure):
                 ("sam", c_ubyte),
                 ("outputMode", c_ubyte)]
 
-class most(Structure):
+class vxl_most_type(Structure):
     _fields_ = [("activeSpeedGrade", c_uint),
                 ("compatibleSpeedGrade", c_uint)]
 
-class flexray(Structure):
+class vxl_flexray_type(Structure):
     _fields_ = [("status", c_uint),
                 ("cfgMode", c_uint),
                 ("baudrate", c_uint)]
 
-class data(Union):
-    _fields_ = [("can", can),
-                ("most", most),
-                ("flexray", flexray),
+class vxl_data_type(Union):
+    _fields_ = [("can", vxl_can_type),
+                ("most", vxl_most_type),
+                ("flexray", vxl_flexray_type),
                 ("raw", c_ubyte*32)]
 
-class busParams(Structure):
+class vxl_bus_params_type(Structure):
     _fields_ = [("busType", c_uint),
-                ("data", data)]
+                ("data", vxl_data_type)]
 
-class channelConfig(Structure):
+class vxl_channel_config_type(Structure):
     _pack_ = 1
     _fields_ = [("name", c_char*32),
                 ("hwType", c_ubyte),
@@ -55,7 +55,7 @@ class channelConfig(Structure):
                 ("channelBusCapabilities", c_uint),
                 ("isOnBus", c_ubyte),
                 ("connectedBusType", c_uint),
-                ("busParams", busParams),
+                ("busParams", vxl_bus_params_type),
                 ("driverVersion", c_uint),
                 ("interfaceVersion", c_uint),
                 ("raw_data", c_uint*10),
@@ -78,22 +78,22 @@ class channelConfig(Structure):
                 ("delimiterOffset", c_ushort),
                 ("reserved", c_uint*3)]
 
-class driverConfig(Structure):
+class vxl_driver_config_type(Structure):
     _fields_ = [("dllVersion", c_uint),
                 ("channelCount", c_uint),
                 ("reserved", c_uint*10),
-                ("channel", channelConfig*64)]
+                ("channel", vxl_channel_config_type*64)]
 
-class licenseInfo(Structure):
+class vxl_license_info_type(Structure):
     _fields_ = [("bAvailable", c_ubyte),
                 ("licName", c_char*65)]
 
-class syncPulse(Structure):
+class vxl_sync_pulse_type(Structure):
     _pack_ = 1
     _fields_ = [("pulseCode", c_ubyte),
                 ("time", c_ulonglong)]
 
-class canMsg(Structure):
+class vxl_can_msg_type(Structure):
     _fields_ = [("id", c_ulong),
                 ("flags", c_ushort),
                 ("dlc", c_ushort),
@@ -101,7 +101,7 @@ class canMsg(Structure):
                 ("data", c_ubyte*8),
                 ("res2", c_ulonglong)]
 
-class daioData(Structure):
+class vxl_daio_data_type(Structure):
     _fields_ = [("flags", c_ushort),
                 ("timestamp_correction", c_uint),
                 ("mask_digital", c_ubyte),
@@ -111,70 +111,70 @@ class daioData(Structure):
                 ("reserved1", c_uint),
                 ("reserved2", c_uint)]
 
-class digitalData(Structure):
+class vxl_digital_data_type(Structure):
     _fields_ = [("digitalInputData", c_uint)]
 
-class analogData(Structure):
+class vxl_analog_data_type(Structure):
     _fields_ = [("measuredAnalogData0", c_uint),
                 ("measuredAnalogData1", c_uint),
                 ("measuredAnalogData2", c_uint),
                 ("measuredAnalogData3", c_uint)]
 
-class pigU(Union):
-    _fields_ = [("digital", digitalData),
-                ("analog", analogData)]
+class vxl_pig_u_type(Union):
+    _fields_ = [("digital", vxl_digital_data_type),
+                ("analog", vxl_analog_data_type)]
 
-class daioPiggyData(Structure):
+class vxl_daio_piggy_data_type(Structure):
     _fields_ = [("daioEvtTag", c_uint),
                 ("triggerType", c_uint),
-                ("pigU", pigU)]
+                ("pigU", vxl_pig_u_type)]
 
-class chipState(Structure):
+class vxl_chip_state_type(Structure):
     _fields_ = [("busStatus", c_ubyte),
                 ("txErrorCounter", c_ubyte),
                 ("rxErrorCounter", c_ubyte)]
 
-class transceiver(Structure):
+class vxl_transceiver_type(Structure):
     _fields_ = [("event_reason", c_ubyte),
                 ("is_present", c_ubyte)]
 
-class linMsg(Structure):
+class vxl_lin_msg_type(Structure):
     _fields_ = [("id", c_ubyte),
                 ("dlc", c_ubyte),
                 ("flags", c_ushort),
                 ("data", c_ubyte*8),
                 ("crc", c_ubyte)]
 
-class linNoAns(Structure):
+class vxl_lin_no_ans_type(Structure):
     _fields_ = [("id", c_ubyte)]
 
-class linWakeUp(Structure):
+class vxl_lin_wake_up_type(Structure):
     _fields_ = [("flag", c_ubyte)]
 
-class linSleep(Structure):
+class vxl_lin_sleep_type(Structure):
     _fields_ = [("flag", c_ubyte)]
 
-class linCRCinfo(Structure):
+class vxl_lin_crc_info_type(Structure):
     _fields_ = [("id", c_ubyte),
                 ("flags", c_ubyte)]
 
 class linMsgApi(Union):
-    _fields_ = [("linMsg", linMsg),
-                ("linNoAns", linNoAns),
-                ("linWakeUp", linWakeUp),
-                ("linSleep", linSleep),
-                ("linCRCinfo", linCRCinfo)]
+    _fields_ = [("linMsg", vxl_lin_msg_type),
+                ("linNoAns", vxl_lin_msg_type),
+                ("linWakeUp", vxl_lin_wake_up_type),
+                ("linSleep", vxl_lin_sleep_type),
+                ("linCRCinfo", vxl_lin_crc_info_type)]
 
-class tagData(Union):
-    _fields_ = [("msg", canMsg),
-                ("chipState", chipState),
+class vxl_tag_data_type(Union):
+    _fields_ = [("msg", vxl_can_msg_type),
+                ("chipState", vxl_chip_state_type),
                 ("linMsgApi", linMsgApi),
-                ("syncPulse", syncPulse),
-                ("daioData", daioData),
-                ("transceiver", transceiver),
-                ("daioPiggyData", daioPiggyData)]
+                ("syncPulse", vxl_sync_pulse_type),
+                ("daioData", vxl_daio_data_type),
+                ("transceiver", vxl_transceiver_type),
+                ("daioPiggyData", vxl_daio_piggy_data_type)]
 
-class event(Structure):
+class vxl_event_type(Structure):
     _fields_ = [("tag", c_ubyte),
                 ("chanIndex", c_ubyte),
                 ("transId", c_ushort),
@@ -182,7 +182,7 @@ class event(Structure):
                 ("flags", c_ubyte),
                 ("reserved", c_ubyte),
                 ("timeStamp", c_ulonglong),
-                ("tagData", tagData)]
+                ("tagData", vxl_tag_data_type)]
 
-class events(Structure):
-    _fields_ = [("event", event*5)]
+class vxl_events_type(Structure):
+    _fields_ = [("event", vxl_event_type*5)]
