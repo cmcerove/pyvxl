@@ -2,12 +2,12 @@
 
 """Holds classes designed to interact specific protocols of vxlAPI."""
 
-from vxl_functions import vxl_open_driver, vxl_close_driver, vxl_open_port, vxl_close_port
-from vxl_functions import vxl_activate_channel, vxl_deactivate_channel, vxl_reset_clock
-from vxl_functions import vxl_transmit, vxl_receive, vxl_get_driver_config
-from vxl_functions import vxl_set_baudrate, vxl_set_transceiver, vxl_get_event_str
-from vxl_functions import vxl_flush_tx_queue, vxl_flush_rx_queue
-from vxl_data_types import vxl_driver_config_type, vxl_event_type
+from pyvxl.vxl_functions import vxl_open_driver, vxl_close_driver, vxl_open_port, vxl_close_port
+from pyvxl.vxl_functions import vxl_activate_channel, vxl_deactivate_channel, vxl_reset_clock
+from pyvxl.vxl_functions import vxl_transmit, vxl_receive, vxl_get_driver_config
+from pyvxl.vxl_functions import vxl_set_baudrate, vxl_set_transceiver, vxl_get_event_str
+from pyvxl.vxl_functions import vxl_flush_tx_queue, vxl_flush_rx_queue
+from pyvxl.vxl_data_types import vxl_driver_config_type, vxl_event_type
 
 import os
 import sys
@@ -102,7 +102,6 @@ class VxlCan(object):
                 logging.error("Failed to open the port!")
             else:
                 # Check if we have init access
-                print perm_mask, self.channel_mask
                 if perm_mask.value == self.channel_mask.value:
                     vxl_set_baudrate(self.port_handle, self.channel_mask, int(self.baudrate))
                     vxl_reset_clock(self.port_handle)
@@ -184,7 +183,7 @@ class VxlCan(object):
         rx_event_ptr = pointer(rx_event)
         if vxl_receive(self.port_handle, msg_ptr, rx_event_ptr):
             data = str(vxl_get_event_str(rx_event_ptr)).split()
-            logging.info(data)
+            logging.debug(data)
         return data
 
     def print_config(self):

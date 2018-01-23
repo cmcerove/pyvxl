@@ -15,7 +15,6 @@ import shlex
 from argparse import ArgumentParser
 from threading import Event
 from binascii import unhexlify, hexlify
-from types import IntType, LongType
 from pyvxl import pydbc, settings, config
 from pyvxl.vxl import VxlCan
 from colorama import init, deinit, Fore, Back, Style
@@ -192,7 +191,7 @@ class CAN(object):
                     node = int(node, 16)
         except ValueError:
             pass
-        if type(node) == IntType:
+        if isinstance(node, int):
             if node > 0xFFF:
                 logging.error('Node value is too large!')
                 return False
@@ -244,9 +243,9 @@ class CAN(object):
         except Exception: #pylint: disable=W0703
             self.imported = False
             logging.error('Import failed!')
-            print '-' * 60
+            logging.info('-' * 60)
             traceback.print_exc(file=sys.stdout)
-            print '-' * 60
+            logging.info('-' * 60)
             return False
 
     #pylint: disable=R0912
@@ -362,7 +361,7 @@ class CAN(object):
                     if display:
                         txt = Fore.MAGENTA+Style.DIM+'Node: '+anode.name
                         txt2 = ' - ID: '+hex(anode.sourceID)
-                        print txt+txt2+Fore.RESET+Style.RESET_ALL
+                        print(txt+txt2+Fore.RESET+Style.RESET_ALL)
         if numFound == 0:
             self.lastFoundNode = None
             logging.info('No nodes found for that input')
@@ -706,7 +705,7 @@ class CAN(object):
                         self.lastFoundSignal = sig
                         self._printSignal(sig, value=True)
             if self.sendingPeriodics:
-                print 'Currently sending: '+str(len(self.currentPeriodics))
+                print('Currently sending: '+str(len(self.currentPeriodics)))
 
     def _get_message(self, msgID, data, inDatabase):
         """ Gets a message and data to be used for searching received messages
@@ -779,7 +778,7 @@ class CAN(object):
                     if not self.imported:
                         logging.error('No database currently imported!')
                         caseNum = 0
-        elif (type(msgID) == IntType) or (type(msgID) == LongType):
+        elif isinstance(msgID, int):
             caseNum = 1
         else:
             caseNum = 0
@@ -902,7 +901,7 @@ class CAN(object):
     #pylint:enable=R0912
     def _printMessage(self, msg):
         """Prints a colored CAN message"""
-        print ''
+        print('')
         msgid = hex(msg.txId)
         data = hex(msg.data)[2:]
         if msgid[-1] == 'L':
@@ -914,7 +913,7 @@ class CAN(object):
         if msg.endianness != 0:
             data = self._reverse(data, msg.dlc)
         txt = Style.BRIGHT+Fore.GREEN+'Message: '+msg.name+' - ID: '+msgid
-        print txt+' - Data: 0x'+data
+        print(txt+' - Data: 0x'+data)
         if msg.cycleTime != 0:
             sending = 'Not Sending'
             color = Fore.WHITE+Back.RED
@@ -923,10 +922,10 @@ class CAN(object):
                 color = Fore.WHITE+Back.GREEN
             txt = ' - Cycle time(ms): '+str(msg.cycleTime)+' - Status: '
             txt2 = color+sending+Back.RESET+Fore.MAGENTA+' - TX Node: '
-            print txt+txt2+msg.sender+Fore.RESET+Style.RESET_ALL
+            print(txt+txt2+msg.sender+Fore.RESET+Style.RESET_ALL)
         else:
             txt = ' - Non-periodic'+Fore.MAGENTA+' - TX Node: '
-            print txt+msg.sender+Fore.RESET+Style.RESET_ALL
+            print(txt+msg.sender+Fore.RESET+Style.RESET_ALL)
     # pylint: disable=R0912,R0201
     def _printSignal(self, sig, shortName=False, value=False):
         """Prints a colored CAN signal"""
@@ -940,10 +939,10 @@ class CAN(object):
             name = sig.fullName
         if sig.values.keys():
             if value:
-                print color+' - Signal: '+name
-                print '            ^- '+str(sig.getVal())+rst
+                print(color+' - Signal: '+name)
+                print('            ^- '+str(sig.getVal())+rst)
             else:
-                print color+' - Signal: '+name
+                print(color+' - Signal: '+name)
                 sys.stdout.write('            ^- [')
                 multiple = False
                 for key, val in sig.values.items():
@@ -954,12 +953,12 @@ class CAN(object):
                 sys.stdout.write(']'+rst+'\n')
         else:
             if value:
-                print color+' - Signal: '+name
-                print '            ^- '+str(sig.getVal())+sig.units+rst
+                print(color+' - Signal: '+name)
+                print('            ^- '+str(sig.getVal())+sig.units+rst)
             else:
-                print color+' - Signal: '+name
+                print(color+' - Signal: '+name)
                 txt = '            ^- ['+str(sig.min_val)+' : '
-                print txt+str(sig.max_val)+']'+rst
+                print(txt+str(sig.max_val)+']'+rst)
     # pylint: enable=R0912,R0201
     def _printStatus(self, item):
         """Prints the status of a vxlapi function call"""
@@ -1001,8 +1000,8 @@ def _print_help(methods):
             else:
                 editedlines += line
 
-        print firsthalf+editedlines
-    print '    q | exit\t\tTo exit'
+        print(firsthalf+editedlines)
+    print('    q | exit\t\tTo exit')
 
 
 def main():
@@ -1064,7 +1063,7 @@ def main():
                           ' specified\nis correct.')
             sys.exit(1)
         sendSock.sendall(' '.join(messages))
-        print sendSock.recv(128)
+        print(sendSock.recv(128))
         sendSock.close()
         sys.exit(0)
     if args.verbose:
@@ -1088,7 +1087,7 @@ def main():
         sock.listen(1)
     can = CAN(channel, dbc_path, baudrate)
     can.start()
-    print 'Type an invalid command to see help'
+    print('Type an invalid command to see help')
     while 1:
         try:
             if not args.network_listen:
@@ -1136,9 +1135,9 @@ def main():
         except Exception:
             if args.network_listen and conn:
                 conn.close()
-            print '-' * 60
+            print('-' * 60)
             traceback.print_exc(file=sys.stdout)
-            print '-' * 60
+            print('-' * 60)
             break
     sys.stdout.flush()
 

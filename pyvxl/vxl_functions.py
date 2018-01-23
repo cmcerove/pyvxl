@@ -9,11 +9,9 @@ from ctypes import WinDLL, c_char_p
 # Import the vector DLL
 if os.name == 'nt':
     try:
-        docPath = "c:\\Users\\Public\\Documents\\"
-        vxDLL = WinDLL(docPath + "Vector XL Driver Library\\bin\\vxlapi.dll")
+        vxDLL = WinDLL("c:\\Users\\Public\\Documents\\Vector XL Driver Library\\bin\\vxlapi.dll")
     except WindowsError:
-        docPath = "c:\\Documents and Settings\\All Users\\Documents\\"
-        vxDLL = WinDLL(docPath + "Vector XL Driver Library\\bin\\vxlapi.dll")
+        vxDLL = WinDLL("c:\\Users\\Public\\Documents\\Vector XL Driver Library\\bin\\vxlapi64.dll")
 
 
 getError = vxDLL.xlGetErrorString

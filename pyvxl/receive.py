@@ -104,7 +104,7 @@ class receiveThread(Thread):
                             try:
                                 msgid = hex(int(msgid, 16)&0x1FFFFFFF)[2:-1]+'x'
                             except ValueError:
-                                print ' '.join(rxmsg)
+                                print(' '.join(rxmsg))
                         msgid = msgid+((16-len(msgid))*' ')
                         dlc = rxmsg[4][2]+' '
                         io = 'Rx   d'
