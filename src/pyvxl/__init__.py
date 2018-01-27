@@ -5,7 +5,7 @@ Package for pyvxl
 """
 
 # Default interface
-from vector import __program__
-from vector import CAN
-from cmd_line import main
-import settings, config
+from pyvxl.vector import __program__
+from pyvxl.vector import CAN
+from pyvxl.cmd_line import main
+from pyvxl import settings, config

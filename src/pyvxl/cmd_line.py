@@ -7,9 +7,9 @@ The command line program run when typing 'can'
 import sys, logging, traceback, socket, select, os, subprocess
 from argparse import ArgumentParser
 from colorama import Fore, Style
-import config, settings
+from pyvxl import config, settings
 from pyvxl import CAN
-from initbus import initbus
+from pyvxl.initbus import initbus
 
 __program__ = 'can'
 
@@ -35,94 +35,94 @@ def print_help():
     # pylint: disable=C0301
     helpcolor = Fore.RED + Style.BRIGHT
     helprst = Fore.RESET+Style.RESET_ALL
-    # TODO: Convert this to a list and print like it's being piped to less
-    print helpcolor+'Valid commands:'
-    print ''
-    print ' - Bus Manipulation -----------------------------------------------------------'
-    print '  restart'
-    print '     - Reconnects to the CAN bus. Useful if the error light on the CAN case is'
-    print '       red.'
-    print ''
-    print '  init [node]'
-    print '     - Without a value for [node], calls initbus.py, sending all signals'
-    print '       defined in that file. With [node], calls vector.start_periodics(node),'
-    print '       starting all periodics in the database except those transmitted by'
-    print '       [node].'
-    print ''
-    print '  send signal <-f> <signal> <value> '
-    print '     - Send the msg containing <signal> with the signal value = <value>.'
-    print '       <-f> can be specified to send a value not defined in the dbc file.'
-    print '       e.g., send signal system power mode run'
-    print '        or    ""    ""   syspwrmd          ""'
-    print ''
-    print '  send message <msgID> <data>'
-    print '     - Send a complete message similar to the way it is displayed in CANoe.'
-    print '       <msgID> can be the hexadecimal id or full name of the message. <data>'
-    print '       is the message data to be sent. If the data given is shorter than'
-    print '       specified by the dlc in the database, \'0\'s will be appended to the'
-    print '       left of the entered message data to make it the correct length.'
-    print '       e.g., send message 0x10242040 02'
-    print '        or    ""    ""      10242040 02'
-    print ''
-    print '  send diag <txMsgID> <data> <rxMsgID>'
-    print '     - Send a diagnostic message and wait for a response. <txMsgID> is the'
-    print '       message id or name to transmit from. <data> is the data which will'
-    print '       be sent with that message. <rxMsgId> is the id or name of the'
-    print '       message to wait for a response from.'
-    print ''
-    print '  send lastfound <signal|message> <value> '
-    print '     - Sends the last found signal or message with <value>.'
-    print '       e.g., send lastfound message 02'
-    print '        or    ""     ""     signal run'
-    print ''
-    print '  wait <time> <msgId> [value]'
-    print '     - Waits for <time>(ms) for msgId with value to be received. \'*\' can be'
-    print '       used as a dont care. Returns 1 if found, else 0.'
-    print '       e.g., wait 1000 0x10242040'
-    print '              ""   ""      ""     02'
-    print '              ""   ""      ""     *2'
-    print ''
-    print '  stop <signal|msgID>'
-    print '     - Stops sending a periodic message'
-    print '       e.g., stop system power mode'
-    print '             stop syspwrmd'
-    print '             stop 0x10242040'
-    print ''
-    print '  stopnode <node>'
-    print '     - Stops all periodic messages sent from <node>'
-    print ''
-    print '  stopall'
-    print '     - Stops all periodic messages'
-    print ''
-    print ' - Database & Bus Information -------------------------------------------------'
-    print ''
-    print '  config'
-    print '     - Print the current vector hardware configuration'
-    print ''
-    print '  find node <string>'
-    print '     - Prints all nodes found with <string> in their name'
-    print ''
-    print '  find message <string>'
-    print '     - Prints all messages found with <string> in their name'
-    print ''
-    print '  find signal <string>'
-    print '     - Prints all signals found with <string> in their name'
-    print ''
-    print '  periodics [info]'
-    print '     - Prints all periodic messages being sent. If \'info\' is present, signals'
-    print '       of each periodic and their values are also printed.'
-    print ''
-    print '  periodics info <val>'
-    print '     - Prints current periodics including signal values. <val> can be either a'
-    print '       message id, part of a message name, or part of a signal name.'
-    print ''
-    print '  log <command> [file]'
-    print '     - Controls logging to [file]. <command> can be either \'start\' or \'stop\'.'
-    print '       If [filename] is not specified, a default name will be chosen.'
-    print ''
-    print ' - Other ----------------------------------------------------------------------'
-    print '  exit | ctrl+c | q     - Exit the app'
-    print '  h | help              - Display this message'+helprst
+    # TODO: Convert this to a list and print(like it's being piped to less)
+    print(helpcolor+'Valid commands:')
+    print('')
+    print(' - Bus Manipulation -----------------------------------------------------------')
+    print('  restart')
+    print('     - Reconnects to the CAN bus. Useful if the error light on the CAN case is')
+    print('       red.')
+    print('')
+    print('  init [node]')
+    print('     - Without a value for [node], calls initbus.py, sending all signals')
+    print('       defined in that file. With [node], calls vector.start_periodics(node),')
+    print('       starting all periodics in the database except those transmitted by')
+    print('       [node].')
+    print('')
+    print('  send signal <-f> <signal> <value> ')
+    print('     - Send the msg containing <signal> with the signal value = <value>.')
+    print('       <-f> can be specified to send a value not defined in the dbc file.')
+    print('       e.g., send signal system power mode run')
+    print('        or    ""    ""   syspwrmd          ""')
+    print('')
+    print('  send message <msgID> <data>')
+    print('     - Send a complete message similar to the way it is displayed in CANoe.')
+    print('       <msgID> can be the hexadecimal id or full name of the message. <data>')
+    print('       is the message data to be sent. If the data given is shorter than')
+    print('       specified by the dlc in the database, \'0\'s will be appended to the')
+    print('       left of the entered message data to make it the correct length.')
+    print('       e.g., send message 0x10242040 02')
+    print('        or    ""    ""      10242040 02')
+    print('')
+    print('  send diag <txMsgID> <data> <rxMsgID>')
+    print('     - Send a diagnostic message and wait for a response. <txMsgID> is the')
+    print('       message id or name to transmit from. <data> is the data which will')
+    print('       be sent with that message. <rxMsgId> is the id or name of the')
+    print('       message to wait for a response from.')
+    print('')
+    print('  send lastfound <signal|message> <value> ')
+    print('     - Sends the last found signal or message with <value>.')
+    print('       e.g., send lastfound message 02')
+    print('        or    ""     ""     signal run')
+    print('')
+    print('  wait <time> <msgId> [value]')
+    print('     - Waits for <time>(ms) for msgId with value to be received. \'*\' can be')
+    print('       used as a dont care. Returns 1 if found, else 0.')
+    print('       e.g., wait 1000 0x10242040')
+    print('              ""   ""      ""     02')
+    print('              ""   ""      ""     *2')
+    print('')
+    print('  stop <signal|msgID>')
+    print('     - Stops sending a periodic message')
+    print('       e.g., stop system power mode')
+    print('             stop syspwrmd')
+    print('             stop 0x10242040')
+    print('')
+    print('  stopnode <node>')
+    print('     - Stops all periodic messages sent from <node>')
+    print('')
+    print('  stopall')
+    print('     - Stops all periodic messages')
+    print('')
+    print(' - Database & Bus Information -------------------------------------------------')
+    print('')
+    print('  config')
+    print('     - Print the current vector hardware configuration')
+    print('')
+    print('  find node <string>')
+    print('     - Prints all nodes found with <string> in their name')
+    print('')
+    print('  find message <string>')
+    print('     - Prints all messages found with <string> in their name')
+    print('')
+    print('  find signal <string>')
+    print('     - Prints all signals found with <string> in their name')
+    print('')
+    print('  periodics [info]')
+    print('     - Prints all periodic messages being sent. If \'info\' is present, signals')
+    print('       of each periodic and their values are also printed.')
+    print('')
+    print('  periodics info <val>')
+    print('     - Prints current periodics including signal values. <val> can be either a')
+    print('       message id, part of a message name, or part of a signal name.')
+    print('')
+    print('  log <command> [file]')
+    print('     - Controls logging to [file]. <command> can be either \'start\' or \'stop\'.')
+    print('       If [filename] is not specified, a default name will be chosen.')
+    print('')
+    print(' - Other ----------------------------------------------------------------------')
+    print('  exit | ctrl+c | q     - Exit the app')
+    print('  h | help              - Display this message'+helprst)
 
 def main():
     """This script is intended to test and demonstrate the functionality
@@ -171,13 +171,13 @@ def main():
         sendSock.sendall(' '.join(messages))
         if len(messages) > 2:
             if messages[1] == 'diag':
-                print sendSock.recv(128)
+                print(sendSock.recv(128))
         sendSock.close()
         sys.exit(0)
     elif args.example_script:
         script = 'example_script.py'
         path = os.path.dirname(os.path.realpath(__file__))+'\\'+script
-        print 'Example script located at: \n'+path
+        print('Example script located at: \n'+path)
         try:
             action = raw_input('\nRun example? (y/n): ')
         except KeyboardInterrupt:
@@ -239,10 +239,10 @@ def main():
                 logging.warning(toprint2)
                 imported = True
     except KeyboardInterrupt:
-        print 'Exiting...'
+        print('Exiting...')
         sys.exit(0)
     if not can.initialized and not can.imported:
-        print ''
+        print('')
         logging.error('Unable to start without a database or CANcase')
         sys.exit(0)
     elif not can.initialized:
@@ -406,8 +406,8 @@ def main():
                         print_help()
                     elif command == 'config':
                         can.print_config()
-                        print ('Connected to channel: '+str(can.channel.value)+
-                               ' @ '+str(can.baud_rate)+'Bd!')
+                        print(('Connected to channel: '+str(can.channel.value)+
+                               ' @ '+str(can.baud_rate)+'Bd!'))
                     elif command == 'waitfor':
                         data = ''
                         if len(s) == 3:
@@ -431,7 +431,7 @@ def main():
                             if s[1] == 'info':
                                 if len(s) > 2:
                                     inp = ' '.join(s[2:])
-                                    print inp
+                                    print(inp)
                                     can.print_periodics(info=True,
                                                         searchFor=inp)
                                 else:
@@ -454,7 +454,7 @@ def main():
                         else:
                             logging.error('Invalid log command!')
                 else:
-                    print 'Invalid command - type \'h\' or \'help\' for options'
+                    print('Invalid command - type \'h\' or \'help\' for options')
                 if args.network_listen:
                     conn.close()
         except EOFError:
@@ -466,9 +466,9 @@ def main():
         except Exception:
             if args.network_listen and conn:
                 conn.close()
-            print '-' * 60
+            print('-' * 60)
             traceback.print_exc(file=sys.stdout)
-            print '-' * 60
+            print('-' * 60)
             break
     sys.stdout.flush()
     can.stop()

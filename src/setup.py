@@ -42,7 +42,8 @@ try:
         try:
             vxDLL = WinDLL("c:\\Users\\Public\\Documents\\Vector XL Driver Library\\bin\\vxlapi.dll")
         except WindowsError:
-            vxDLL = WinDLL("c:\\Documents and Settings\\All Users\\Documents\\Vector XL Driver Library\\bin\\vxlapi.dll")
+            vxDLL = WinDLL("c:\\Users\\Public\\Documents\\Vector XL Driver Library\\bin\\vxlapi64.dll")
+            #vxDLL = WinDLL("c:\\Documents and Settings\\All Users\\Documents\\Vector XL Driver Library\\bin\\vxlapi.dll")
 except WindowsError:
     if not admin.isUserAdmin():
         path = os.path.join(LIB_PATH, 'xl_lib97.exe')
@@ -91,4 +92,4 @@ entry_points={'console_scripts': console_scripts},
 
 # Show warnings
 if warnings:
-    print '\n' + '\n'.join(warnings)
+    print('\n' + '\n'.join(warnings))

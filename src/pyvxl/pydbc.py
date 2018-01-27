@@ -136,7 +136,7 @@ class DBCSignal(object):
         """Sets the signals mask which is used to set the change the signal
            value within the message data"""
         if self.bit_start < 0:
-            print self.name
+            print(self.name)
         self.mask = pow(2, self.bit_len)-1 << self.bit_start
 
 class DBCEnvVar(object):
@@ -243,8 +243,8 @@ class DBCLexer(object):
             tok = self.lexer.token()
             if not tok:
                 break
-            #print tok
-            print repr(tok.type), repr(tok.value)
+            #print(tok)
+            print(repr(tok.type), repr(tok.value))
 
     # Lexing error
     def t_error(self, t):
@@ -331,8 +331,8 @@ class DBCParser(object):
 
     def p_error(self, p):
         """Prints a parsing error"""
-        print "Syntax error at token %s (%s) on line %d" % (p.type, p.value,
-                                                            p.lineno)
+        print("Syntax error at token %s (%s) on line %d" % (p.type, p.value,
+                                                            p.lineno))
         #yacc.errok()
 
     # DBC file
@@ -827,10 +827,10 @@ def importDBC(path):
                     if p.dbc.nodes.has_key(msg.sender.lower()):
                         sender = p.dbc.nodes[msg.sender.lower()].sourceID
                         if (sender&0xF00) > 0:
-                            print msg.name
+                            print(msg.name)
                         msg.txId = (msg.id&0xFFFF000)|0x10000000|sender
                     else:
-                        print msg.sender, msg.name
+                        print(msg.sender, msg.name)
                 msg.endianness = sig.endianness
                 setendianness = True
             if msg.dlc > 0:
@@ -848,7 +848,7 @@ def importDBC(path):
 def main():
     """The main program"""
     if len(sys.argv) != 2:
-        print __doc__
+        print(__doc__)
         sys.exit(1)
 
     fspec = sys.argv[1]
@@ -873,21 +873,21 @@ def main():
             messages.append(msg)
             for sig in msg.signals:
                 signals.append(sig)
-    print '----------------------------------------------------'
-    print 'Import Statistics'
-    print '----------------------------------------------------'
-    print 'Nodes: '+str(len(nodes))
-    print 'Messages: '+str(len(messages))
-    print 'Signals: '+str(len(signals))
-    print '----------------------------------------------------'
-    print 'Test Structure - All signals of a message in a node\n'
+    print('----------------------------------------------------')
+    print('Import Statistics')
+    print('----------------------------------------------------')
+    print('Nodes: '+str(len(nodes)))
+    print('Messages: '+str(len(messages)))
+    print('Signals: '+str(len(signals)))
+    print('----------------------------------------------------')
+    print('Test Structure - All signals of a message in a node\n')
 
     if len(nodes) > 0:
-        print 'N - '+nodes[0].name
-        print '   M - '+msg.name
+        print('N - '+nodes[0].name)
+        print('   M - '+msg.name)
         if len(nodes[0].txMessages) > 0:
             for sig in nodes[0].txMessages[0].signals:
-                print '      S - '+sig.name
+                print('      S - '+sig.name)
 
 if __name__ == '__main__':
     main()

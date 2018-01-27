@@ -22,7 +22,7 @@ and have configuration variables in sections called:
 
 import os
 import sys
-import ConfigParser
+import configparser
 
 # Configuration file locations
 FILENAMES = (
@@ -88,7 +88,7 @@ for directory in DIRECTORIES:
     for filename in FILENAMES:
         path = os.path.join(directory, filename)
         if os.path.isfile(path):
-            config = ConfigParser.RawConfigParser()
+            config = configparser.RawConfigParser()
             config.read(path)
             for section in SECTIONS:
                 if config.has_section(section):
