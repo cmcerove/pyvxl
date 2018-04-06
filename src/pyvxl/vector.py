@@ -28,7 +28,10 @@ from colorama import init, deinit, Fore, Back, Style
 if os.name == 'nt':
     from win32event import CreateEvent  # pylint: disable=E0611
 
-__program__ = 'can'
+    install_requires=["pyvxl >= 0.1.0",
+                      "pyserial >= 3.4",
+                      "pywinauto >= 0.6.3",
+                      "nose"],
 
 # Grab the c library and some functions from it
 if os.name == 'nt':

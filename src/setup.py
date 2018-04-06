@@ -50,20 +50,9 @@ except WindowsError:
         admin.runAsAdmin(cmdLine=[path])
         raw_input('Press return to continue . . .')
     else:
-        install_exe('xl_lib97.exe')
+        print('Failed to aquire admin privileges necessary to install xl_lib97. Aborting...')
+        sys.exit(1)
 
-
-# Install colorama
-try:
-    import colorama
-except ImportError:
-    install_package('colorama-0.2.7')
-
-# Install ply
-try:
-    import ply
-except ImportError:
-    install_package('ply-3.4')
 
 if os.name == 'nt':
     sys.path.append('C:\\Python27\\Lib\\site-packages\\win32')
@@ -71,23 +60,27 @@ if os.name == 'nt':
 # Install pyvxl
 console_scripts = []  # pylint: disable=C0103
 warnings = []  # pylint: disable=C0103
-from pyvxl import __program__
-console_scripts.append(__program__ + " = pyvxl:main")
+console_scripts.append("can = pyvxl:main")
 #
 # Create scripts
 setup(
 
-name='pyvxl',
-version='0.1.0',
+    name='pyvxl',
+    version='0.1.0',
 
-description=("A python interface to the vector vxlapi.dll for CAN communication."),
-author="Chris Cerovec",
-author_email="chris.cerovec@gmail.com",
+    description=("A python interface to the vector vxlapi.dll for CAN communication."),
+    author="Chris Cerovec",
+    author_email="chris.cerovec@gmail.com",
 
-packages=find_packages(),
-package_data={'pyvxl': ['*.dbc']},
+    packages=find_packages(),
+    package_data={'pyvxl': ['*.dbc']},
+    entry_points={'console_scripts': console_scripts},
 
-entry_points={'console_scripts': console_scripts},
+    install_requires=["ply",
+                      "colorama",
+                      "configparser",
+                      "pypiwin32"],
+
 )
 
 # Show warnings
