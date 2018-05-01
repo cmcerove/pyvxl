@@ -28,10 +28,6 @@ from colorama import init, deinit, Fore, Back, Style
 if os.name == 'nt':
     from win32event import CreateEvent  # pylint: disable=E0611
 
-    install_requires=["pyvxl >= 0.1.0",
-                      "pyserial >= 3.4",
-                      "pywinauto >= 0.6.3",
-                      "nose"],
 
 # Grab the c library and some functions from it
 if os.name == 'nt':
@@ -263,6 +259,7 @@ class receiveThread(Thread):
 
     def logTo(self, path):
         """Begins logging the CAN bus"""
+        outpath = ''
         if not self.logging:
             self.logging = True
             tmstr = time.localtime()
@@ -279,6 +276,7 @@ class receiveThread(Thread):
                 path = path[:-4]+'_1.asc'
             logging.info('Logging to: '+os.getcwd()+'\\'+path)
             self.outfile = open(path, 'w+')
+            outpath = path
             days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
             months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug',
                       'Sep', 'Oct', 'Nov', 'Dec']
@@ -287,7 +285,7 @@ class receiveThread(Thread):
             lines = [dateLine, 'base hex  timestamps absolute\n',
                      'no internal events logged\n']
             self.outfile.writelines(lines)
-        return ''
+        return outpath
 
     def stopLogging(self):
         """Stop logging."""

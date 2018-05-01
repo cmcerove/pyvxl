@@ -9,13 +9,12 @@ from argparse import ArgumentParser
 import settings
 import CAN, initbus
 
-__program__ = 'can_example'
 
 def main(): # pylint: disable=C0111
     # pylint: disable=W0105
 
     # Create a parser and parse any command line arguements
-    parser = ArgumentParser(prog=__program__, description=__doc__)
+    parser = ArgumentParser(prog='can_example', description=__doc__)
     parser.add_argument('-v', '--verbose', action='store_true',
                         help="enable verbose output")
     parser.add_argument('-c', '--channel', help='the CAN channel or port to'+
