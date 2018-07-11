@@ -1028,16 +1028,8 @@ class CAN(object):
             self.stopRxThread.set()
             self.receiving = False
 
-        self.stop_periodics()
-        self.status = deactivateChannel(self.portHandle, self.channel)
-        self._printStatus("Deactivate Channel")
-        flushTxQueue(self.portHandle, self.channel)
-        self._printStatus("flushTxQueue")
-        flushRxQueue(self.portHandle)
-        self._printStatus("flushRxQueue")
-        self.status = activateChannel(self.portHandle, self.channel,
-                                      0x00000001, 8)
-        self._printStatus("Activate Channel")
+        self.stop()
+        self.start()
         return
 
     def _block_unless_found(self, msgID, timeout):
