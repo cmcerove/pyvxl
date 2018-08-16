@@ -13,7 +13,7 @@ import os
 import sys
 import logging
 from time import sleep
-from binascii import hexlify
+from binascii import hexlify, unhexlify
 from ctypes import cdll, CDLL, c_uint, c_int, c_ubyte, c_ulong, cast
 from ctypes import c_ushort, c_ulonglong, pointer, sizeof, POINTER
 from ctypes import c_long, create_string_buffer
@@ -54,7 +54,7 @@ class VxlCan(object):
         self.baudrate = baudrate
         vxl_open_driver()
         self.update_driver_config()
-        self.set_channel(channel)
+        self.set_channel(int(channel))
 
     def __del__(self):
         """."""
@@ -86,6 +86,7 @@ class VxlCan(object):
         drvPtr = pointer(vxl_driver_config_type())
         vxl_get_driver_config(drvPtr)
         self.driver_config = drvPtr.contents
+        logging.debug('Channel count {}'.format(self.driver_config.channelCount))
 
     def start(self, display=False):
         """Connect to the CAN channel."""
@@ -141,19 +142,20 @@ class VxlCan(object):
         # TODO: Check that we're connected. Needs testing.
         raise NotImplementedError
         linModeWakeup = c_uint(0x0007)
-        vxl_set_transceiver(self.port_handle, self.channel_mask, c_int(0x0006), linModeWakeup,
-                            c_uint(100))
+        vxl_set_transceiver(self.port_handle, self.channel_mask, c_int(0x0006),
+                            linModeWakeup, c_uint(100))
         return True
 
     def send(self, msg_id, msg_data):
         """Send a CAN message."""
         # TODO: Finish moving endianness and update function call to vector
+        msg_data = unhexlify(msg_data)
         dlc = len(msg_data)
         if dlc:
-            logging.info("Sending CAN Msg: 0x{0:X} Data: {1}".format(msg_id & ~0x80000000,
+            logging.debug("Sending CAN Msg: 0x{0:X} Data: {1}".format(msg_id & ~0x80000000,
                          hexlify(msg_data).upper()))
         else:
-            logging.info("Sending CAN Msg: 0x{0:X} Data: None".format(msg_id))
+            logging.debug("Sending CAN Msg: 0x{0:X} Data: None".format(msg_id))
 
         xlEvent = vxl_event_type()
         data = create_string_buffer(msg_data, 8)
@@ -222,6 +224,7 @@ if __name__ == '__main__':
     try:
         while True:
             sleep(1)
-            vxl_can.receive()
+            while vxl_can.receive():
+                pass
     except KeyboardInterrupt:
         pass

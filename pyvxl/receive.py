@@ -3,9 +3,8 @@
 """pyvxl's receive process."""
 
 import logging
-from select import select
-from socket import socket, AF_INET, SOCK_STREAM
-from pysib.daemon import Daemon
+from pywindaemon.daemon import Daemon
+from pyvxl.vxl import VxlCan
 
 logging.basicConfig(level=logging.INFO)
 
@@ -13,9 +12,21 @@ logging.basicConfig(level=logging.INFO)
 class Receive(Daemon):
     """."""
 
-    def __init__(self, channel):
+    def __init__(self, channel=0, baudrate=500000):
         """."""
-        super(Receive, self).__init__()
+        port = 50100 + 2 * channel + 1
+        # Initialize the daemon
+        super(Receive, self).__init__(port=port, file=__file__)
+        self.vxl = VxlCan(channel, baudrate=500000)
+        self.vxl.start()
+        self.messages = {}
+
+    def start(self):
+        pass
+
+    def errors_found(self):
+        """Return True if there have been CAN errors."""
+        raise NotImplementedError
 
 
 class messageToFind(object):
@@ -43,7 +54,7 @@ class messageToFind(object):
         self.rxFrames = []
         return resp
 
-
+'''
 class receiveThread(Thread):
     """Receive thread for receiving CAN messages"""
     def __init__(self, stpevent, portHandle, msgEvent):
@@ -242,7 +253,4 @@ class receiveThread(Thread):
         if self.logging:
             self.logging = False
             self.outfile.close()
-
-    def busy(self):
-        return bool(self.logging or self.messagesToFind)
-
+'''

@@ -358,7 +358,7 @@ def main():
                                 value = ' '.join(s[3:])
                                 if s[2] == 'message':
                                     if can.lastFoundMessage:
-                                        last = can.lastFoundMessage.txId
+                                        last = can.lastFoundMessage.id
                                         can.send_message(last, value)
                                     else:
                                         mg = ('No messages found'+

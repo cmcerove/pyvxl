@@ -13,6 +13,7 @@ Regerences:
 """
 
 import sys, logging
+from binascii import unhexlify
 import ply.lex as lex
 import ply.yacc as yacc
 
@@ -43,7 +44,6 @@ class DBCMessage(object):
     def __init__(self, msgid, name, length, sender, signals, comment,
                  attributes, transmitters):
         self.id = int(msgid)
-        self.txId = int(msgid)
         self.dlc = length
         self.data = 0
         self.initData = 0
@@ -54,9 +54,10 @@ class DBCMessage(object):
         self.comment = str(comment)
         self.attributes = attributes
         self.transmitters = transmitters
-        self.cycleTime = 0
+        self.period = 0
         self.sending = False
-        self.updateFunc = None
+        self.update_task = None
+
 
 class DBCSignal(object):
     """DBC signal object"""
@@ -76,7 +77,7 @@ class DBCSignal(object):
         self.receivers = receivers
         self.fullName = ''
         self.values = {}
-        self.msgID = 0
+        self.msg_id = 0
         self.val = 0
         self.initVal = 0
         self.sendOnInit = 0
@@ -301,7 +302,7 @@ class DBCLexer(object):
     # New-line detection
     def t_newline(self, t):
         r'\n+'
-        t.lexer.lineno += t.value.count("\n")
+        t.lexer.lineno += t.value.count('\n')
 
 class DBCParser(object):
     """The main DBC parser object"""
@@ -490,7 +491,7 @@ class DBCParser(object):
         '''message : BO INT_VAL ID ':' INT_VAL ID signal_list'''
         p[0] = DBCMessage(p[2], p[3], p[5], p[6], p[7], "", None, None)
         for sig in p[7]:
-            sig.msgID = p[2]
+            sig.msg_id = p[2]
 
     def p_signal_list(self, p):
         '''signal_list : empty
@@ -573,7 +574,7 @@ class DBCParser(object):
         elif p[2] == 'SourceId':
             self.nodeDict[p[4].lower()].sourceID = p[5]
         elif p[2] == 'GenMsgCycleTime':
-            self.msgDict[p[4]].cycleTime = p[5]
+            self.msgDict[p[4]].period = p[5]
         pass
 
     def p_attribute_rel_list(self, p):
@@ -821,14 +822,14 @@ def importDBC(path):
         setendianness = False
         for sig in msg.signals:
             if not setendianness:
-                if msg.cycleTime != 0:
+                if msg.period:
                     p.dbc.periodics.append(msg)
                 if msg.id > 0xFFFF:
                     if p.dbc.nodes.has_key(msg.sender.lower()):
                         sender = p.dbc.nodes[msg.sender.lower()].sourceID
                         if (sender&0xF00) > 0:
                             print(msg.name)
-                        msg.txId = (msg.id&0xFFFF000)|0x10000000|sender
+                        msg.id = (msg.id&0xFFFF000)|0x10000000|sender
                     else:
                         print(msg.sender, msg.name)
                 msg.endianness = sig.endianness
