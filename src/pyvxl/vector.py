@@ -67,6 +67,7 @@ setChannelTransceiver = vxDLL.xlCanSetChannelTransceiver
 getEventStr = vxDLL.xlGetEventString
 getEventStr.restype = c_char_p
 
+
 class messageToFind(object):
     """Helper class for the receive thread."""
 
