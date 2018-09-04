@@ -114,6 +114,7 @@ class receiveThread(Thread):
         self.messagesToFind = {}
         self.messages = []
         self.outfile = None
+        self.close_pending = False
 
     def run(self):  # pylint: disable=R0912,R0914
         # Main receive loop. Runs every 1ms
@@ -197,11 +198,32 @@ class receiveThread(Thread):
                                     self.messages.append((msgid, fndMsg))
                 elif received:
                     if self.logging:
-                        self.outfile.writelines(rxMsgs)
+                        if not self.outfile.closed:
+                            self.outfile.writelines(rxMsgs)
+                            self.outfile.flush()
+                            if self.close_pending:
+                                self.logging = False
+                                self.close_pending = False
+                                try:
+                                    self.outfile.close()
+                                except IOError:
+                                    logging.warning('Failed to close log file!')
             if self.logging:
-                self.outfile.flush()
+                if not self.outfile.closed:
+                    self.outfile.flush()
+                    if self.close_pending:
+                        self.logging = False
+                        self.close_pending = False
+                        try:
+                            self.outfile.close()
+                        except IOError:
+                            logging.warning('Failed to close log file!')
         if self.logging:
-            self.outfile.close()
+            if not self.outfile.closed:
+                try:
+                    self.outfile.close()
+                except IOError:
+                    logging.warning('Failed to close log file!')
 
     def searchFor(self, msgID, data, mask):
         """Sets the variables needed to wait for a CAN message"""
@@ -291,8 +313,13 @@ class receiveThread(Thread):
     def stopLogging(self):
         """Stop logging."""
         if self.logging:
-            self.logging = False
-            self.outfile.close()
+            try:
+                self.outfile.close()
+            except IOError:
+                self.close_pending = True
+                logging.warning('Failed to close log file!')
+            else:
+                self.logging = False
 
     def busy(self):
         return bool(self.logging or self.messagesToFind)
