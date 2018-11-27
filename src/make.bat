@@ -193,7 +193,8 @@ PAUSE
 GOTO error
 
 :error
-EXIT /b 1
+exit /b 1
 
 
 :end
+exit /b 0

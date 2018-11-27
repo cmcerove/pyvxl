@@ -1036,6 +1036,29 @@ class CAN(object):
             ret = self.lastFoundSignal.values
         return ret
 
+    def wait_for_no_error(self):
+        """ Blocks until the CAN bus comes out of an error state """
+        if not self.receiving:
+            self.receiving = True
+            self.stopRxThread = Event()
+            msgEvent = CreateEvent(None, 0, 0, None)
+            msgPointer = pointer(c_int(msgEvent.handle))
+            self.status = setNotification(self.portHandle, msgPointer, 1)
+            self._printStatus('Set Notification')
+            self.rxthread = receiveThread(self.stopRxThread, self.portHandle,
+                                          msgEvent)
+            self.rxthread.start()
+
+        while self.rxthread.errorsFound:
+            time.sleep(0.001)
+
+        if not self.rxthread.busy():
+            self.stopRxThread.set()
+            self.receiving = False
+
+        return
+
+
     def wait_for_error(self):
         """ Blocks until the CAN bus goes into an error state """
         if not self.receiving:
