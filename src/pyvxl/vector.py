@@ -115,6 +115,7 @@ class receiveThread(Thread):
         self.messages = []
         self.outfile = None
         self.close_pending = False
+        self.log_path = ''
 
     def run(self):  # pylint: disable=R0912,R0914
         # Main receive loop. Runs every 1ms
@@ -220,6 +221,7 @@ class receiveThread(Thread):
                             logging.warning('Failed to close log file!')
         if self.logging:
             if not self.outfile.closed:
+                self.outfile.flush()
                 try:
                     self.outfile.close()
                 except IOError:
@@ -280,10 +282,10 @@ class receiveThread(Thread):
         self.errorsFound = False
         return
 
-    def logTo(self, path):
+    def logTo(self, path, add_date=True):
         """Begins logging the CAN bus"""
         outpath = ''
-        if not self.logging:
+        if not self.logging and path:
             self.logging = True
             tmstr = time.localtime()
             hr = tmstr.tm_hour
@@ -294,11 +296,14 @@ class receiveThread(Thread):
             da = str(tmstr.tm_mday)
             wda = tmstr.tm_wday
             yr = str(tmstr.tm_year)
-            path = path+'['+hr+'-'+mn+'-'+sc+'].asc'
+            if add_date:
+                path = path+'['+hr+'-'+mn+'-'+sc+'].asc'
+            file_opts = 'w+'
             if os.path.isfile(path):
-                path = path[:-4]+'_1.asc'
+                # append to the file
+                file_opts = 'a'
             logging.info('Logging to: '+os.getcwd()+'\\'+path)
-            self.outfile = open(path, 'w+')
+            self.outfile = open(path, file_opts)
             outpath = path
             days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
             months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug',
@@ -308,18 +313,23 @@ class receiveThread(Thread):
             lines = [dateLine, 'base hex  timestamps absolute\n',
                      'no internal events logged\n']
             self.outfile.writelines(lines)
+            self.log_path = outpath
         return outpath
 
     def stopLogging(self):
         """Stop logging."""
+        old_path = ''
         if self.logging:
+            old_path = self.log_path
             try:
+                self.outfile.flush()
                 self.outfile.close()
             except IOError:
                 self.close_pending = True
                 logging.warning('Failed to close log file!')
             else:
                 self.logging = False
+        return old_path
 
     def busy(self):
         return bool(self.logging or self.messagesToFind)
@@ -355,8 +365,8 @@ class transmitThread(Thread):
                     eventPtr = pointer(tempEvent)
                     memcpy(eventPtr, msg[0], sizeof(tempEvent))
                     transmitMsg(self.portHandle, self.channel,
-                                              msgPtr,
-                                              eventPtr)
+                                msgPtr,
+                                eventPtr)
             if self.elapsed >= self.currLcm:
                 self.elapsed = self.increment
             else:
@@ -1058,7 +1068,6 @@ class CAN(object):
 
         return
 
-
     def wait_for_error(self):
         """ Blocks until the CAN bus goes into an error state """
         if not self.receiving:
@@ -1079,8 +1088,13 @@ class CAN(object):
             self.stopRxThread.set()
             self.receiving = False
 
+        log_path = ''
+        if self.rxthread.logging:
+            log_path = self.rxthread.stopLogging()
         self.stop()
         self.start()
+        if log_path:
+            self.start_logging(log_path, add_date=False)
         return
 
     def _block_unless_found(self, msgID, timeout):
@@ -1194,7 +1208,7 @@ class CAN(object):
             return self._block_unless_found(msg.txId, timeout)
         return False
 
-    def start_logging(self, path):
+    def start_logging(self, path, *args, **kwargs):
         """Logs CAN traffic to a file"""
         if not self.initialized:
             logging.error('Initialization required to begin logging!')
@@ -1208,10 +1222,10 @@ class CAN(object):
             self._printStatus('Set Notification')
             self.rxthread = receiveThread(self.stopRxThread, self.portHandle,
                                           msgEvent)
-            path = self.rxthread.logTo(path)
+            path = self.rxthread.logTo(path, **kwargs)
             self.rxthread.start()
         else:
-            path = self.rxthread.logTo(path)
+            path = self.rxthread.logTo(path, **kwargs)
         return path
 
     def stop_logging(self):
