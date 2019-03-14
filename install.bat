@@ -1,2 +1,0 @@
-:: Install script for pyvxl
-

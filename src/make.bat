@@ -28,7 +28,7 @@ if not exist "C:\Python27\python.exe" (
 )
 if %arch% == False GOTO arch_error
 if not exist "C:\Python27\Scripts\pip.exe" GOTO pip
-if not exist "C:\Python27\Scripts\easy_install.exe" GOTO easyinstall 
+if not exist "C:\Python27\Scripts\easy_install.exe" GOTO easyinstall
 GOTO check_path
 
 :python
@@ -36,14 +36,14 @@ echo.
 if %inspy% == 1 GOTO end
 echo.Installing python...
 %installDir%\python-2.7.5.msi
-IF ERRORLEVEL 1 GOTO python_error 
+IF ERRORLEVEL 1 GOTO python_error
 echo.python installed successfully.
 set "inspy=1"
 rem Windows XP does not have setx
 if exist %SystemRoot%\system32\setx.exe GOTO check_python
 echo.
 echo.On Windows XP "C:\Python27;C:\Python27\Scripts;" has to be appended to the PATH environment variable.
-GOTO check_python 
+GOTO check_python
 
 :easyinstall
 if %inseasy% == 1 GOTO end
@@ -56,7 +56,7 @@ echo.setuptools installed successfully.
 echo.
 set "inseasy=1"
 set "ins=1"
-GOTO check_python 
+GOTO check_python
 
 :pip
 if %inspip%==1 GOTO end
@@ -68,12 +68,12 @@ echo.pip installed successfully.
 echo.
 set "inspip=1"
 set "ins=1"
-GOTO check_python 
+GOTO check_python
 
 :check_path
 echo.
-reg query HKEY_CURRENT_USER\Environment /v "path" > nul 2>&1 
-if errorlevel 1 goto nopath 
+reg query HKEY_CURRENT_USER\Environment /v "path" > nul 2>&1
+if errorlevel 1 goto nopath
 set "test="
 for /f "tokens=*" %%i in ('reg query HKEY_CURRENT_USER\Environment /v "path"') do (
     set "test=%test%%%i"
@@ -109,7 +109,6 @@ IF ERRORLEVEL 1 GOTO setup_error
 ECHO.
 ECHO.pyvxl installed correctly
 echo.
-pause
 ECHO.
 GOTO clean
 

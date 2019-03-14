@@ -558,7 +558,7 @@ class CAN(object):
                                           0x00000001, 8)
             self._printStatus("Activate Channel")
             txt = 'Successfully connected to Channel '
-            logging.info(txt+str(self.channel.value)+' @ '
+            logging.info(txt+str(self.init_channel)+' @ '
                          +str(self.baud_rate)+'Bd!')
         else:
             logging.error(
@@ -1046,8 +1046,9 @@ class CAN(object):
             ret = self.lastFoundSignal.values
         return ret
 
-    def wait_for_no_error(self):
+    def wait_for_no_error(self, timeout=0):
         """ Blocks until the CAN bus comes out of an error state """
+        errors_found = True
         if not self.receiving:
             self.receiving = True
             self.stopRxThread = Event()
@@ -1059,17 +1060,29 @@ class CAN(object):
                                           msgEvent)
             self.rxthread.start()
 
-        while self.rxthread.errorsFound:
-            time.sleep(0.001)
+        if not timeout:
+            # Wait as long as necessary if there isn't a timeout set
+            while self.rxthread.errorsFound:
+                time.sleep(0.001)
+            errors_found = False
+        else:
+            startTime = time.clock()
+            timeout = float(timeout) / 1000.0
+            while (time.clock() - startTime) < timeout:
+                if not self.rxthread.errorsFound:
+                    errors_found = False
+                    break
+                time.sleep(0.001)
 
+        # If we started the rx thread, stop it now that we're done
         if not self.rxthread.busy():
             self.stopRxThread.set()
             self.receiving = False
+        return errors_found
 
-        return
-
-    def wait_for_error(self):
+    def wait_for_error(self, timeout=0):
         """ Blocks until the CAN bus goes into an error state """
+        errors_found = False
         if not self.receiving:
             self.receiving = True
             self.stopRxThread = Event()
@@ -1080,22 +1093,41 @@ class CAN(object):
             self.rxthread = receiveThread(self.stopRxThread, self.portHandle,
                                           msgEvent)
             self.rxthread.start()
+        else:
+            self.rxthread.errorsFound = False
 
-        while not self.rxthread.errorsFound:
-            time.sleep(0.001)
+        if not timeout:
+            # Wait as long as necessary if there isn't a timeout set
+            while not self.rxthread.errorsFound:
+                time.sleep(0.001)
+            errors_found = True
+        else:
+            startTime = time.clock()
+            timeout = float(timeout) / 1000.0
+            while (time.clock() - startTime) < timeout:
+                if self.rxthread.errorsFound:
+                    errors_found = True
+                    break
+                time.sleep(0.001)
 
+        # If we started the rx thread, stop it now that we're done
         if not self.rxthread.busy():
             self.stopRxThread.set()
             self.receiving = False
 
-        log_path = ''
-        if self.rxthread.logging:
-            log_path = self.rxthread.stopLogging()
-        self.stop()
-        self.start()
-        if log_path:
-            self.start_logging(log_path, add_date=False)
-        return
+        # If there are errors, reconnect to the CAN case to clear the error queue
+        if errors_found:
+            log_path = ''
+            if self.receiving and self.rxthread.logging:
+                log_path = self.rxthread.stopLogging()
+
+            self.stop()
+            self.start()
+
+            if log_path:
+                self.start_logging(log_path, add_date=False)
+            self.rxthread.errorsFound = False
+        return errors_found
 
     def _block_unless_found(self, msgID, timeout):
         foundData = ''
@@ -1301,8 +1333,7 @@ class CAN(object):
     def print_config(self):
         """Prints the current hardware configuration"""
         if not self.initialized:
-            logging.warning(
-        "Initialization required before hardware configuration can be printed")
+            logging.warning("Initialization required before hardware configuration can be printed")
             return False
         foundPiggy = False
         buff = create_string_buffer(32)
@@ -1311,8 +1342,7 @@ class CAN(object):
                self.drvConfig.channelCount)
         printf("----------------------------------------------------------\n")
         for i in range(self.drvConfig.channelCount):
-            chan = str(int(math.pow(2, self.drvConfig.channel[i].channelIndex)))
-            sys.stdout.write('- Channel '+chan+',    ')
+            sys.stdout.write('- Channel {},    '.format(math.pow(2, self.drvConfig.channel[i].channelIndex)))
             strncpy(buff, self.drvConfig.channel[i].name, 23)
             printf(" %23s, ", buff)
             memset(buff, 0, sizeof(buff))
@@ -1457,7 +1487,6 @@ class CAN(object):
             out = num[14:] + out
         return out
 
-    #pylint:disable=R0912
     def _isValid(self, signal, value=None, dis=True, force=False):
         """Checks the validity of a signal and optionally it's value"""
         if not self.imported:
@@ -1582,7 +1611,7 @@ class CAN(object):
                 print(color+' - Signal: '+name)
                 txt = '            ^- ['+str(sig.min_val)+' : '
                 print(txt+str(sig.max_val)+']'+rst)
-    # pylint: enable=R0912,R0201
+
     def _printStatus(self, item):
         """Prints the status of a vxlapi function call"""
         logging.debug("{0}: {1}".format(item, str(getError(self.status))))
