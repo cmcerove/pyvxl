@@ -11,11 +11,12 @@ import inspect
 import socket
 import select
 import shlex
+from copy import deepcopy
 from argparse import ArgumentParser
 from pyvxl import pydbc, settings, config
 from pyvxl.transmit import Transmit
 from pyvxl.receive import Receive
-from colorama import init, deinit, Fore, Back, Style
+from colorama import init, Fore, Back, Style
 
 __program__ = 'can'
 
@@ -28,8 +29,6 @@ class CAN(object):
         self.dbc_path = dbc_path
         self.tx_proc = Transmit(int(channel), baudrate)
         self.rx_proc = Receive(int(channel), baudrate)
-        self.tx_proc.start()
-        self.rx_proc.start()
         self.baudrate = baudrate
         self.imported = False
         self.last_found_msg = None
@@ -45,7 +44,6 @@ class CAN(object):
 
     def __del__(self):
         """."""
-        deinit()
         self.tx_proc.__del__()
         self.rx_proc.__del__()
 
@@ -108,7 +106,7 @@ class CAN(object):
                     node = int(node, 16)
         except ValueError:
             pass
-        if isinstance(node, int):
+        if isinstance(node, int) or isinstance(node, long):
             if node > 0xFFF:
                 logging.error('Node value is too large!')
                 return False
@@ -124,132 +122,103 @@ class CAN(object):
         for msg in self.tx_proc.messages:
             if msg.sender.lower() == node.lower():
                 removed = True
-                self.stop_periodic(msg.id)
+                self.stop_message(msg.id)
         if not removed:
             logging.error('No periodics currently being sent by that node!')
         return removed
 
     def send_signal(self, signal, value, send_once=False, force=False):
-        """Send the CAN message containing signal."""
-        # TODO: Change value to a kwarg
-        ret = False
-        if self._check_signal(signal, value, force=force):
-            msg = self.validMsg[0]
-            data = self.validMsg[1]
-            data = data.zfill(msg.dlc * 2)
-            logging.debug('send_signal - msg {} - data {}'.format(msg.id, data))
+        """Send the message containing signal."""
+        msg = self._check_signal(signal, value, force)
+        logging.debug('send_signal - msg 0x{:X} - data {}'
+                      ''.format(msg.id, msg.get_data()))
+        if msg.period == 0 or send_once:
+            self.tx_proc.transmit_once(msg)
+        else:
+            self.tx_proc.add(msg)
 
-            if msg.period == 0 or send_once:
-                ret = self.tx_proc.transmit(msg)
-            else:
-                ret = self.tx_proc.add(msg, data)
-        return ret
+    def stop_signal(self, sig_name):
+        """Stop a periodic message based on the signal name."""
+        msg = self._check_signal(sig_name)
+        self.tx_proc.remove(msg.id)
+        logging.info('Stopped message ID: 0x{:X}'.format(msg.id))
 
-    def send_message(self, msg_id, data='', in_database=True, period=0):
+    def send_message(self, msg_id, data='', period=0, send_once=False,
+                     in_database=True):
         """Send a spontaneous or periodic message."""
-        msg = None
-        msg_id = self._check_type(msg_id)
-        if isinstance(msg_id, int):
-            # number
-            if in_database:
-                self.find_message(msg_id)
-                if self.last_found_msg:
-                    msg = self.last_found_msg
-                else:
-                    logging.error('Message not found!')
-                    return False
-            else:
-                data = data.replace(' ', '')
-                dlc = len(data) / 2 if (len(data) % 2 == 0) else (len(data) + 1) / 2
-                sender = ''
-                if self.parser:
-                    for node in self.parser.dbc.nodes.values():
-                        if node.sourceID == msg_id & 0xFFF:
-                            sender = node.name
-                msg = pydbc.DBCMessage(msg_id, 'Unknown', dlc, sender, [], None,
-                                       None, None)
-                msg.id = msg_id
-                msg.period = period
+        msg = self._get_message_obj(msg_id, data, period, in_database)
+        if data:
+            msg.set_data(data)
+
+        logging.debug('Msg ID {:X} Data {} Period {}ms'
+                      ''.format(msg.id, msg.get_data(), msg.period))
+        if msg.period == 0 or send_once:
+            self.tx_proc.transmit_once(msg)
         else:
-            for message in self.parser.dbc.messages.values():
-                if msg_id.lower() == message.name.lower():
-                    msg = message
-                    break
-            else:
-                logging.error('Message ID: {} - not found!'.format(msg_id))
-                return False
+            self.tx_proc.add(msg)
 
-        data = self._check_msg_data(msg, data)
-        try:
-            if msg.dlc > 0:
-                msg.data = int(data, 16)
-            else:
-                msg.data = 0
-            for sig in msg.signals:
-                sig.val = msg.data & sig.mask
-        except ValueError:
-            logging.error('Non-hexadecimal characters found in message data')
-            return False
-
-        logging.debug('Msg ID {} Data {} Period {}'.format(msg.id, data,
-                                                           msg.period))
-        if msg.period == 0:
-            self.tx_proc.transmit(msg)
-        else:
-            self.tx_proc.add(msg, data)
-        return True
-
-    def stop_periodic(self, name):
-        """Stops a periodic message
-        @param name: signal name or message name or message id
-        """
-        if not name:
-            raise ValueError('Input argument "name" is invalid')
-        msg = None
+    def stop_message(self, msg_id):
+        """Stop a periodic message based on the message name or id."""
         if self.tx_proc.is_transmitting():
-            name = self._check_type(name)
-            if isinstance(name, int):
-                # If it's an int, it must be a message id
-                if name and self.tx_proc.is_transmitting(name):
-                    msg = self.tx_proc.messages[name]
-            else:  # string
-                # Check if
-                if self.find_message(name) and self.last_found_msg:
-                    msg = self.last_found_msg
-                elif self._check_signal(name, dis=False):
-                    msg = self.validMsg[0]
-                else:
-                    raise ValueError('No messages or signals for that input!')
-        if msg:
-            self.tx_proc.remove(msg.id)
-            if msg.name != 'Unknown':
-                logging.info('Stopping Periodic Msg: ' + msg.name)
+            msg = self._get_message_obj(msg_id)
+            if self.tx_proc.is_transmitting(msg.id):
+                self.tx_proc.remove(msg.id)
+                logging.info('Stopped message ID: 0x{:X}'.format(msg.id))
             else:
-                logging.info('Stopping Periodic Msg: ' + hex(msg.id)[2:])
-        else:
-            logging.error('No periodic with that value to stop!')
-            return False
-        return True
-
-    def stop_periodics(self):
-        """Stop all periodic messages currently being sent."""
-        raise NotImplementedError('clear_tasks needs to be called')
-        # TODO: Make sure clear_tasks is called in the tx process
-        ret = False
-        if self.tx_proc.messages:
-            logging.info('All periodics stopped')
+                logging.warning('Message ID: 0x{:X} is already stopped!'
+                                ''.format(msg.id))
         else:
             logging.warning('Periodics already stopped!')
-        return ret
+
+    def stop_all_messages(self):
+        """Stop all periodic messages."""
+        if self.tx_proc.is_transmitting():
+            self.tx_proc.remove_all()
+        else:
+            logging.warning('Periodics already stopped!')
+
+    def stop_periodic(self, name):
+        """(DEPRECATED) Stop a periodic message.
+
+        @param name: signal name or message name or message id
+        """
+        logging.warning('stop_periodic is deprecated; please use stop_signal'
+                        ' or stop_message instead.')
+        if self.tx_proc.is_transmitting():
+            name = self._check_type(name)
+            if isinstance(name, int) or isinstance(name, long):
+                # Signals can't be numbers, so try and stop this message
+                self.stop_message(name)
+            else:
+                # value is a string
+                # Could be a message name or signal name
+                try:
+                    msg = self._get_message_obj(name)
+                except ValueError:
+                    # Couldn't find a matching message, maybe it's a signal
+                    try:
+                        msg = self._check_signal(name)
+                    except ValueError:
+                        raise ValueError('No messages or signals named {}!'.format(name))
+                self.tx_proc.remove(msg.id)
+                logging.info('Stopped message ID: 0x{:X}'.format(msg.id))
+        else:
+            logging.error('No periodic with that value to stop!')
+
+    def stop_periodics(self):
+        """(DEPRECATED) Stop all periodic messages."""
+        logging.warning('stop_periodics is deprecated;'
+                        ' please use stop_all_messages instead')
+        self.stop_all_messages()
 
     def find_node(self, node):
-        """Search the dbc for node names containing node."""
+        """Search the dbc for node."""
         if not self.imported:
             self.import_dbc()
         node = self._check_type(node)
         numFound = 0
         for anode in self.parser.dbc.nodes.values():
-            if isinstance(node, int):
+            if isinstance(node, int) or isinstance(node, long):
                 if node == anode.sourceID:
                     numFound += 1
                     self.last_found_node = anode
@@ -274,7 +243,7 @@ class CAN(object):
             self.import_dbc()
         numFound = 0
         msg_id = self._check_type(msg)
-        if isinstance(msg_id, int):
+        if isinstance(msg_id, int) or isinstance(msg_id, long):
             try:
                 if msg_id > 0x8000:
                     #msg_id = (msg_id&~0xF0000FFF)|0x80000000
@@ -318,7 +287,7 @@ class CAN(object):
             self.last_found_msg = None
         return True
 
-    def find_signal(self, signal, display=False, exact=True):
+    def find_signal(self, signal, display=False):
         """Search the dbc for signal names containing sig."""
         if not signal or not isinstance(signal, str):
             raise TypeError('Expected str, but got {}'.format(type(signal)))
@@ -328,14 +297,9 @@ class CAN(object):
         for msg in self.parser.dbc.messages.values():
             msgPrinted = False
             for sig in msg.signals:
-                if not exact:
-                    shortName = (signal.lower() in sig.name.lower())
-                    fullName = (signal.lower() in sig.fullName.lower())
-                else:
-                    shortName = (signal.lower() == sig.name.lower())
-                    fullName = (signal.lower() == sig.fullName.lower())
+                shortName = (signal.lower() in sig.name.lower())
+                fullName = (signal.lower() in sig.fullName.lower())
                 if fullName or shortName:
-
                     logging.debug('Found signal {} ({})'.format(sig.fullName,
                                                                 sig.name))
                     numFound += 1
@@ -386,7 +350,7 @@ class CAN(object):
     def _block_unless_found(self, msg_id, timeout):
         foundData = ''
         startTime = time.clock()
-        timeout = float(timeout)/1000.0
+        timeout = float(timeout) / 1000.0
 
         while (time.clock() - startTime) < timeout:
             time.sleep(0.01)
@@ -410,11 +374,10 @@ class CAN(object):
 
     def search_for(self, msg_id, data='', in_database=True):
         """Add a message to the search queue."""
-        msg, data = self._get_search_message(msg_id, data, in_database)
-        if not msg:
-            return False
-        mask = ''
-        if data:
+        # a mask of don't care data
+        dc_mask = ''
+        if isinstance(data, str) and '*' in data:
+            # Found wildcards, populate the dc_mask
             tmpData = []
             mask = []
             for x in range(len(data)):
@@ -424,11 +387,10 @@ class CAN(object):
                 else:
                     tmpData.append(data[x])
                     mask.append('1111')
-            mask = ''.join(mask)
-            mask = int(mask, 2)
+            dc_mask = int(''.join(mask), 2)
             data = int(''.join(tmpData), 16)
-
-        self.rx_proc.search_for(msg.id, data, mask)
+        msg = self._get_search_message(msg_id, data, in_database)
+        self.rx_proc.search_for(msg, dc_mask)
 
         return msg
 
@@ -459,7 +421,7 @@ class CAN(object):
             logging.info('No periodics currently being sent')
         if search_for:
             msg_id = self._check_type(search_for)
-            if isinstance(msg_id, int):  # searching periodics by id
+            if isinstance(msg_id, int) or isinstance(msg_id, long):
                 for periodic in self.tx_proc.messages:
                     if periodic.id == msg_id:
                         self.last_found_msg = periodic
@@ -506,48 +468,14 @@ class CAN(object):
 
     def _get_search_message(self, msg_id, data, in_database):
         """Return a message and data to be used for searching received messages."""
-        msg = None
-        msg_id = self._check_type(msg_id)
-        if isinstance(msg_id, int):
-            if in_database:
-                self.find_message(msg_id)
-                if self.last_found_msg:
-                    msg = self.last_found_msg
-                else:
-                    raise ValueError('Message not found - use'
-                                     ' "in_database=False" to ignore')
-            else:
-                if len(data) % 2 == 1:
-                    logging.error('Odd length data found!')
-                    return (False, data)
-                dlc = len(data)/2
-                sender = ''
-                for node in self.parser.dbc.nodes.values():
-                    if node.sourceID == msg_id&0xFFF:
-                        sender = node.name
-                msg = pydbc.DBCMessage(msg_id, 'Unknown', dlc, sender, [], None,
-                                       None, None)
-                msg.id = msg_id
-                msg.period = 0
-        else:
-            # string
-            for message in self.parser.dbc.messages.values():
-                if msg_id.lower() == message.name.lower():
-                    msg = message
-                    break
-            else:
-                logging.error('Message ID: {} - not found!'.format(msg_id))
-                return (False, data)
-        chkData = data.replace('*', '0')
-        chkData = self._check_msg_data(msg, chkData)
-        diffLen = len(chkData) - len(data)
-        data = '0' * diffLen + data
-        return msg, data
+        # Create a copy of the database message object
+        search_msg = deepcopy(self._get_message_obj(msg_id, data, in_database=in_database))
+        if data:
+            search_msg.set_data(data)
+        return search_msg
 
     def _check_type(self, msg_id, display=False):
         """Check for errors in a message id."""
-        # 0 - invalid, 1 - num, 2 - string
-        case_num = 0
         if not msg_id:
             raise ValueError('Invalid message ID {}'.format(msg_id))
         if isinstance(msg_id, str):
@@ -560,108 +488,82 @@ class CAN(object):
                     msg_id = int(msg_id, 16)
                 except ValueError:
                     # Not a number in a string, so process as text
-                    case_num = 2
-        if isinstance(msg_id, int):
-            if 0 <= msg_id <= 0xFFFFFFFF:
-                case_num = 1
+                    pass
+                else:
+                    if msg_id < 0 or msg_id > 0xFFFFFFFF:
+                        raise ValueError('Invalid message id {} - negative or too large!'.format(msg_id))
             else:
-                logging.error('Invalid message id - negative or too large!')
-        if not case_num:
-            raise ValueError('{} is not a valid message ID'.format(msg_id))
-
+                if msg_id < 0 or msg_id > 0xFFFFFFFF:
+                    raise ValueError('Invalid message id {} - negative or too large!'.format(msg_id))
+        elif isinstance(msg_id, int) or isinstance(msg_id, long):
+            if msg_id < 0 or msg_id > 0xFFFFFFFF:
+                raise ValueError('Invalid message id {} - negative or too large!'.format(msg_id))
+        else:
+            raise TypeError('Expected str or int but got {}'.format(type(msg_id)))
         return msg_id
 
-    def _check_msg_data(self, msg, data):
-        """Check for errors in message data.
-
-        Return msg data as a string of bytes
-        """
-        if isinstance(data, str):
-            # Remove spaces
-            data = data.replace(' ', '')
-            if data:
-                try:
-                    data = hex(int(data, 16))[2:]
-                    data = data if data[-1] != 'L' else data[:-1]
-                except ValueError:
-                    raise ValueError('Non-hexadecimal digits found!')
-            if not data and msg.dlc > 0:
-                data = hex(msg.data)[2:]
-                data = data if data[-1] != 'L' else data[:-1]
-            elif len(data) > msg.dlc * 2:
-                raise ValueError('Invalid message data - too long!')
-            data = data.zfill(msg.dlc * 2)
+    def _get_message_obj(self, msg_id, data='', period=0, in_database=True):
+        """Get the message object from the database or create one."""
+        msg = None
+        msg_id = self._check_type(msg_id)
+        # Find the message id based on the input type
+        if isinstance(msg_id, int) or isinstance(msg_id, long):
+            # number
+            if in_database:
+                self.find_message(msg_id)
+                if self.last_found_msg:
+                    msg = self.last_found_msg
+                else:
+                    raise ValueError('Message ID: 0x{:X} not found in the'
+                                     ' database!'.format(msg_id))
+            else:
+                data = data.replace(' ', '')
+                dlc = (len(data) / 2) + (len(data) % 2)
+                msg = pydbc.DBCMessage(msg_id, 'Unknown', dlc, '', [], None,
+                                       None, None)
+                msg.period = period
         else:
-            # TODO: possibly change this to support numeric data types
-            raise ValueError('Invalid message data - found a number!')
-        return data
+            # string
+            for message in self.parser.dbc.messages.values():
+                if msg_id.lower() == message.name.lower():
+                    msg = message
+                    break
+            else:
+                raise ValueError('Message Name: {} not found in the'
+                                 ' database!'.format(msg_id))
+        return msg
 
-    def _check_signal(self, signal, value=None, dis=True, force=False):
-        """Check the validity of a signal and optionally it's value."""
+    def _check_signal(self, signal, value=None, force=False):
+        """Check the validity of a signal and optionally it's value.
+
+        Returns the message object containing the updated signal on success.
+        """
         if not self.imported:
             self.import_dbc()
+        if not isinstance(signal, str):
+            raise TypeError('Expected str but got {}'.format(type(signal)))
+        # Grab the signal object by full or short name
         if signal.lower() not in self.parser.dbc.signals:
             if signal.lower() not in self.parser.dbc.signalsByName:
-                if dis:
-                    logging.error('Signal \'%s\' not found!'%signal)
-                return False
+                raise ValueError('Signal {} not found in the database!'
+                                 ''.format(signal))
             else:
                 sig = self.parser.dbc.signalsByName[signal.lower()]
         else:
             sig = self.parser.dbc.signals[signal.lower()]
-        logging.info('Found signal {} - msg id {:X}'.format(sig.name,
-                                                            sig.msg_id))
+        logging.debug('Found signal {} - msg id {:X}'
+                      ''.format(sig.name, sig.msg_id))
+        # Grab the message this signal is transmitted from
         if sig.msg_id not in self.parser.dbc.messages:
-            logging.error('Message not found!')
-            return False
+            raise KeyError('Signal {} has no associated messages!'.format(signal))
         msg = self.parser.dbc.messages[sig.msg_id]
-        if not self.parser.dbc.nodes.has_key(msg.sender.lower()):
-            logging.error('Node not found!')
-            return False
-        if value == None:
-            self.validMsg = (msg, 0)
-            return True
-        else:
-            if sig.values.keys() and not force:
-                if isinstance(value, str):
-                    if value.lower() in sig.values:
-                        value = sig.values[value]
-                    else:
-                        logging.error('Value \'%s\' not found for signal \'%s\'!', value, sig.fullName)
-                        return False
-                else:
-                    try:
-                        float(value)
-                        if value not in sig.values.values():
-                            logging.error('Value \'%s\' not found for signal \'%s\'!', value, sig.fullName)
-                            return False
-                    except ValueError:
-                        logging.error('Invalid signal value type!')
-                        return False
-            elif force:
-                try:
-                    float(value)
-                except ValueError:
-                    logging.error('Unable to force a non numerical value!')
-                    return False
-            elif (float(value) < sig.min_val) or (float(value) > sig.max_val):
-                logging.error('Value outside of range!')
-                return False
-            if not sig.setVal(value, force=force):
-                logging.error('Unable to set the signal to that value!')
-                return False
-            # Clear the current value for the signal
-            msg.data = msg.data&~sig.mask
-            # Store the new value in the msg
-            msg.data = msg.data|abs(sig.val)
-            val = hex(msg.data)[2:]
-            if val[-1] == 'L':
-                val = val[:-1]
-            self.validMsg = (msg, val)
-            return True
+        if value:
+            # Update the signal value
+            sig.set_val(value, force=force)
+        return msg
 
     def _reverse(self, num, dlc):
-        """Reverses the byte order of data"""
+        """Reverse the byte order of data."""
         out = ''
         if dlc > 0:
             out = num[:2]
@@ -721,7 +623,7 @@ class CAN(object):
         if sig.values.keys():
             if value:
                 print(color+' - Signal: '+name)
-                print('            ^- '+str(sig.getVal())+rst)
+                print('            ^- '+str(sig.get_val())+rst)
             else:
                 print(color+' - Signal: '+name)
                 sys.stdout.write('            ^- [')
@@ -735,7 +637,7 @@ class CAN(object):
         else:
             if value:
                 print(color+' - Signal: '+name)
-                print('            ^- '+str(sig.getVal())+sig.units+rst)
+                print('            ^- '+str(sig.get_val())+sig.units+rst)
             else:
                 print(color+' - Signal: '+name)
                 txt = '            ^- ['+str(sig.min_val)+' : '

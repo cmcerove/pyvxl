@@ -17,9 +17,12 @@ from binascii import unhexlify
 import ply.lex as lex
 import ply.yacc as yacc
 
+
 class DBCFile(object):
-    """DBC file object"""
+    """DBC file object."""
+
     def __init__(self):
+        """."""
         self.periodics = []
         self.version = None
         self.symbols = None
@@ -30,23 +33,28 @@ class DBCFile(object):
         self.signals = None
         self.signalsByName = None
 
+
 class DBCNode(object):
-    """DBC node object"""
+    """DBC node object."""
+
     def __init__(self, name):
+        """."""
         self.name = name
         self.sourceID = 0
         self.ecuID = 0
         self.txMessages = []
         self.rxMessages = []
 
+
 class DBCMessage(object):
-    """DBC message object"""
+    """DBC message object."""
+
     def __init__(self, msgid, name, length, sender, signals, comment,
                  attributes, transmitters):
+        """."""
         self.id = int(msgid)
         self.dlc = length
-        self.data = 0
-        self.initData = 0
+        self.__data = 0
         self.endianness = 0
         self.name = str(name)
         self.sender = str(sender)
@@ -58,11 +66,54 @@ class DBCMessage(object):
         self.sending = False
         self.update_task = None
 
+    def get_data(self):
+        """Get the current message data based on each signal value.
+
+        Returns a the current message data as a hexadecimal string
+        padded with zeros to the message length.
+        """
+        data = self.__data
+        for sig in self.signals:
+            # Clear the signal value in data
+            data &= ~sig.mask
+            # Set the value
+            data |= sig.val
+        return '{:0{}X}'.format(data, self.dlc * 2)
+
+    def set_data(self, data):
+        """Update signal values based on data.
+
+        Accepts a hexadecimal string or an integer.
+        """
+        if data:
+            if isinstance(data, str):
+                data = data.replace(' ', '')
+                try:
+                    data = int(data, 16)
+                except ValueError:
+                    raise ValueError('Cannot set data to non-hexadecimal'
+                                     ' string {}!'.format(data))
+            if isinstance(data, int) or isinstance(data, long):
+                # Check for invalid length
+                if len('{:X}'.format(data)) > (self.dlc * 2):
+                    raise ValueError('{:X} is longer than message length of {}'
+                                     ' bytes'.format(data, self.dlc * 2))
+            else:
+                raise TypeError('Expected an int or str but got {}'.format(type(data)))
+                # Handling for messages without signals
+            for sig in self.signals:
+                sig.val = data & sig.mask
+            self.__data = data
+        else:
+            logging.error('set_data called with no data!')
+
 
 class DBCSignal(object):
-    """DBC signal object"""
+    """DBC signal object."""
+
     def __init__(self, name, mux, bit_msb, bit_len, endianness, signedness,
                  scale, offset, min_val, max_val, units, receivers):
+        """."""
         self.name = name
         self.mux = mux
         self.bit_msb = bit_msb
@@ -84,37 +135,72 @@ class DBCSignal(object):
         self.mask = 0
         self.bit_start = 0
 
-    def setVal(self, num, force=False):
-        """Sets the signal's value based on the offset and scale defined in
-           the dbc file"""
+    def set_val(self, value, force=False):
+        """Set the signal's value based on the offset and scale."""
         negative = False
-        num = int((float(num)-float(self.offset))/float(self.scale))
+
+        # self.values will only be set if the signal has a discrete set of values,
+        # otherwise the signal will be defined with min_val and max_val
+        if self.values.keys() and not force:
+            if isinstance(value, str):
+                if value.lower() in self.values:
+                    num = self.values[value]
+                else:
+                    raise ValueError('{} is invalid for {}; valid values = {}'
+                                     ''.format(value, self.name, self.values))
+            else:
+                try:
+                    num = float(value)
+                    if value not in self.values.values():
+                        raise ValueError('{} is invalid for {}; valid values = {}'
+                                         ''.format(value, self.name, self.values))
+                except ValueError:
+                    raise ValueError('{} is invalid for {}; valid values = {}'
+                                     ''.format(value, self.name, self.values))
+        elif force:
+            try:
+                num = float(value)
+            except ValueError:
+                logging.error('Unable to force a non numerical value!')
+        elif (float(value) < self.min_val) or (float(value) > self.max_val):
+            raise ValueError('Value out of range! Valid range is {} to {}'
+                             ' for signal {}.'.format(self.min_val,
+                                                      self.max_val,
+                                                      self.name))
+        else:
+            num = value
+
+        # Convert the number based on it's location
+        num = int((float(num) - float(self.offset)) / float(self.scale))
+
         if num < 0:
             num = abs(num)
             negative = True
 
-        size = len(bin(num)[2:])
+        size = len('{:b}'.format(num))
         if not force:
             if size > self.bit_len:
+                raise ValueError('Unable to set {} to  {}; value too large!'
+                                 ''.format(self.name, num))
                 return False
         else:
             logging.warning('Ignoring dbc specs for this signal value')
 
         if negative:
-            num = self._twosComplement(num)
+            num = self._twos_complement(num)
 
-        self.val = num<<self.bit_start
+        self.val = num << self.bit_start
         return True
 
-    def getVal(self):
-        """Gets the signal's value operating exactly opposite of setVal"""
-        tmp = self.val>>self.bit_start
-        currVal = (tmp*self.scale+self.offset)
+    def get_val(self):
+        """Get the signal's value."""
+        tmp = self.val >> self.bit_start
+        currVal = (tmp * self.scale + self.offset)
         # Check if currVal is really supposed to be negative
         if currVal > 0 and self.min_val < 0:
             bval = '{:b}'.format(int(currVal))
             if bval[0] == '1' and len(bval) == self.bit_len:
-                currVal = float(-self._twosComplement(int(currVal)))
+                currVal = float(-self._twos_complement(int(currVal)))
         if self.values.keys():
             for key, val in self.values.items():
                 if val == currVal:
@@ -122,28 +208,30 @@ class DBCSignal(object):
         else:
             return currVal
 
-    def _twosComplement(self, num):
-        """ Returns the twos complement value of a number """
-        tmp = bin(num)[2:]
+    def _twos_complement(self, num):
+        """Return the twos complement value of a number."""
+        tmp = '{:b}'.format(num)
         tmp = tmp.replace('0', '2')
         tmp = tmp.replace('1', '0')
         tmp = tmp.replace('2', '1')
 
         while len(tmp) < self.bit_len:
-            tmp = '1'+tmp
-        return int(tmp, 2)+1
+            tmp = '1' + tmp
+        return int(tmp, 2) + 1
 
-    def setMask(self):
-        """Sets the signals mask which is used to set the change the signal
-           value within the message data"""
+    def set_mask(self):
+        """Set the signal's mask based on bit_start and bit_len."""
         if self.bit_start < 0:
             print(self.name)
-        self.mask = pow(2, self.bit_len)-1 << self.bit_start
+        self.mask = pow(2, self.bit_len) - 1 << self.bit_start
+
 
 class DBCEnvVar(object):
-    """DBC environmental variable object"""
+    """DBC environmental variable object."""
+
     def __init__(self, name, etype, minV, maxV, unit, initial, index, access,
                  nodes=None, vals=None, comment=""):
+        """."""
         self.name = str(name)
         self.type = int(etype)
         self.min = float(minV)
@@ -506,7 +594,7 @@ class DBCParser(object):
     def p_signal(self, p):
         '''signal : SG signal_name mux_info ':' bit_start '|' bit_len '@' endianness signedness '(' scale ',' offset ')' '[' min '|' max ']' STRING_VAL comma_identifier_list'''
         p[0] = DBCSignal(p[2], p[3], p[5], p[7], p[9], p[10], p[12], p[14], p[17], p[19],
-                        p[21], p[22])
+                         p[21], p[22])
         self.signalDict[p[2].lower()] = p[0]
         pass
 
@@ -787,8 +875,9 @@ class DBCParser(object):
         'empty :'
         pass
 
+
 def _msbMap():
-    """Creates a translation dictionary for converting byte order"""
+    """Return a translation dictionary for converting byte order."""
     msbMap = {}
     for x in range(9):
         if x > 1:
@@ -804,6 +893,7 @@ def _msbMap():
                     bigEndian -= 16
             msbMap[x] = ret
     return msbMap
+
 
 def importDBC(path):
     """Imports a vector database file"""
@@ -825,7 +915,7 @@ def importDBC(path):
                 if msg.period:
                     p.dbc.periodics.append(msg)
                 if msg.id > 0xFFFF:
-                    if p.dbc.nodes.has_key(msg.sender.lower()):
+                    if msg.sender.lower() in p.dbc.nodes:
                         sender = p.dbc.nodes[msg.sender.lower()].sourceID
                         if (sender&0xF00) > 0:
                             print(msg.name)
@@ -839,15 +929,13 @@ def importDBC(path):
                     sig.bit_start = msbMap[msg.dlc][sig.bit_msb] - (sig.bit_len-1)
                 except KeyError: # This only happens when the msb doesn't change
                     sig.bit_start = sig.bit_msb-(sig.bit_len-1)
-                sig.setMask()
-                sig.setVal(sig.initVal)
-                msg.data = msg.data|abs(sig.val)
-                msg.initData = msg.data
-
+                sig.set_mask()
+                sig.set_val(sig.initVal)
     return p
 
+
 def main():
-    """The main program"""
+    """."""
     if len(sys.argv) != 2:
         print(__doc__)
         sys.exit(1)

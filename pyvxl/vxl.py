@@ -153,7 +153,7 @@ class VxlCan(object):
         dlc = len(msg_data)
         if dlc:
             logging.debug("Sending CAN Msg: 0x{0:X} Data: {1}".format(msg_id & ~0x80000000,
-                         hexlify(msg_data).upper()))
+                          hexlify(msg_data).upper()))
         else:
             logging.debug("Sending CAN Msg: 0x{0:X} Data: None".format(msg_id))
 

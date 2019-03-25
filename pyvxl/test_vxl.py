@@ -50,6 +50,7 @@ class TestVectorCAN:
 
     def test_find_message(self):
         """."""
+
 def main():
     logging.basicConfig(level=logging.DEBUG)
     transmit = Transmit()
