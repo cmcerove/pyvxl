@@ -1080,7 +1080,7 @@ class CAN(object):
             self.receiving = False
         return errors_found
 
-    def wait_for_error(self, timeout=0):
+    def wait_for_error(self, timeout=0, flush=False):
         """ Blocks until the CAN bus goes into an error state """
         errors_found = False
         if not self.receiving:
@@ -1095,6 +1095,9 @@ class CAN(object):
             self.rxthread.start()
         else:
             self.rxthread.errorsFound = False
+
+        if flush:
+            flushRxQueue(self.portHandle)
 
         if not timeout:
             # Wait as long as necessary if there isn't a timeout set
