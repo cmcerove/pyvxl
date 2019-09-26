@@ -673,7 +673,7 @@ class CAN(object):
                 self.send_message(periodic.name, data)
         return True
 
-    def stop_periodic(self, name):  # pylint: disable=R0912
+    def stop_periodic(self, name):
         """Stops a periodic message
         @param name: signal name or message name or message id
         """
@@ -725,7 +725,7 @@ class CAN(object):
             logging.error('No periodics to stop!')
             return False
 
-    def stop_node(self, node):  #pylint: disable=R0912
+    def stop_node(self, node):
         """Stop all periodic messages sent from a node
         @param node: the node to be stopped
         """
@@ -796,7 +796,6 @@ class CAN(object):
             print('-' * 60)
             return False
 
-    #pylint: disable=R0912
     def send_message(self, msgID, data='', inDatabase=True, cycleTime=0,
                      display=True, sendOnce=False):
         """ Sends a complete spontaneous or periodic message changing all of
@@ -858,7 +857,6 @@ class CAN(object):
             self._send_periodic(msg, data, display=display)
         return True
 
-    #pylint: enable=R0912
     def send_signal(self, signal, value, force=False, display=True,
                     sendOnce=False):
         """Sends the CAN message containing signal with value"""
@@ -1126,7 +1124,6 @@ class CAN(object):
         else:
             return False
 
-    # pylint: disable=R0912, R0914
     def wait_for(self, msgID, data, timeout, alreadySearching=False,
                  inDatabase=True):
         """Compares all received messages until message with value
@@ -1207,7 +1204,6 @@ class CAN(object):
             resp = self.rxthread.getAllRxMessages(msgID)
         return resp
 
-    # pylint: enable=R0912, R0914
     def send_diag(self, sendID, sendData, respID, respData='',
                   inDatabase=True, timeout=150):
         """Sends a diagnotistic message and returns the response"""
@@ -1248,7 +1244,7 @@ class CAN(object):
 
         return True
 
-    def print_periodics(self, info=False, searchFor=''):# pylint: disable=R0912
+    def print_periodics(self, info=False, searchFor=''):
         """Prints all periodic messages currently being sent"""
         if not self.sendingPeriodics:
             logging.info('No periodics currently being sent')
@@ -1377,7 +1373,7 @@ class CAN(object):
             return (False, data)
         return msg, data
 
-    def _updateSignals(self, msg): # pylint: disable=R0201
+    def _updateSignals(self, msg):
         """Updates the current signal values within message"""
         for sig in msg.signals:
             sig.val = msg.data&sig.mask
@@ -1414,7 +1410,7 @@ class CAN(object):
                 logging.error('Invalid message id - negative or too large!')
         return (caseNum, msgID)
 
-    def _checkMsgData(self, msg, data): # pylint: disable=R0201
+    def _checkMsgData(self, msg, data):
         """Checks for errors in message data"""
         if type(data) == type(''):
             data = data.replace(' ', '')
@@ -1440,7 +1436,7 @@ class CAN(object):
             logging.error('Invalid message data - found a number!')
             return (False, data)
 
-    def _reverse(self, num, dlc): # pylint: disable=R0201
+    def _reverse(self, num, dlc):
         """Reverses the byte order of data"""
         out = ''
         if dlc > 0:
@@ -1523,7 +1519,7 @@ class CAN(object):
                 val = val[:-1]
             self.validMsg = (msg, val)
             return True
-    #pylint:enable=R0912
+
     def _printMessage(self, msg):
         """Prints a colored CAN message"""
         print('')
@@ -1552,7 +1548,6 @@ class CAN(object):
             txt = ' - Non-periodic'+Fore.MAGENTA+' - TX Node: '
             print(txt+msg.sender+Fore.RESET+Style.RESET_ALL)
 
-    # pylint: disable=R0912,R0201
     def _printSignal(self, sig, shortName=False, value=False):
         """Prints a colored CAN signal"""
         color = Fore.CYAN+Style.BRIGHT
