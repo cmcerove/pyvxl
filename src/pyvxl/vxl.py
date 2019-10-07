@@ -188,7 +188,7 @@ class VxlCan(object):
             logging.debug(data)
         return data
 
-    def get_can_channels(self):
+    def get_can_channels(self, include_virtual=False):
         """Return a list of connected CAN channels."""
         can_channels = []
         # Update driver config in case more channels were
@@ -197,11 +197,11 @@ class VxlCan(object):
         # Search through all channels
         for i in range(self.driver_config.channelCount):
             channel_config = self.driver_config.channel[i]
-            # Check that the channel is not a virtual channel
-            # and that it supports CAN.
-            if channel_config.transceiverType != 0x0000 and \
-               channel_config.channelBusCapabilities & CAN_SUPPORTED:
-                can_channels.append(int(channel_config.channelIndex) + 1)
+            virtual_channel = bool('Virtual' in channel_config.name)
+            can_supported = bool(channel_config.channelBusCapabilities & CAN_SUPPORTED)
+            if can_supported:
+                if include_virtual or not virtual_channel:
+                    can_channels.append(int(channel_config.channelIndex) + 1)
 
         return can_channels
 
