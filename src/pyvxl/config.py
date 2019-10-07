@@ -79,7 +79,7 @@ def set(name, value, show=True):  # pylint: disable=W0621,W0622
     """Set the value of a configuration variable for the current environment."""
     if show and get(name) != value:
         sys.stdout.write("{0} = {1}\n".format(name, value))
-    os.environ[name] = str(value)
+    os.environ[str(name)] = str(value)
     setattr(sys.modules[__name__], name, value)
 
 
