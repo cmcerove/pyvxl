@@ -285,7 +285,16 @@ class receiveThread(Thread):
                 # append to the file
                 file_opts = 'a'
             logging.info('Logging to: '+os.getcwd()+'\\'+path)
-            self.outfile = open(path, file_opts)
+            for tries in range(5):
+                try:
+                    self.outfile = open(path, file_opts)
+                except IOError:
+                    time.sleep(0.2)
+                else:
+                    break
+            else:
+                # Failed for the last 5 times, try one more time and raise error
+                self.outfile = open(path, file_opts)
             outpath = path
             days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
             months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug',
