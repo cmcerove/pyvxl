@@ -268,7 +268,6 @@ class receiveThread(Thread):
         """Begins logging the CAN bus"""
         outpath = ''
         if not self.logging and path:
-            self.logging = True
             tmstr = time.localtime()
             hr = tmstr.tm_hour
             hr = str(hr) if hr < 12 else str(hr-12)
@@ -305,6 +304,7 @@ class receiveThread(Thread):
                      'no internal events logged\n']
             self.outfile.writelines(lines)
             self.log_path = outpath
+            self.logging = True
         return outpath
 
     def stopLogging(self):

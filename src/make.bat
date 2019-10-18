@@ -9,6 +9,7 @@ set "ins=0"
 
 if "%1" == "" GOTO check_python
 if "%1" == "setup" GOTO check_python
+if "%1" == "develop" GOTO setup_develop
 if "%1" == "doc" GOTO doc
 if "%1" == "test" GOTO test
 if "%1" == "coverage" GOTO coverage
@@ -102,8 +103,9 @@ GOTO setup
 
 :setup
 ECHO.
-ECHO.Installing packages...
+ECHO.Installing pyvxl...
 ECHO.
+call python setup.py develop --uninstall
 call python setup.py install
 IF ERRORLEVEL 1 GOTO setup_error
 ECHO.
@@ -112,6 +114,17 @@ echo.
 ECHO.
 GOTO clean
 
+:setup_develop
+ECHO.
+ECHO.Installing pyvxl for development...
+ECHO.
+call python setup.py develop
+IF ERRORLEVEL 1 GOTO setup_error
+ECHO.
+ECHO.pyvxl installed correctly
+echo.
+ECHO.
+GOTO clean
 
 :doc
 ECHO.
@@ -121,7 +134,6 @@ C:\Python27\python.exe C:\Python27\Scripts\epydoc.py -v --config setup.cfg
 START ..\documentation\apidocs\index.html
 IF ERRORLEVEL 1 GOTO error
 GOTO end
-
 
 :test
 ECHO.
@@ -138,16 +150,9 @@ ECHO.
 START cover\index.html
 GOTO end
 
-
 :clean
 DEL pyvxl\*.pyc 2>NUL
-RD /s/q ..\documentation\apidocs 2>NUL
-RD /s/q pyvxl.egg-info 2>NUL
-RD /s/q build 2>NUL
-RD /s/q cover 2>NUL
-RD /s/q dist 2>NUL
 GOTO end
-
 
 :help
 echo.No rule to make target '%1'
