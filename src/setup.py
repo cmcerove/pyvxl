@@ -66,7 +66,7 @@ console_scripts.append("can = pyvxl:main")
 setup(
 
     name='pyvxl',
-    version='0.1.0',
+    version='0.1.1',
 
     description=("A python interface to the vector vxlapi.dll for CAN communication."),
     author="Chris Cerovec",
