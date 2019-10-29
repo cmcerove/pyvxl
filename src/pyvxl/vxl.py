@@ -2,10 +2,13 @@
 
 """Holds classes designed to interact specific protocols of vxlAPI."""
 
-from pyvxl.vxl_functions import vxl_open_driver, vxl_close_driver, vxl_open_port, vxl_close_port
-from pyvxl.vxl_functions import vxl_activate_channel, vxl_deactivate_channel, vxl_reset_clock
-from pyvxl.vxl_functions import vxl_transmit, vxl_receive, vxl_get_driver_config
-from pyvxl.vxl_functions import vxl_set_baudrate, vxl_set_transceiver, vxl_get_event_str
+from pyvxl.vxl_functions import vxl_open_driver, vxl_close_driver
+from pyvxl.vxl_functions import vxl_open_port, vxl_close_port
+from pyvxl.vxl_functions import vxl_activate_channel, vxl_deactivate_channel
+from pyvxl.vxl_functions import vxl_reset_clock, vxl_get_driver_config
+from pyvxl.vxl_functions import vxl_transmit, vxl_receive
+from pyvxl.vxl_functions import vxl_set_baudrate, vxl_set_transceiver
+from pyvxl.vxl_functions import vxl_get_event_str
 from pyvxl.vxl_functions import vxl_flush_tx_queue, vxl_flush_rx_queue
 from pyvxl.vxl_data_types import vxl_driver_config_type, vxl_event_type
 
@@ -83,10 +86,11 @@ class VxlCan(object):
         """Update the list of connected hardware."""
         vxl_close_driver()
         vxl_open_driver()
-        drvPtr = pointer(vxl_driver_config_type())
-        vxl_get_driver_config(drvPtr)
-        self.driver_config = drvPtr.contents
-        logging.debug('Channel count {}'.format(self.driver_config.channelCount))
+        drv_config_ptr = pointer(vxl_driver_config_type())
+        vxl_get_driver_config(drv_config_ptr)
+        self.driver_config = drv_config_ptr.contents
+        logging.debug('Vxl Channels {}'
+                      ''.format(self.driver_config.channelCount))
 
     def start(self, display=False):
         """Connect to the CAN channel."""
@@ -194,20 +198,26 @@ class VxlCan(object):
         # Update driver config in case more channels were
         # connected since instantiating this object.
         self.update_driver_config()
+        virtual_channels_found = False
         # Search through all channels
         for i in range(self.driver_config.channelCount):
             channel_config = self.driver_config.channel[i]
             virtual_channel = bool('Virtual' in channel_config.name)
+            if virtual_channel:
+                virtual_channels_found = True
             can_supported = bool(channel_config.channelBusCapabilities & CAN_SUPPORTED)
             if can_supported:
                 if include_virtual or not virtual_channel:
-                    can_channels.append(int(channel_config.channelIndex) + 1)
+                    if virtual_channels_found:
+                        can_channels.append(int(channel_config.channelIndex) - 1)
+                    else:
+                        can_channels.append(int(channel_config.channelIndex) + 1)
 
         return can_channels
 
     def print_config(self, debug=False):
         """Print the current hardware configuration."""
-        foundPiggy = False
+        found_piggy = False
         buff = create_string_buffer(32)
         printf("----------------------------------------------------------\n")
         printf("- %2d channels       Hardware Configuration              -\n",
@@ -226,14 +236,14 @@ class VxlCan(object):
             printf(" %23s, ", buff)
             memset(buff, 0, sizeof(buff))
             if self.driver_config.channel[i].transceiverType != 0x0000:
-                foundPiggy = True
+                found_piggy = True
                 strncpy(buff, self.driver_config.channel[i].transceiverName, 13)
                 printf("%13s -\n", buff)
             else:
                 printf("    no Cab!   -\n", buff)
 
         printf("----------------------------------------------------------\n")
-        if not foundPiggy:
+        if not found_piggy:
             logging.info("Virtual channels only!")
             return False
 
