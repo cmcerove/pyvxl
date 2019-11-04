@@ -7,11 +7,13 @@ import logging
 from ctypes import WinDLL, c_char_p
 
 # Import the vector DLL
+vxl_path = ("c:\\Users\\Public\\Documents\\Vector XL Driver Library\\"
+            "bin\\vxlapi.dll")
 if os.name == 'nt':
-    try:
-        vxDLL = WinDLL("c:\\Users\\Public\\Documents\\Vector XL Driver Library\\bin\\vxlapi.dll")
-    except WindowsError:
-        vxDLL = WinDLL("c:\\Users\\Public\\Documents\\Vector XL Driver Library\\bin\\vxlapi64.dll")
+    if os.path.isfile(vxl_path):
+        vxDLL = WinDLL(vxl_path)
+    else:
+        print('ERROR: Unable to find {}'.format(vxl_path))
 
 
 getError = vxDLL.xlGetErrorString
