@@ -69,9 +69,9 @@ getEventStr.restype = c_char_p
 class messageToFind(object):
     """Helper class for the receive thread."""
 
-    def __init__(self, msgID, data, mask):
+    def __init__(self, msg_id, data, mask):
         """."""
-        self.msgID = msgID
+        self.msg_id = msg_id
         self.data = data
         self.mask = mask
         self.rxFrames = []
@@ -344,9 +344,9 @@ class transmitThread(Thread):
         while not self.stopped.wait(self.currGcd):
             for msg in self.messages:
                 if self.elapsed % msg[1] == 0:
-                    if msg[2].updateFunc:
+                    if msg[2].update_func:
                         #msg[3](''.join(['{:02X}'.format(x) for x in msg[0][0].tagData.msg.data]))
-                        data = unhexlify(msg[2].updateFunc(msg[2]))
+                        data = unhexlify(msg[2].update_func(msg[2]))
                         data = create_string_buffer(data, len(data))
                         tmpPtr = pointer(data)
                         dataPtr = cast(tmpPtr, POINTER(c_ubyte*8))
@@ -583,14 +583,14 @@ class CAN(object):
     def _send(self, msg, dataString, display=False):
         """Sends a spontaneous CAN message"""
         # Check endianness here and reverse if necessary
-        txID = msg.txId
+        txID = msg.id
         dlc = msg.dlc
         endianness = msg.endianness
         if endianness != 0: # Motorola(Big endian byte order) need to reverse
             dataString = self._reverse(dataString, dlc)
 
-        if msg.updateFunc:
-            dataString = unhexlify(msg.updateFunc(msg))
+        if msg.update_func:
+            dataString = unhexlify(msg.update_func(msg))
         else:
             dataString = unhexlify(dataString)
 
@@ -630,9 +630,9 @@ class CAN(object):
 
     def _send_periodic(self, msg, dataString, display=False):
         """Sends a periodic CAN message"""
-        txID = msg.txId
+        txID = msg.id
         dlc = msg.dlc
-        period = msg.cycleTime
+        period = msg.period
         endianness = msg.endianness
         if not self.initialized:
             logging.error(
@@ -641,8 +641,8 @@ class CAN(object):
         if endianness != 0: # Motorola(Big endian byte order) need to reverse
             dataString = self._reverse(dataString, dlc)
         dataOrig = dataString
-        if msg.updateFunc:
-            dataString = unhexlify(msg.updateFunc(msg))
+        if msg.update_func:
+            dataString = unhexlify(msg.update_func(msg))
         else:
             dataString = unhexlify(dataOrig)
         if display:
@@ -676,10 +676,7 @@ class CAN(object):
             return False
         for periodic in self.parser.dbc.periodics:
             if not periodic.sender.lower() == node.lower():
-                data = hex(periodic.initData)[2:]
-                if data[-1] == 'L':
-                    data = data[:-1]
-                self.send_message(periodic.name, data)
+                self.send_message(periodic.name)
         return True
 
     def stop_periodic(self, name):
@@ -700,7 +697,7 @@ class CAN(object):
                 return False
             elif status == 1:  # number
                 for msg in self.currentPeriodics:
-                    if msgID == msg.txId:
+                    if msgID == msg.id:
                         msgFound = msg
                         break
             else:  # string
@@ -716,11 +713,11 @@ class CAN(object):
                 if msg in self.currentPeriodics:
                     msgFound = msg
             if msgFound:
-                self.txthread.remove(msg.txId)
+                self.txthread.remove(msg.id)
                 if msg.name != 'Unknown':
                     logging.info('Stopping Periodic Msg: ' + msg.name)
                 else:
-                    logging.info('Stopping Periodic Msg: ' + hex(msg.txId)[2:])
+                    logging.info('Stopping Periodic Msg: ' + hex(msg.id)[2:])
                 self.currentPeriodics.remove(msg)
                 msg.sending = False
                 if len(self.currentPeriodics) == 0:
@@ -764,7 +761,7 @@ class CAN(object):
         periodicsToRemove = []
         for msg in self.currentPeriodics:
             if msg.sender.lower() == node.lower(): #pylint: disable=E1103
-                periodicsToRemove.append(msg.txId)
+                periodicsToRemove.append(msg.id)
         if not periodicsToRemove:
             logging.error('No periodics currently being sent by that node!')
             return False
@@ -835,8 +832,8 @@ class CAN(object):
                             sender = node.name
                 msg = pydbc.DBCMessage(msgID, 'Unknown', dlc, sender, [], None,
                                        None, None)
-                msg.txId = msgID
-                msg.cycleTime = cycleTime
+                msg.id = msgID
+                msg.period = cycleTime
         else: # string
             for message in self.parser.dbc.messages.values():
                 if msgID.lower() == message.name.lower():#pylint: disable=E1103
@@ -857,7 +854,7 @@ class CAN(object):
         except ValueError:
             logging.error('Non-hexadecimal characters found in message data')
             return False
-        if msg.cycleTime == 0 or sendOnce:
+        if msg.period == 0 or sendOnce:
             self._send(msg, data, display=display)
         else:
             if not msg.sending:
@@ -884,7 +881,7 @@ class CAN(object):
             value = self.validMsg[1]
             while len(value) < msg.dlc*2:
                 value = '0'+value
-            if msg.cycleTime == 0 or sendOnce:
+            if msg.period == 0 or sendOnce:
                 self._send(msg, value, display=display)
             else:
                 if not msg.sending:
@@ -1141,7 +1138,7 @@ class CAN(object):
         if not alreadySearching:
             msg = self.search_for(msgID, data, inDatabase=inDatabase)
             if msg:
-                resp = self._block_unless_found(msg.txId, timeout)
+                resp = self._block_unless_found(msg.id, timeout)
         else:
             resp = self._block_unless_found(msgID, timeout)
 
@@ -1175,10 +1172,10 @@ class CAN(object):
             self.stopRxThread = Event()
             self.rxthread = receiveThread(self.stopRxThread, self.portHandle,
                                           self.locks[0])
-            self.rxthread.searchFor(msg.txId, data, mask)
+            self.rxthread.searchFor(msg.id, data, mask)
             self.rxthread.start()
         else:
-            self.rxthread.searchFor(msg.txId, data, mask)
+            self.rxthread.searchFor(msg.id, data, mask)
 
         return msg
 
@@ -1196,7 +1193,7 @@ class CAN(object):
         if self.receiving:
             msg, data = self._get_message(msgID, '', inDatabase)
             if msg:
-                self.rxthread.stopSearchingFor(msg.txId)
+                self.rxthread.stopSearchingFor(msg.id)
         return resp
 
     def get_first_rx_message(self, msgID=False):
@@ -1220,7 +1217,7 @@ class CAN(object):
         msg = self.search_for(respID, respData, inDatabase=inDatabase)
         if msg:
             self.send_message(sendID, sendData, inDatabase=inDatabase)
-            resp = self._block_unless_found(msg.txId, timeout)
+            resp = self._block_unless_found(msg.id, timeout)
         return resp
 
     def start_logging(self, path, *args, **kwargs):
@@ -1264,7 +1261,7 @@ class CAN(object):
                 return False
             elif status == 1:  # searching periodics by id
                 for periodic in self.currentPeriodics:
-                    if periodic.txId == msgID:
+                    if periodic.id == msgID:
                         self.lastFoundMessage = periodic
                         self._printMessage(periodic)
                         for sig in periodic.signals:
@@ -1364,8 +1361,8 @@ class CAN(object):
                         sender = node.name
                 msg = pydbc.DBCMessage(msgID, 'Unknown', dlc, sender, [], None,
                                        None, None)
-                msg.txId = msgID
-                msg.cycleTime = 0
+                msg.id = msgID
+                msg.period = 0
         else: # string
             for message in self.parser.dbc.messages.values():
                 if msgID.lower() == message.name.lower():#pylint: disable=E1103
@@ -1480,10 +1477,10 @@ class CAN(object):
                 sig = self.parser.dbc.signalsByName[signal.lower()]
         else:
             sig = self.parser.dbc.signals[signal.lower()]
-        if not self.parser.dbc.messages.has_key(sig.msgID):
+        if not self.parser.dbc.messages.has_key(sig.msg_id):
             logging.error('Message not found!')
             return False
-        msg = self.parser.dbc.messages[sig.msgID]
+        msg = self.parser.dbc.messages[sig.msg_id]
         if not self.parser.dbc.nodes.has_key(msg.sender.lower()):
             logging.error('Node not found!')
             return False
@@ -1516,7 +1513,7 @@ class CAN(object):
             elif (float(value) < sig.min_val) or (float(value) > sig.max_val):
                 logging.error('Value outside of range!')
                 return False
-            if not sig.setVal(value, force=force):
+            if not sig.set_val(value, force=force):
                 logging.error('Unable to set the signal to that value!')
                 return False
             # Clear the current value for the signal
@@ -1532,7 +1529,7 @@ class CAN(object):
     def _printMessage(self, msg):
         """Prints a colored CAN message"""
         print('')
-        msgid = hex(msg.txId)
+        msgid = hex(msg.id)
         data = hex(msg.data)[2:]
         if msgid[-1] == 'L':
             msgid = msgid[:-1]
@@ -1544,13 +1541,13 @@ class CAN(object):
             data = self._reverse(data, msg.dlc)
         txt = Style.BRIGHT+Fore.GREEN+'Message: '+msg.name+' - ID: '+msgid
         print(txt+' - Data: 0x'+data)
-        if msg.cycleTime != 0:
+        if msg.period != 0:
             sending = 'Not Sending'
             color = Fore.WHITE+Back.RED
             if msg.sending:
                 sending = 'Sending'
                 color = Fore.WHITE+Back.GREEN
-            txt = ' - Cycle time(ms): '+str(msg.cycleTime)+' - Status: '
+            txt = ' - Cycle time(ms): '+str(msg.period)+' - Status: '
             txt2 = color+sending+Back.RESET+Fore.MAGENTA+' - TX Node: '
             print(txt+txt2+msg.sender+Fore.RESET+Style.RESET_ALL)
         else:
@@ -1570,7 +1567,7 @@ class CAN(object):
         if sig.values.keys():
             if value:
                 print(color+' - Signal: '+name)
-                print('            ^- '+str(sig.getVal())+rst)
+                print('            ^- '+str(sig.get_val())+rst)
             else:
                 print(color+' - Signal: '+name)
                 sys.stdout.write('            ^- [')
@@ -1584,7 +1581,7 @@ class CAN(object):
         else:
             if value:
                 print(color+' - Signal: '+name)
-                print('            ^- '+str(sig.getVal())+sig.units+rst)
+                print('            ^- '+str(sig.get_val())+sig.units+rst)
             else:
                 print(color+' - Signal: '+name)
                 txt = '            ^- ['+str(sig.min_val)+' : '

@@ -11,6 +11,9 @@ from pyvxl import config, settings
 from pyvxl import CAN
 from pyvxl.initbus import initbus
 
+__program__ = 'can'
+
+
 def initialize_bus(can, node=None):
     """Called by the command 'init' and by default starts all periodics found
        in the database except those transmitted by the device under test.
@@ -125,7 +128,7 @@ def main():
     """This script is intended to test and demonstrate the functionality
        of the vector.py CANcase interface"""
     # pylint: disable=R0912,R0914
-    parser = ArgumentParser(prog='can', description='A license free '+
+    parser = ArgumentParser(prog=__program__, description='A license free '+
                             'interface to the CAN bus')
     parser.add_argument('-v', '--verbose', action='store_true',
                         help="enable verbose output")
@@ -355,7 +358,7 @@ def main():
                                 value = ' '.join(s[3:])
                                 if s[2] == 'message':
                                     if can.lastFoundMessage:
-                                        last = can.lastFoundMessage.txId
+                                        last = can.lastFoundMessage.id
                                         can.send_message(last, value)
                                     else:
                                         mg = ('No messages found'+
@@ -403,8 +406,8 @@ def main():
                         print_help()
                     elif command == 'config':
                         can.print_config()
-                        print(('Connected to channel: '+str(can.channel.value)+
-                               ' @ '+str(can.baud_rate)+'Bd!'))
+                        print('Connected to channel: '+str(can.channel.value)+
+                               ' @ '+str(can.baud_rate)+'Bd!')
                     elif command == 'waitfor':
                         data = ''
                         if len(s) == 3:
