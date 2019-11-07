@@ -60,6 +60,8 @@ class DBCMessage(object):
         self.name = str(name)
         self.sender = str(sender)
         self.signals = signals
+        for signal in signals:
+            signal.add_msg_ref(self)
         self.comment = str(comment)
         self.attributes = attributes
         self.transmitters = transmitters
@@ -75,13 +77,7 @@ class DBCMessage(object):
         """
         # TODO: switch to __data
         # data = self.__data
-        data = self.data
-        for sig in self.signals:
-            # Clear the signal value in data
-            data &= ~sig.mask
-            # Set the value
-            data |= sig.val
-        return '{:0{}X}'.format(data, self.dlc * 2)
+        return '{:0{}X}'.format(self.data, self.dlc * 2)
 
     def set_data(self, data):
         """Update signal values based on data.
@@ -106,11 +102,20 @@ class DBCMessage(object):
                 # Handling for messages without signals
             for sig in self.signals:
                 sig.val = data & sig.mask
-            # TODO: switch to __data
-            # self.__data = data
-            self.data = data
+            self.update_data()
         else:
             logging.error('set_data called with no data!')
+
+    def update_data(self):
+        """Update the message data based on signal values."""
+        # data = self.__data
+        data = self.data
+        for sig in self.signals:
+            # Clear the signal value in data
+            data &= ~sig.mask
+            # Set the value
+            data |= sig.val
+        self.data = data
 
 
 class DBCSignal(object):
@@ -139,14 +144,19 @@ class DBCSignal(object):
         self.sendOnInit = 0
         self.mask = 0
         self.bit_start = 0
+        self.msg = None
+
+    def add_msg_ref(self, msg):
+        """Add a reference to message this signal is included in."""
+        self.msg = msg
 
     def set_val(self, value, force=False):
         """Set the signal's value based on the offset and scale."""
         negative = False
 
-        # self.values will only be set if the signal has a discrete set of values,
-        # otherwise the signal will be defined with min_val and max_val
-        if self.values.keys() and not force:
+        # self.values will only be set if the signal has a discrete set of
+        # values, otherwise the signal will be defined with min_val and max_val
+        if self.values and not force:
             if isinstance(value, str):
                 if value.lower() in self.values:
                     num = self.values[value]
@@ -157,8 +167,9 @@ class DBCSignal(object):
                 try:
                     num = float(value)
                     if value not in self.values.values():
-                        raise ValueError('{} is invalid for {}; valid values = {}'
-                                         ''.format(value, self.name, self.values))
+                        raise ValueError('{} is invalid for {}; valid values ='
+                                         ' {}'.format(value, self.name,
+                                                      self.values))
                 except ValueError:
                     raise ValueError('{} is invalid for {}; valid values = {}'
                                      ''.format(value, self.name, self.values))
@@ -195,6 +206,7 @@ class DBCSignal(object):
             num = self._twos_complement(num)
 
         self.val = num << self.bit_start
+        self.msg.update_data()
         return True
 
     def get_val(self):
