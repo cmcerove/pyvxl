@@ -830,8 +830,7 @@ class CAN(object):
                     for node in self.parser.dbc.nodes.values():
                         if node.sourceID == msgID&0xFFF:
                             sender = node.name
-                msg = pydbc.DBCMessage(msgID, 'Unknown', dlc, sender, [], None,
-                                       None, None)
+                msg = pydbc.DBCMessage(msgID, 'Unknown', dlc, sender, [])
                 msg.id = msgID
                 msg.period = cycleTime
         else: # string
@@ -1359,8 +1358,7 @@ class CAN(object):
                 for node in self.parser.dbc.nodes.values():
                     if node.sourceID == msgID&0xFFF:
                         sender = node.name
-                msg = pydbc.DBCMessage(msgID, 'Unknown', dlc, sender, [], None,
-                                       None, None)
+                msg = pydbc.DBCMessage(msgID, 'Unknown', dlc, sender, [])
                 msg.id = msgID
                 msg.period = 0
         else: # string
