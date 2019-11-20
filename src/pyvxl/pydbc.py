@@ -49,8 +49,7 @@ class DBCNode(object):
 class DBCMessage(object):
     """DBC message object."""
 
-    def __init__(self, msgid, name, length, sender, signals, comment,
-                 attributes, transmitters):
+    def __init__(self, msgid, name, length, sender, signals):
         """."""
         self.id = int(msgid)
         self.dlc = length
@@ -62,12 +61,18 @@ class DBCMessage(object):
         self.signals = signals
         for signal in signals:
             signal.add_msg_ref(self)
-        self.comment = str(comment)
-        self.attributes = attributes
-        self.transmitters = transmitters
         self.period = 0
+        self.delay = None
+        self.send_type_num = None
+        self.send_type = None
+        self.repetitions = None
         self.sending = False
         self.update_func = None
+
+        # TODO: delete these three below after making sure they aren't used
+        self.comment = ''
+        self.attributes = None
+        self.transmitters = None
 
     def get_data(self):
         """Get the current message data based on each signal value.
@@ -415,6 +420,7 @@ class DBCParser(object):
         self.dbc = DBCFile()
         self.signalDict = {}
         self.signalDictByName = {}
+        self.send_types = []
         self.nodeDict = {}
         self.msgDict = {}
         if lexer:
@@ -594,7 +600,7 @@ class DBCParser(object):
 
     def p_message(self, p):
         '''message : BO INT_VAL ID ':' INT_VAL ID signal_list'''
-        p[0] = DBCMessage(p[2], p[3], p[5], p[6], p[7], "", None, None)
+        p[0] = DBCMessage(p[2], p[3], p[5], p[6], p[7])
         for sig in p[7]:
             sig.msg_id = p[2]
 
@@ -606,19 +612,13 @@ class DBCParser(object):
             p[0].append(p[1])
         else:
             p[0] = []
-        pass
 
     def p_signal(self, p):
         '''signal : SG signal_name mux_info ':' bit_start '|' bit_len '@' endianness signedness '(' scale ',' offset ')' '[' min '|' max ']' STRING_VAL comma_identifier_list'''
         p[0] = DBCSignal(p[2], p[3], p[5], p[7], p[9], p[10], p[12], p[14], p[17], p[19],
                          p[21], p[22])
         self.signalDict[p[2].lower()] = p[0]
-        pass
 
-    # Environment variables
-    #########################################################################
-
-    ###
     def p_envvar_list(self, p):
         '''envvar_list : empty
                        | envvar envvar_list'''
@@ -628,20 +628,16 @@ class DBCParser(object):
         else:
             p[0] = []
 
-
-    ###
     def p_envvar(self, p):
         '''envvar : EV ID ':' INT_VAL '[' double_val '|' double_val ']' \
                     STRING_VAL double_val INT_VAL DUMMY_NODE_VECTOR comma_identifier_list ';' '''
         p[0] = DBCEnvVar(p[2], p[4], p[6], p[8], p[10], p[11], p[12], p[13], p[14])
 
-    ###
     def p_envvar_data_list(self, p):
         '''envvar_data_list : empty
                             | envvar_data envvar_data_list'''
         pass
 
-    ###
     def p_envvar_data(self, p):
         '''envvar_data : ENVVAR_DATA ID ':' INT_VAL ';' '''
         pass
@@ -651,7 +647,6 @@ class DBCParser(object):
                            | STRING_VAL
                            | DOUBLE_VAL'''
         p[0] = p[1]
-        pass
 
 
     def p_attribute_list(self, p):
@@ -680,7 +675,13 @@ class DBCParser(object):
             self.nodeDict[p[4].lower()].sourceID = p[5]
         elif p[2] == 'GenMsgCycleTime':
             self.msgDict[p[4]].period = p[5]
-        pass
+        elif p[2] == 'GenMsgDelayTime':
+            self.msgDict[p[4]].delay = p[5]
+        elif p[2] == 'GenMsgSendType':
+            # print('Setting send type for {:X} to {}'.format(p[4], p[5]))
+            self.msgDict[p[4]].send_type_num = p[5]
+        elif p[2] == 'GenMsgNrOfRepetitions':
+            self.msgDict[p[4]].repetitions = p[5]
 
     def p_attribute_rel_list(self, p):
         '''attribute_rel_list : empty
@@ -696,7 +697,6 @@ class DBCParser(object):
                                              | attribute_definition_default attribute_definition_default_list'''
         pass
 
-    # set context dependent attribute value type
     def p_attribute_definition_default(self, p):
         '''attribute_definition_default : attribute_definition_object_or_relation STRING_VAL INT_VAL ';'
                                         | attribute_definition_object_or_relation STRING_VAL DOUBLE_VAL ';'
@@ -719,7 +719,9 @@ class DBCParser(object):
                                 | attribute_object_type STRING_VAL STRING ';'
                                 | attribute_object_type STRING_VAL ENUM comma_string_list ';'
                                 | attribute_object_type STRING_VAL HEX INT_VAL INT_VAL ';' '''
-        pass
+        if p[2] == 'GenMsgSendType' and p[3] == 'ENUM':
+            self.send_types = p[4]
+            self.send_types.reverse()
 
     def p_attribute_object_type(self, p):
         '''attribute_object_type : BA_DEF
@@ -729,9 +731,8 @@ class DBCParser(object):
                                  | BA_DEF EV
                                  | BA_DEF_REL BU_SG_REL
                                  | BA_DEF_REL BU_BO_REL'''
-        pass
-
-    #*********************************************************************
+        if len(p) == 3:
+            p[0] = p[2]
 
     def p_val_list(self, p):
         '''val_list : empty
@@ -743,7 +744,6 @@ class DBCParser(object):
                | VAL ID val_map ';' '''
         if len(p) == 6:
             self.signalDict[p[3].lower()].values = p[4]
-        pass
 
     def p_val_map(self, p):
         '''val_map : empty
@@ -753,39 +753,25 @@ class DBCParser(object):
             p[2][p[1][1]] = p[1][0]
         else:
             p[0] = {}
-        pass
 
     def p_val_map_entry(self, p):
         '''val_map_entry : INT_VAL STRING_VAL'''
         p[0] = (p[1], p[2].lower())
-        pass
-
-    #*********************************************************************
 
     def p_sig_valtype_list(self, p):
         '''sig_valtype_list : empty
                             | sig_valtype sig_valtype_list'''
         pass
 
-    # set signal value type in target signal
-    #
-    # SIG_VALTYPE:
-    # no section - signed or unsigned
-    # 1 - IEEE float
-    # 2 - IEEE double
-    #
     def p_sig_valtype(self, p):
         '''sig_valtype : SIG_VALTYPE INT_VAL ID ':' INT_VAL ';' '''
         pass
-
-    #*********************************************************************
 
     def p_comment_list(self, p):
         '''comment_list : empty
                         | comment comment_list'''
         pass
 
-    # TODO: append comment to object
     def p_comment(self, p):
         '''comment : CM STRING_VAL ';'
                    | CM EV ID STRING_VAL ';'
@@ -793,8 +779,6 @@ class DBCParser(object):
                    | CM BO INT_VAL STRING_VAL ';'
                    | CM SG INT_VAL ID STRING_VAL ';' '''
         pass
-
-    #*********************************************************************
 
     def p_mux_info(self, p):
         '''mux_info : empty
@@ -822,9 +806,12 @@ class DBCParser(object):
     def p_comma_string_list(self, p):
         '''comma_string_list : STRING_VAL
                              | STRING_VAL ',' comma_string_list'''
-        pass
+        if len(p) == 4:
+            p[0] = p[3]
+            p[0].append(p[1])
+        else:
+            p[0] = [p[1]]
 
-    # double_val or int_val as float
     def p_double_val(self, p):
         '''double_val : DOUBLE_VAL
                       | NAN
@@ -867,18 +854,15 @@ class DBCParser(object):
                       | '-' '''
         pass
 
-    # signal group
     def p_signal_group(self, p):
         '''signal_group : SIG_GROUP INT_VAL ID INT_VAL ':' signal_name_list ';' '''
         pass
 
-    # signal group_list
     def p_signal_group_list(self, p):
         '''signal_group_list : empty
                              | signal_group signal_group_list'''
         pass
 
-    # TODO: use comma_node_dict
     def p_message_transmitters(self, p):
         '''message_transmitters : BO_TX_BU INT_VAL ':' comma_identifier_list ';' '''
         pass
@@ -927,6 +911,9 @@ def importDBC(path):
     msbMap = _msbMap()
     for msg in p.dbc.messages.values():
         setendianness = False
+        if msg.send_type_num is not None and\
+           msg.send_type_num < len(p.send_types):
+            msg.send_type = p.send_types[msg.send_type_num]
         for sig in msg.signals:
             if not setendianness:
                 if msg.period:
