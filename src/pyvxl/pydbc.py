@@ -101,7 +101,7 @@ class DBCMessage(object):
                 # Check for invalid length
                 if len('{:X}'.format(data)) > (self.dlc * 2):
                     raise ValueError('{:X} is longer than message length of {}'
-                                     ' bytes'.format(data, self.dlc * 2))
+                                     ' bytes'.format(data, self.dlc))
             else:
                 raise TypeError('Expected an int or str but got {}'.format(type(data)))
                 # Handling for messages without signals
