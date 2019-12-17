@@ -1031,7 +1031,7 @@ class CAN(object):
         searchStr (string): the signal name whose values will be returned
         """
         ret = None
-        if self.find_signal(searchStr, exact=True) and self.lastFoundSignal:
+        if self.find_signal(searchStr) and self.lastFoundSignal:
             ret = self.lastFoundSignal.values
         return ret
 

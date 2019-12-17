@@ -145,7 +145,7 @@ class DBCSignal(object):
         self.values = {}
         self.msg_id = 0
         self.val = 0
-        self.initVal = 0
+        self.initVal = None
         self.sendOnInit = 0
         self.mask = 0
         self.bit_start = 0
@@ -184,8 +184,9 @@ class DBCSignal(object):
             except ValueError:
                 logging.error('Unable to force a non numerical value!')
         elif (float(value) < self.min_val) or (float(value) > self.max_val):
-            raise ValueError('Value out of range! Valid range is {} to {}'
-                             ' for signal {}.'.format(self.min_val,
+            raise ValueError('Value {} out of range! Valid range is {} to {}'
+                             ' for signal {}.'.format(float(value),
+                                                      self.min_val,
                                                       self.max_val,
                                                       self.name))
         else:
@@ -934,7 +935,8 @@ def importDBC(path):
                 except KeyError: # This only happens when the msb doesn't change
                     sig.bit_start = sig.bit_msb-(sig.bit_len-1)
                 sig.set_mask()
-                sig.set_val(sig.initVal)
+                if sig.initVal is not None:
+                    sig.set_val(sig.initVal)
     return p
 
 
