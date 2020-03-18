@@ -792,7 +792,7 @@ class CAN(object):
         try:
             self.parser = pydbc.importDBC(self.dbc_path)
             self.imported = True
-            logging.info('Successfully imported: '+dbcname)
+            logging.info('Successfully imported: {}'.format(dbcname))
             return True
         except Exception: #pylint: disable=W0703
             self.imported = False

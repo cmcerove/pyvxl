@@ -215,21 +215,28 @@ class DBCSignal(object):
         self.msg.update_data()
         return True
 
-    def get_val(self):
-        """Get the signal's value."""
+    def get_val(self, raw=False):
+        """Get the signal's value.
+
+        Args:
+            raw: If True, always returns the numeric value of the signal.
+        """
         tmp = self.val >> self.bit_start
-        currVal = (tmp * self.scale + self.offset)
-        # Check if currVal is really supposed to be negative
-        if currVal > 0 and self.min_val < 0:
-            bval = '{:b}'.format(int(currVal))
+        curr_val = (tmp * self.scale + self.offset)
+        # Check if curr_val is really supposed to be negative
+        if curr_val > 0 and self.min_val < 0:
+            bval = '{:b}'.format(int(curr_val))
             if bval[0] == '1' and len(bval) == self.bit_len:
-                currVal = float(-self._twos_complement(int(currVal)))
-        if self.values.keys():
-            for key, val in self.values.items():
-                if val == currVal:
-                    return key
-        else:
-            return currVal
+                curr_val = float(-self._twos_complement(int(curr_val)))
+
+        if self.values:
+            if not raw:
+                for key, val in self.values.items():
+                    if val == curr_val:
+                        curr_val = key
+            else:
+                curr_val = int(curr_val)
+        return curr_val
 
     def _twos_complement(self, num):
         """Return the twos complement value of a number."""
@@ -936,7 +943,7 @@ def importDBC(path):
                     sig.bit_start = sig.bit_msb-(sig.bit_len-1)
                 sig.set_mask()
                 if sig.initVal is not None:
-                    sig.set_val(sig.initVal)
+                    sig.set_val(sig.initVal * sig.scale + sig.offset)
     return p
 
 

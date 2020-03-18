@@ -77,10 +77,20 @@ setup(
     entry_points={'console_scripts': console_scripts},
 
     install_requires=["ply",
+                      "pytest"
                       "colorama",
                       "configparser",
                       "pypiwin32"],
 
+    classifiers=[
+        'Programming Language :: Python :: 2.7',
+        # 'Programming Language :: Python :: 3',
+        'License :: OSI Approved :: MIT License',
+        'Environment :: Win32 (MS Windows)',
+        'Operating System :: Microsoft :: Windows :: Windows 10',
+    ],
+    python_requires='>=2.7,<3.0',
+    # python_requires='>=2.7,!=3.0.*,!=3.1.*'
 )
 
 # Show warnings
