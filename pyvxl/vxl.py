@@ -24,8 +24,6 @@ from ctypes import c_long, create_string_buffer
 # Grab the c library and some functions from it
 if os.name == 'nt':
     libc = cdll.msvcrt
-else:
-    libc = CDLL("libc.so.6")
 printf = libc.printf
 strncpy = libc.strncpy
 memset = libc.memset
@@ -38,8 +36,12 @@ CAN_BUS_TYPE = 1
 class VxlCan(object):
     """."""
 
-    def __init__(self, channel=0, baudrate=500000, dbc='', rx_queue_size=8192):
+    def __init__(self, channel=0, baud_rate=500000, rx_queue_size=8192):
         """."""
+        if not isinstance(channel, int):
+            raise TypeError('Expected int but got {}'.format(type(channel)))
+        if not isinstance(baud_rate, int):
+            raise TypeError('Expected int but got {}'.format(type(baud_rate)))
         self.port_opened = False
         self.channel_activated = False
         self.channel_valid = False
@@ -52,7 +54,7 @@ class VxlCan(object):
         # channel_mask = 1 << channel_index
         self.channel_mask = 0
         self.rx_queue_size = rx_queue_size
-        self.baudrate = baudrate
+        self.baud_rate = baud_rate
         vxl_open_driver()
         self.update_driver_config()
         self.set_channel(int(channel))
@@ -65,13 +67,15 @@ class VxlCan(object):
     def set_channel(self, channel):
         """Set the vector hardware channel."""
         self.channel = channel
+        self.channel_valid = False
         if not self.driver_config.channelCount:
-            logging.error("No available CAN channels!")
+            logging.error('No available CAN channels!')
         elif self.channel > self.driver_config.channelCount:
-            logging.error("Channel {} does not exist!".format(self.channel))
+            logging.error('Channel {} does not exist!'.format(self.channel))
         else:
             if not self.channel:
-                # No channel specified, connect to the last channel which should be virtual
+                # No channel specified, connect to the last channel which
+                # should be virtual
                 self.channel = self.driver_config.channelCount
             self.channel_index = self.channel - 1
             self.channel_mask = c_ulonglong(1 << int(self.channel_index))
@@ -79,8 +83,7 @@ class VxlCan(object):
             if channel_config.channelBusCapabilities & CAN_SUPPORTED:
                 self.channel_valid = True
             else:
-                self.channel_valid = False
-                logging.error("Channel {} doesn't support CAN!".format(self.channel))
+                logging.error('Channel {} doesn\'t support CAN!'.format(self.channel))
 
     def update_driver_config(self):
         """Update the list of connected hardware."""
@@ -92,36 +95,40 @@ class VxlCan(object):
         logging.debug('Vxl Channels {}'
                       ''.format(self.driver_config.channelCount))
 
-    def start(self, display=False):
+    def start(self):
         """Connect to the CAN channel."""
         if self.channel_valid:
             ph_ptr = pointer(self.port_handle)
-            app_name = create_string_buffer("pyvxl", 32)
+            app_name = create_string_buffer('pyvxl', 32)
             perm_mask = c_ulonglong(self.channel_mask.value)
             perm_ptr = pointer(perm_mask)
             # portHandle, userName, accessMask, permissionMask, rxQueueSize,
             # interfaceVersion, busType
-            self.port_opened = vxl_open_port(ph_ptr, app_name, self.channel_mask, perm_ptr,
-                                             self.rx_queue_size, 3, CAN_BUS_TYPE)
+            self.port_opened = vxl_open_port(ph_ptr, app_name,
+                                             self.channel_mask, perm_ptr,
+                                             self.rx_queue_size, 3,
+                                             CAN_BUS_TYPE)
             if not self.port_opened:
-                logging.error("Failed to open the port!")
+                logging.error('Failed to open the port!')
             else:
                 # Check if we have init access
                 if perm_mask.value == self.channel_mask.value:
-                    vxl_set_baudrate(self.port_handle, self.channel_mask, int(self.baudrate))
+                    vxl_set_baudrate(self.port_handle, self.channel_mask,
+                                     int(self.baud_rate))
                     vxl_reset_clock(self.port_handle)
                     vxl_flush_tx_queue(self.port_handle, self.channel_mask)
                     vxl_flush_rx_queue(self.port_handle)
 
                 # portHandle, accessMask, busType, flags
-                if vxl_activate_channel(self.port_handle, self.channel_mask, CAN_BUS_TYPE, 8):
+                if vxl_activate_channel(self.port_handle, self.channel_mask,
+                                        CAN_BUS_TYPE, 8):
                     self.channel_activated = True
                     txt = 'Successfully connected to Channel {} @ {}Bd!'
-                    logging.info(txt.format(self.channel, self.baudrate))
+                    logging.info(txt.format(self.channel, self.baud_rate))
                 else:
-                    logging.error("Failed to activate the channel")
+                    logging.error('Failed to activate the channel')
         else:
-            logging.error("Unable to start with an invalid channel!")
+            logging.error('Unable to start with an invalid channel!')
 
         return self.channel_activated
 
@@ -139,16 +146,18 @@ class VxlCan(object):
         vxl_deactivate_channel(self.port_handle, self.channel_mask)
         vxl_flush_tx_queue(self.port_handle, self.channel)
         vxl_flush_rx_queue(self.port_handle)
-        vxl_activate_channel(self.port_handle, self.channel_mask, CAN_BUS_TYPE, 8)
+        vxl_activate_channel(self.port_handle, self.channel_mask, CAN_BUS_TYPE,
+                             8)
 
     def high_voltage_wakeup(self):
         """Send a high voltage wakeup message."""
-        # TODO: Check that we're connected. Needs testing.
-        raise NotImplementedError
+        """
         linModeWakeup = c_uint(0x0007)
         vxl_set_transceiver(self.port_handle, self.channel_mask, c_int(0x0006),
                             linModeWakeup, c_uint(100))
         return True
+        """
+        raise NotImplementedError
 
     def send(self, msg_id, msg_data):
         """Send a CAN message."""
@@ -156,29 +165,31 @@ class VxlCan(object):
         msg_data = unhexlify(msg_data)
         dlc = len(msg_data)
         if dlc:
-            logging.debug("Sending CAN Msg: 0x{0:X} Data: {1}".format(msg_id & ~0x80000000,
-                          hexlify(msg_data).upper()))
+            logging.debug('Sending CAN Msg: 0x{0:X} Data: {1}'
+                          ''.format(msg_id & ~0x80000000,
+                                    hexlify(msg_data).upper()))
         else:
-            logging.debug("Sending CAN Msg: 0x{0:X} Data: None".format(msg_id))
+            logging.debug('Sending CAN Msg: 0x{0:X} Data: None'.format(msg_id))
 
-        xlEvent = vxl_event_type()
+        xl_event = vxl_event_type()
         data = create_string_buffer(msg_data, 8)
-        memset(pointer(xlEvent), 0, sizeof(xlEvent))
-        xlEvent.tag = c_ubyte(0x0A)
+        memset(pointer(xl_event), 0, sizeof(xl_event))
+        xl_event.tag = c_ubyte(0x0A)
         if msg_id > 0x8000:
-            xlEvent.tagData.msg.id = c_ulong(msg_id | 0x80000000)
+            xl_event.tagData.msg.id = c_ulong(msg_id | 0x80000000)
         else:
-            xlEvent.tagData.msg.id = c_ulong(msg_id)
-        xlEvent.tagData.msg.dlc = c_ushort(dlc)
-        xlEvent.tagData.msg.flags = c_ushort(0)
+            xl_event.tagData.msg.id = c_ulong(msg_id)
+        xl_event.tagData.msg.dlc = c_ushort(dlc)
+        xl_event.tagData.msg.flags = c_ushort(0)
         # Converting from a string to a c_ubyte array
-        tmpPtr = pointer(data)
-        dataPtr = cast(tmpPtr, POINTER(c_ubyte * 8))
-        xlEvent.tagData.msg.data = dataPtr.contents
-        msgCount = c_uint(1)
-        msgPtr = pointer(msgCount)
-        eventPtr = pointer(xlEvent)
-        vxl_transmit(self.port_handle, self.channel_mask, msgPtr, eventPtr)
+        tmp_ptr = pointer(data)
+        data_ptr = cast(tmp_ptr, POINTER(c_ubyte * 8))
+        xl_event.tagData.msg.data = data_ptr.contents
+        msg_count = c_uint(1)
+        msg_ptr = pointer(msg_count)
+        event_ptr = pointer(xl_event)
+        return vxl_transmit(self.port_handle, self.channel_mask, msg_ptr,
+                            event_ptr)
 
     def receive(self):
         """Receive a CAN message."""
@@ -205,13 +216,16 @@ class VxlCan(object):
             virtual_channel = bool('Virtual' in channel_config.name)
             if virtual_channel:
                 virtual_channels_found = True
-            can_supported = bool(channel_config.channelBusCapabilities & CAN_SUPPORTED)
+            can_supported = bool(channel_config.channelBusCapabilities &
+                                 CAN_SUPPORTED)
             if can_supported:
                 if include_virtual or not virtual_channel:
                     if virtual_channels_found:
-                        can_channels.append(int(channel_config.channelIndex) - 1)
+                        can_channels.append(int(channel_config.channelIndex) -
+                                            1)
                     else:
-                        can_channels.append(int(channel_config.channelIndex) + 1)
+                        can_channels.append(int(channel_config.channelIndex) +
+                                            1)
 
         return can_channels
 
@@ -219,10 +233,10 @@ class VxlCan(object):
         """Print the current hardware configuration."""
         found_piggy = False
         buff = create_string_buffer(32)
-        printf("----------------------------------------------------------\n")
-        printf("- %2d channels       Hardware Configuration              -\n",
+        printf('----------------------------------------------------------\n')
+        printf('- %2d channels       Hardware Configuration              -\n',
                self.driver_config.channelCount)
-        printf("----------------------------------------------------------\n")
+        printf('----------------------------------------------------------\n')
         for i in range(self.driver_config.channelCount):
             if debug:
                 chan = str(int(self.driver_config.channel[i].channelIndex))
@@ -233,29 +247,18 @@ class VxlCan(object):
                 chan = str(int(self.driver_config.channel[i].channelIndex) + 1)
                 sys.stdout.write('- Channel: ' + chan + ', ')
             strncpy(buff, self.driver_config.channel[i].name, 23)
-            printf(" %23s, ", buff)
+            printf(' %23s, ', buff)
             memset(buff, 0, sizeof(buff))
             if self.driver_config.channel[i].transceiverType != 0x0000:
                 found_piggy = True
-                strncpy(buff, self.driver_config.channel[i].transceiverName, 13)
-                printf("%13s -\n", buff)
+                strncpy(buff, self.driver_config.channel[i].transceiverName,
+                        13)
+                printf('%13s -\n', buff)
             else:
-                printf("    no Cab!   -\n", buff)
+                printf('    no Cab!   -\n', buff)
 
-        printf("----------------------------------------------------------\n")
+        printf('----------------------------------------------------------\n')
         if not found_piggy:
-            logging.info("Virtual channels only!")
+            logging.info('Virtual channels only!')
             return False
-
-
-if __name__ == '__main__':
-    vxl_can = VxlCan()
-    vxl_can.print_config()
-    vxl_can.start()
-    try:
-        while True:
-            sleep(1)
-            while vxl_can.receive():
-                pass
-    except KeyboardInterrupt:
-        pass
+        return True
