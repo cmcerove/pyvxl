@@ -1,6 +1,8 @@
 #!/usr/bin/env python
-"""
-Vector DBC file parser. Based on the DBC file parser part of
+
+"""DBC file parser.
+
+Based on the DBC file parser part of
 http://sourceforge.net/projects/cantools/ .
 
 Usage:
@@ -12,8 +14,8 @@ Regerences:
     http://www.dabeaz.com/ply/PLYTalk.pdf
 """
 
-import sys, logging
-from binascii import unhexlify
+import sys
+import logging
 import ply.lex as lex
 import ply.yacc as yacc
 
@@ -31,7 +33,7 @@ class DBCFile(object):
         self.envvars = None
         self.attributes = None
         self.signals = None
-        self.signalsByName = None
+        self.signals_by_name = None
 
 
 class DBCNode(object):
@@ -40,10 +42,10 @@ class DBCNode(object):
     def __init__(self, name):
         """."""
         self.name = name
-        self.sourceID = 0
-        self.ecuID = 0
-        self.txMessages = []
-        self.rxMessages = []
+        self.source_id = 0
+        self.ecu_id = 0
+        self.tx_messages = []
+        self.rx_messages = []
 
 
 class DBCMessage(object):
@@ -141,12 +143,12 @@ class DBCSignal(object):
         self.max_val = max_val
         self.units = units
         self.receivers = receivers
-        self.fullName = ''
+        self.full_name = ''
         self.values = {}
         self.msg_id = 0
         self.val = 0
-        self.initVal = None
-        self.sendOnInit = 0
+        self.init_val = None
+        self.send_on_init = 0
         self.mask = 0
         self.bit_start = 0
         self.msg = None
@@ -485,7 +487,7 @@ class DBCParser(object):
         self.dbc.envvars = p[8]
         self.dbc.attributes = p[13]
         # envvar_data_list - ignored
-        self.dbc.signalsByName = self.signalDictByName
+        self.dbc.signals_by_name = self.signalDictByName
         self.dbc.signals = self.signalDict
 
     # Version
@@ -601,7 +603,7 @@ class DBCParser(object):
             p[0][p[1].id] = p[1]
             if not self.nodeDict.has_key(p[1].sender.lower()):
                 self.nodeDict[p[1].sender.lower()] = DBCNode(p[1].sender)
-            self.nodeDict[p[1].sender.lower()].txMessages.append(p[1])
+            self.nodeDict[p[1].sender.lower()].tx_messages.append(p[1])
             self.msgDict = p[0]
         else:
             p[0] = {}
@@ -673,14 +675,14 @@ class DBCParser(object):
                      | BA STRING_VAL SG INT_VAL ID attribute_value ';'
                      | BA STRING_VAL EV ID attribute_value ';' '''
         if p[2] == 'SignalLongName':
-            self.signalDict[p[5].lower()].fullName = p[6]
+            self.signalDict[p[5].lower()].full_name = p[6]
             self.signalDictByName[p[6].lower()] = self.signalDict[p[5].lower()]
         elif p[2] == 'GenSigStartValue':
-            self.signalDict[p[5].lower()].initVal = p[6]
+            self.signalDict[p[5].lower()].init_val = p[6]
         elif p[2] == 'GenSigSendOnInit':
-            self.signalDict[p[5].lower()].sendOnInit = p[6]
+            self.signalDict[p[5].lower()].send_on_init = p[6]
         elif p[2] == 'SourceId':
-            self.nodeDict[p[4].lower()].sourceID = p[5]
+            self.nodeDict[p[4].lower()].source_id = p[5]
         elif p[2] == 'GenMsgCycleTime':
             self.msgDict[p[4]].period = p[5]
         elif p[2] == 'GenMsgDelayTime':
@@ -928,7 +930,7 @@ def importDBC(path):
                     p.dbc.periodics.append(msg)
                 if msg.id > 0xFFFF:
                     if msg.sender.lower() in p.dbc.nodes:
-                        sender = p.dbc.nodes[msg.sender.lower()].sourceID
+                        sender = p.dbc.nodes[msg.sender.lower()].source_id
                         if (sender&0xF00) > 0:
                             print(msg.name)
                         msg.id = (msg.id&0xFFFF000)|0x10000000|sender
@@ -942,8 +944,8 @@ def importDBC(path):
                 except KeyError: # This only happens when the msb doesn't change
                     sig.bit_start = sig.bit_msb-(sig.bit_len-1)
                 sig.set_mask()
-                if sig.initVal is not None:
-                    sig.set_val(sig.initVal * sig.scale + sig.offset)
+                if sig.init_val is not None:
+                    sig.set_val(sig.init_val * sig.scale + sig.offset)
     return p
 
 
@@ -971,7 +973,7 @@ def main():
     signals = []
     for node in p.dbc.nodes.values():
         nodes.append(node)
-        for msg in node.txMessages:
+        for msg in node.tx_messages:
             messages.append(msg)
             for sig in msg.signals:
                 signals.append(sig)

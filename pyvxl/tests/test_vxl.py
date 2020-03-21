@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-"""Tests for pyvxl.vxl.
+"""Unit tests for pyvxl.vxl.
 
 Possible command line options for pytest:
     --junitxml=report.xml
@@ -43,7 +43,7 @@ CAN_BUS_TYPE = 1
 
 @pytest.fixture
 def vxl():
-    """Test fixture for pyvxl.CAN."""
+    """Test fixture for pyvxl.vxl.VxlCan."""
     return VxlCan()
 
 

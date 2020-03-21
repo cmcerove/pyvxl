@@ -15,9 +15,8 @@ from pyvxl.vxl_data_types import vxl_driver_config_type, vxl_event_type
 import os
 import sys
 import logging
-from time import sleep
 from binascii import hexlify, unhexlify
-from ctypes import cdll, CDLL, c_uint, c_int, c_ubyte, c_ulong, cast
+from ctypes import cdll, c_uint, c_int, c_ubyte, c_ulong, cast
 from ctypes import c_ushort, c_ulonglong, pointer, sizeof, POINTER
 from ctypes import c_long, create_string_buffer
 

@@ -89,7 +89,7 @@ for directory in DIRECTORIES:
         path = os.path.join(directory, filename)
         if os.path.isfile(path):
             config = configparser.RawConfigParser()
-            config.read(path)
+            config.read(unicode(path))
             for section in SECTIONS:
                 if config.has_section(section):
                     for name, value in config.items(section):

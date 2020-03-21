@@ -407,7 +407,7 @@ def main():
                     elif command == 'config':
                         can.print_config()
                         print('Connected to channel: '+str(can.channel.value)+
-                               ' @ '+str(can.baud_rate)+'Bd!')
+                              ' @ '+str(can.baud_rate)+'Bd!')
                     elif command == 'waitfor':
                         data = ''
                         if len(s) == 3:
@@ -433,7 +433,7 @@ def main():
                                     inp = ' '.join(s[2:])
                                     print(inp)
                                     can.print_periodics(info=True,
-                                                        searchFor=inp)
+                                                        search_for=inp)
                                 else:
                                     can.print_periodics(info=True)
                             else:
