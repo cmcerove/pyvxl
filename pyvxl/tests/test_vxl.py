@@ -44,7 +44,9 @@ CAN_BUS_TYPE = 1
 @pytest.fixture
 def vxl():
     """Test fixture for pyvxl.vxl.VxlCan."""
-    return VxlCan()
+    vxl = VxlCan()
+    vxl.start()
+    return vxl
 
 
 def test_invalid_channel_type():
@@ -85,16 +87,18 @@ def test_set_channel_no_can_support(vxl, caplog):
     assert caplog.record_tuples == [('root', logging.ERROR, expected)]
 
 
-def test_start_invalid_channel(vxl, caplog):
+def test_start_invalid_channel(caplog):
     """."""
+    vxl = VxlCan()
     expected = 'Unable to start with an invalid channel!'
     vxl.channel_valid = False
     assert vxl.start() is False
     assert caplog.record_tuples == [('root', logging.ERROR, expected)]
 
 
-def test_start_open_port_fail(vxl, caplog, monkeypatch):
+def test_start_open_port_fail(caplog, monkeypatch):
     """."""
+    vxl = VxlCan()
     def vxl_open_port_fail(one, two, three, four, five, six, seven):
         return False
     monkeypatch.setattr(vxl_file, 'vxl_open_port', vxl_open_port_fail)
@@ -103,8 +107,9 @@ def test_start_open_port_fail(vxl, caplog, monkeypatch):
     assert caplog.record_tuples == [('root', logging.ERROR, expected)]
 
 
-def test_start_active_channel_fail(vxl, caplog, monkeypatch):
+def test_start_active_channel_fail(caplog, monkeypatch):
     """."""
+    vxl = VxlCan()
     def vxl_activate_channel_fail(one, two, three, four):
         return False
     monkeypatch.setattr(vxl_file, 'vxl_activate_channel',
@@ -114,13 +119,14 @@ def test_start_active_channel_fail(vxl, caplog, monkeypatch):
     assert caplog.record_tuples == [('root', logging.ERROR, expected)]
 
 
-def test_start_valid(vxl, caplog):
+def test_start_valid(caplog):
     """."""
+    vxl = VxlCan()
     caplog.set_level(logging.INFO)
     channel = vxl.driver_config.channelCount
     expected = ('Successfully connected to Channel {} @ {}Bd!'
                 ''.format(channel, 500000))
-    assert vxl.start() is True
+    assert vxl.start()
     assert caplog.record_tuples == [('root', logging.INFO, expected)]
 
 
@@ -142,47 +148,32 @@ def test_stop_channel_deactivated_port_closed(vxl):
     assert vxl.port_opened is False
 
 
-def test_reconnect_fail_virtual_channel(vxl):
-    """."""
-    with pytest.raises(ValueError):
-        vxl.reconnect()
-
-
 def test_reconnect(vxl, monkeypatch):
     """."""
-    # Flush tx queue doesn't work with virtual CAN channels so it needs to be
-    # mocked.
-    def vxl_flush_override(*args):
-        pass
-    monkeypatch.setattr(vxl_file, 'vxl_flush_tx_queue', vxl_flush_override)
+    # # Flush tx queue doesn't work with virtual CAN channels so it needs to be
+    # # mocked.
+    # def vxl_flush_override(*args):
+    #     pass
+    # monkeypatch.setattr(vxl_file, 'vxl_flush_tx_queue', vxl_flush_override)
     vxl.reconnect()
-
-
-def test_high_voltage_wakeup_error(vxl):
-    """."""
-    with pytest.raises(NotImplementedError):
-        vxl.high_voltage_wakeup()
 
 
 def test_vxl_send_with_data_and_short_id(vxl, caplog):
     """."""
     caplog.set_level(logging.DEBUG)
-    assert vxl.start() is True
-    assert vxl.send(0x123, '010203') is True
+    assert vxl.send(0x123, '010203')
 
 
 def test_vxl_send_without_data_and_long_id(vxl, caplog):
     """."""
-    assert vxl.start() is True
     caplog.set_level(logging.DEBUG)
-    assert vxl.send(0x1234567, '') is True
+    assert vxl.send(0x1234567, '')
 
 
 def test_receive(vxl):
     """."""
-    assert vxl.start() is True
     assert vxl.receive() is None
-    assert vxl.send(0x123, '1234') is True
+    assert vxl.send(0x123, '1234')
     rx, ch, ts, mid, dlc, data, tx, tid = vxl.receive()
     assert rx == 'RX_MSG'
     assert mid == 'id=0123'
@@ -213,3 +204,21 @@ def test_print_config(vxl):
     vxl.print_config()
     vxl.driver_config.channelCount = 0
     vxl.print_config()
+
+
+def test_get_rx_queue_size(vxl):
+    """."""
+    assert isinstance(vxl.get_rx_queue_size(), int)
+
+
+def test_request_ship_state(vxl):
+    """."""
+    vxl.request_chip_state()
+
+
+def test_get_time(vxl):
+    """."""
+    time = vxl.get_time()
+    # TODO: will fail in python 3 since long doesn't exist
+    assert isinstance(time, long)
+    assert time >= 0

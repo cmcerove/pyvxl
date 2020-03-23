@@ -7,15 +7,14 @@ from pyvxl.vxl_functions import vxl_open_port, vxl_close_port
 from pyvxl.vxl_functions import vxl_activate_channel, vxl_deactivate_channel
 from pyvxl.vxl_functions import vxl_reset_clock, vxl_get_driver_config
 from pyvxl.vxl_functions import vxl_transmit, vxl_receive
-from pyvxl.vxl_functions import vxl_set_baudrate, vxl_set_transceiver
-from pyvxl.vxl_functions import vxl_get_event_str
+from pyvxl.vxl_functions import vxl_get_receive_queue_size
+from pyvxl.vxl_functions import vxl_set_baudrate, vxl_get_sync_time
+from pyvxl.vxl_functions import vxl_get_event_str, vxl_request_chip_state
 from pyvxl.vxl_functions import vxl_flush_tx_queue, vxl_flush_rx_queue
 from pyvxl.vxl_data_types import vxl_driver_config_type, vxl_event_type
 
 import os
-import sys
 import logging
-from binascii import hexlify, unhexlify
 from ctypes import cdll, c_uint, c_int, c_ubyte, c_ulong, cast
 from ctypes import c_ushort, c_ulonglong, pointer, sizeof, POINTER
 from ctypes import c_long, create_string_buffer
@@ -27,6 +26,11 @@ printf = libc.printf
 strncpy = libc.strncpy
 memset = libc.memset
 memcpy = libc.memcpy
+
+TRANSCEIVER_LINEMODE_NORMAL = 0x0009
+TRANSCEIVER_TYPE_CAN_1051_CAP_FIX = 0x013C
+OUTPUT_MODE_SILENT = 0
+OUTPUT_MODE_NORMAL = 1
 
 CAN_SUPPORTED = 0x10000
 CAN_BUS_TYPE = 1
@@ -82,7 +86,8 @@ class VxlCan(object):
             if channel_config.channelBusCapabilities & CAN_SUPPORTED:
                 self.channel_valid = True
             else:
-                logging.error('Channel {} doesn\'t support CAN!'.format(self.channel))
+                logging.error('Channel {} doesn\'t support CAN!'
+                              ''.format(self.channel))
 
     def update_driver_config(self):
         """Update the list of connected hardware."""
@@ -141,34 +146,34 @@ class VxlCan(object):
             self.port_opened = False
 
     def reconnect(self):
-        """Reconnect to the CAN channel."""
+        """Reconnect to the CAN channel.
+
+        This is useful when the transciever is stuck transmitting a frame
+        because it's not being acknowledged. Unfortunately, there's an issue
+        with the vxlAPI.dll where this won't work if another program is also
+        connected to the same CAN channel; the only way I've found to fix this
+        case is by disconnecting all programs from the channel.
+        """
         vxl_deactivate_channel(self.port_handle, self.channel_mask)
-        vxl_flush_tx_queue(self.port_handle, self.channel)
+        vxl_flush_tx_queue(self.port_handle, self.channel_mask)
         vxl_flush_rx_queue(self.port_handle)
         vxl_activate_channel(self.port_handle, self.channel_mask, CAN_BUS_TYPE,
                              8)
 
-    def high_voltage_wakeup(self):
-        """Send a high voltage wakeup message."""
-        """
-        linModeWakeup = c_uint(0x0007)
-        vxl_set_transceiver(self.port_handle, self.channel_mask, c_int(0x0006),
-                            linModeWakeup, c_uint(100))
-        return True
-        """
-        raise NotImplementedError
-
     def send(self, msg_id, msg_data):
-        """Send a CAN message."""
+        """Send a CAN message.
+
+        Type checking on input parameters is intentionally left out to increase
+        transmit speed.
+        """
         # TODO: Finish moving endianness and update function call to vector
-        msg_data = unhexlify(msg_data)
-        dlc = len(msg_data)
+        dlc = len(msg_data) / 2
         if dlc:
             logging.debug('Sending CAN Msg: 0x{0:X} Data: {1}'
-                          ''.format(msg_id & ~0x80000000,
-                                    hexlify(msg_data).upper()))
+                          ''.format(msg_id & ~0x80000000, msg_data))
         else:
             logging.debug('Sending CAN Msg: 0x{0:X} Data: None'.format(msg_id))
+        msg_data = msg_data.decode('hex')
 
         xl_event = vxl_event_type()
         data = create_string_buffer(msg_data, 8)
@@ -190,6 +195,14 @@ class VxlCan(object):
         return vxl_transmit(self.port_handle, self.channel_mask, msg_ptr,
                             event_ptr)
 
+    def send_multiple(self, msg_list):
+        """Send multiple messages at once.
+
+        Type checking on input parameters is intentionally left out to increase
+        transmit speed.
+        """
+        raise NotImplementedError
+
     def receive(self):
         """Receive a CAN message."""
         data = None
@@ -198,9 +211,37 @@ class VxlCan(object):
         rx_event = vxl_event_type()
         rx_event_ptr = pointer(rx_event)
         if vxl_receive(self.port_handle, msg_ptr, rx_event_ptr):
+            # ['CHIP_STATE', 'c=1,', 't=3923968,', 'busStatus=', 'ACTIVE,',
+            #  'txErrCnt=0,', 'rxErrCnt=0']
+            # ['RX_MSG', 'c=1,', 't=1925898240,', 'id=00D1', 'l=8,',
+            #  'A0E7A668000000D0', 'tid=00']
             data = str(vxl_get_event_str(rx_event_ptr)).split()
             logging.debug(data)
         return data
+
+    def get_rx_queue_size(self):
+        """Get the number of elements currently in the receive queue."""
+        size = c_int(0)
+        size_ptr = pointer(size)
+        logging.debug(vxl_get_receive_queue_size(self.port_handle, size_ptr))
+        logging.debug('Queue Size: {}'.format(size.value))
+        return size.value
+
+    def request_chip_state(self):
+        """Request the state of the transciever.
+
+        The actual chip state is added to the receive queue. Call receive
+        to get the updated value.
+        """
+        return vxl_request_chip_state(self.port_handle, self.channel_mask)
+
+    def get_time(self):
+        """."""
+        time = c_ulonglong(0)
+        time_ptr = pointer(time)
+        logging.debug(vxl_get_sync_time(self.port_handle, time_ptr))
+        logging.debug('Time: {}'.format(time.value))
+        return time.value
 
     def get_can_channels(self, include_virtual=False):
         """Return a list of connected CAN channels."""
@@ -239,12 +280,12 @@ class VxlCan(object):
         for i in range(self.driver_config.channelCount):
             if debug:
                 chan = str(int(self.driver_config.channel[i].channelIndex))
-                sys.stdout.write('- Channel Index: ' + chan + ', ')
+                print('- Channel Index: ' + chan + ', ')
                 chan = hex(int(self.driver_config.channel[i].channelMask))
-                sys.stdout.write(' Channel Mask: ' + chan + ', ')
+                print(' Channel Mask: ' + chan + ', ')
             else:
                 chan = str(int(self.driver_config.channel[i].channelIndex) + 1)
-                sys.stdout.write('- Channel: ' + chan + ', ')
+                print('- Channel: ' + chan + ', ')
             strncpy(buff, self.driver_config.channel[i].name, 23)
             printf(' %23s, ', buff)
             memset(buff, 0, sizeof(buff))

@@ -25,11 +25,10 @@ class DBCFile(object):
 
     def __init__(self):
         """."""
-        self.periodics = []
         self.version = None
         self.symbols = None
         self.nodes = None
-        self.messages = None
+        self.messages = {}
         self.envvars = None
         self.attributes = None
         self.signals = None
@@ -51,7 +50,7 @@ class DBCNode(object):
 class DBCMessage(object):
     """DBC message object."""
 
-    def __init__(self, msgid, name, length, sender, signals):
+    def __init__(self, msgid, name, length, sender=None, signals=[]):
         """."""
         self.id = int(msgid)
         self.dlc = length
@@ -906,7 +905,7 @@ def _msbMap():
     return msbMap
 
 
-def importDBC(path):
+def import_dbc(path):
     """Imports a vector database file"""
 
     with open(path, 'r') as inputfile:
@@ -918,6 +917,9 @@ def importDBC(path):
     # Construct parser and parse file
     p = DBCParser(l, write_tables=0, debug=False)
     p.parse(dbc)
+    if not p.dbc.messages:
+        raise ValueError('{} contains no messages or is not a valid dbc.'
+                         ''.format(path))
     msbMap = _msbMap()
     for msg in p.dbc.messages.values():
         setendianness = False
@@ -926,8 +928,6 @@ def importDBC(path):
             msg.send_type = p.send_types[msg.send_type_num]
         for sig in msg.signals:
             if not setendianness:
-                if msg.period:
-                    p.dbc.periodics.append(msg)
                 if msg.id > 0xFFFF:
                     if msg.sender.lower() in p.dbc.nodes:
                         sender = p.dbc.nodes[msg.sender.lower()].source_id
@@ -946,7 +946,7 @@ def importDBC(path):
                 sig.set_mask()
                 if sig.init_val is not None:
                     sig.set_val(sig.init_val * sig.scale + sig.offset)
-    return p
+    return p.dbc
 
 
 def main():
