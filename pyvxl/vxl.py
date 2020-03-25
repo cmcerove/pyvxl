@@ -166,15 +166,8 @@ class VxlCan(object):
         Type checking on input parameters is intentionally left out to increase
         transmit speed.
         """
-        # TODO: Finish moving endianness and update function call to vector
         dlc = len(msg_data) / 2
-        if dlc:
-            logging.debug('Sending CAN Msg: 0x{0:X} Data: {1}'
-                          ''.format(msg_id & ~0x80000000, msg_data))
-        else:
-            logging.debug('Sending CAN Msg: 0x{0:X} Data: None'.format(msg_id))
         msg_data = msg_data.decode('hex')
-
         xl_event = vxl_event_type()
         data = create_string_buffer(msg_data, 8)
         memset(pointer(xl_event), 0, sizeof(xl_event))
@@ -195,28 +188,23 @@ class VxlCan(object):
         return vxl_transmit(self.port_handle, self.channel_mask, msg_ptr,
                             event_ptr)
 
-    def send_multiple(self, msg_list):
-        """Send multiple messages at once.
-
-        Type checking on input parameters is intentionally left out to increase
-        transmit speed.
-        """
-        raise NotImplementedError
-
     def receive(self):
-        """Receive a CAN message."""
+        """Receive a CAN message.
+
+        vxl_receive is not reentrant. Protect calls to this function with
+        a lock if receive will be called from different tasks in the same
+        process.
+
+        Returns:
+            A string if data is received, otherwise None.
+        """
         data = None
         msg = c_uint(1)
         msg_ptr = pointer(msg)
         rx_event = vxl_event_type()
         rx_event_ptr = pointer(rx_event)
         if vxl_receive(self.port_handle, msg_ptr, rx_event_ptr):
-            # ['CHIP_STATE', 'c=1,', 't=3923968,', 'busStatus=', 'ACTIVE,',
-            #  'txErrCnt=0,', 'rxErrCnt=0']
-            # ['RX_MSG', 'c=1,', 't=1925898240,', 'id=00D1', 'l=8,',
-            #  'A0E7A668000000D0', 'tid=00']
-            data = str(vxl_get_event_str(rx_event_ptr)).split()
-            logging.debug(data)
+            data = vxl_get_event_str(rx_event_ptr)
         return data
 
     def get_rx_queue_size(self):
@@ -230,8 +218,8 @@ class VxlCan(object):
     def request_chip_state(self):
         """Request the state of the transciever.
 
-        The actual chip state is added to the receive queue. Call receive
-        to get the updated value.
+        The actual chip state is added to the receive queue around 50ms after
+        the request. Call receive to get the updated value.
         """
         return vxl_request_chip_state(self.port_handle, self.channel_mask)
 

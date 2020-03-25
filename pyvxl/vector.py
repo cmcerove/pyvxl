@@ -4,9 +4,10 @@
 
 import traceback
 import logging
+import re
 from os import path
 from sys import stdout
-from re import findall
+from queue import Queue
 from time import localtime, sleep
 from threading import Thread, Event, RLock, Condition
 from fractions import gcd
@@ -45,7 +46,11 @@ class CAN(object):
         self.last_found_msg = None
         self.last_found_sig = None
         self.last_found_node = None
-        # init()
+        init()
+
+    def __del__(self):
+        """."""
+        deinit()
 
     def import_db(self, db_path=None):
         """Import the database."""
@@ -74,19 +79,21 @@ class CAN(object):
 
     def start_logging(self, *args, **kwargs):
         """Start logging."""
-        return self.rx_thread.start_logging(*args, **kwargs)
+        return self.__rx_thread.start_logging(*args, **kwargs)
 
     def stop_logging(self):
         """Stop logging."""
-        return self.rx_thread.stop_logging()
+        return self.__rx_thread.stop_logging()
 
     def _send(self, msg, send_once=False):
         """Send a message."""
         if msg.update_func is not None:
             msg.set_data(msg.update_func(msg))
-        self.vxl.send(msg.id, msg.get_data())
+        data = msg.get_data()
+        self.vxl.send(msg.id, data)
         if not send_once and msg.period:
             self.__tx_thread.add(msg)
+        logging.debug('TX: {: >8X} {: <16}'.format(msg.id, data))
 
     def send_message(self, msg_id, data='', period=0, send_once=False,
                      in_database=True):
@@ -107,7 +114,7 @@ class CAN(object):
         """Stop sending all periodic messages."""
         self.__tx_thread.remove_all()
 
-    def send_signal(self, signal, value, send_once=False, force=False):
+    def send_signal(self, signal,   value, send_once=False, force=False):
         """Send the message containing signal."""
         msg = self._check_signal(signal, value, force)
         self._send(msg, send_once)
@@ -148,79 +155,73 @@ class CAN(object):
         (status, node) = self._checkMsgID(node)
         if status == 0:
             return False
-        numFound = 0
+        num_found = 0
         for anode in self.parser.dbc.nodes.values():
             if status == 1:
                 if node == anode.source_id:
-                    numFound += 1
-                    self.lastFoundNode = anode
+                    num_found += 1
+                    self.last_found_node = anode
             else:
                 if node.lower() in anode.name.lower():#pylint: disable=E1103
-                    numFound += 1
-                    self.lastFoundNode = anode
+                    num_found += 1
+                    self.last_found_node = anode
                     if display:
                         txt = Fore.MAGENTA+Style.DIM+'Node: '+anode.name
                         txt2 = ' - ID: '+hex(anode.source_id)
                         print(txt+txt2+Fore.RESET+Style.RESET_ALL)
-        if numFound == 0:
-            self.lastFoundNode = None
+        if num_found == 0:
+            self.last_found_node = None
             logging.info('No nodes found for that input')
-        elif numFound > 1:
-            self.lastFoundNode = None
+        elif num_found > 1:
+            self.last_found_node = None
 
-    def find_message(self, search_str, display=False,
-                     exact=True):#pylint: disable=R0912
-        """Prints all messages of the dbc match 'search_str'"""
-        if not self.imported:
-            logging.error('No CAN databases currently imported!')
-            return False
-        numFound = 0
-        (status, msgID) = self._checkMsgID(search_str)
-        if status == 0: # invalid
-            self.lastFoundMessage = None
-            return False
-        elif status == 1: # number
+    def find_message(self, msg, display=False, exact=True):
+        """Find all messages matching 'msg'."""
+        self.last_found_msg = None
+        num_found = 0
+        msg_id = self._check_type(msg)
+        if isinstance(msg_id, int) or isinstance(msg_id, long):
             try:
-                if msgID > 0x8000:
-                    #msgID = (msgID&~0xF0000FFF)|0x80000000
-                    msgID |= 0x80000000
-                    msg = self.parser.dbc.messages[msgID]
+                if msg_id > 0x8000:
+                    #msg_id = (msg_id&~0xF0000FFF)|0x80000000
+                    msg_id |= 0x80000000
+                    msg = self.imported.messages[msg_id]
                 else:
-                    msg = self.parser.dbc.messages[msgID]
-                numFound += 1
-                self.lastFoundMessage = msg
+                    msg = self.imported.messages[msg_id]
+                num_found += 1
+                self.last_found_msg = msg
                 if display:
                     self._print_msg(msg)
                     for sig in msg.signals:
                         self._print_sig(sig)
             except KeyError:
-                logging.error('Message ID 0x{:X} not found!'.format(msgID))
-                self.lastFoundMessage = None
+                logging.error('Message ID 0x{:X} not found!'.format(msg_id))
+                self.last_found_msg = None
                 return False
-        else: # string
-            for msg in self.parser.dbc.messages.values():
+        else:
+            for msg in self.imported.messages.values():
                 if not exact:
-                    if msgID.lower() in msg.name.lower():#pylint: disable=E1103
-                        numFound += 1
-                        self.lastFoundMessage = msg
+                    if msg_id.lower() in msg.name.lower():
+                        num_found += 1
+                        self.last_found_msg = msg
                         if display:
                             self._print_msg(msg)
                             for sig in msg.signals:
                                 self._print_sig(sig)
                 else:
-                    if msgID.lower() == msg.name.lower():#pylint: disable=E1103
-                        numFound += 1
-                        self.lastFoundMessage = msg
+                    if msg_id.lower() == msg.name.lower():
+                        num_found += 1
+                        self.last_found_msg = msg
                         if display:
                             self._print_msg(msg)
                             for sig in msg.signals:
                                 self._print_sig(sig)
-        if numFound == 0:
-            self.lastFoundMessage = None
+        if num_found == 0:
+            self.last_found_msg = None
             if display:
                 logging.info('No messages found for that input')
-        elif numFound > 1:
-            self.lastFoundMessage = None
+        elif num_found > 1:
+            self.last_found_msg = None
         return True
 
     def find_signal(self, search_str, display=False, exact=False):
@@ -231,7 +232,7 @@ class CAN(object):
         if not self.imported:
             logging.warning('No CAN databases currently imported!')
             return False
-        numFound = 0
+        num_found = 0
         for msg in self.parser.dbc.messages.values():
             msgPrinted = False
             for sig in msg.signals:
@@ -242,26 +243,26 @@ class CAN(object):
                     short_name = (search_str.lower() == sig.name.lower())
                     full_name = (search_str.lower() == sig.full_name.lower())
                 if full_name or short_name:
-                    numFound += 1
-                    self.lastFoundSignal = sig
-                    self.lastFoundMessage = msg
+                    num_found += 1
+                    self.last_found_sig = sig
+                    self.last_found_msg = msg
                     if display:
                         if not msgPrinted:
                             self._print_msg(msg)
                             msgPrinted = True
                         self._print_sig(sig)
-        if numFound == 0:
-            self.lastFoundSignal = None
+        if num_found == 0:
+            self.last_found_sig = None
             logging.info('No signals found for that input')
-        elif numFound > 1:
-            self.lastFoundSignal = None
+        elif num_found > 1:
+            self.last_found_sig = None
         return True
 
-    def get_message(self, search_str):
-        """ Returns the message object associated with search_str """
+    def get_message(self, msg):
+        """Get the message object by name or id."""
         ret = None
-        if self.find_message(search_str, exact=True) and self.lastFoundMessage:
-            ret = self.lastFoundMessage
+        if self.find_message(msg, exact=True) and self.last_found_msg:
+            ret = self.last_found_msg
         return ret
 
     def get_signals(self, search_str):
@@ -270,8 +271,8 @@ class CAN(object):
         search_str (string): the message name whose signals will be returned
         """
         ret = None
-        if self.find_message(search_str, exact=True) and self.lastFoundMessage:
-            ret = self.lastFoundMessage.signals
+        if self.find_message(search_str, exact=True) and self.last_found_msg:
+            ret = self.last_found_msg.signals
         return ret
 
     def get_signal_values(self, search_str):
@@ -280,12 +281,12 @@ class CAN(object):
         search_str (string): the signal name whose values will be returned
         """
         ret = None
-        if self.find_signal(search_str, exact=True) and self.lastFoundSignal:
-            ret = self.lastFoundSignal.values
+        if self.find_signal(search_str, exact=True) and self.last_found_sig:
+            ret = self.last_found_sig.values
         return ret
 
     def wait_for_no_error(self, timeout=0):
-        """ Blocks until the CAN bus comes out of an error state """
+        """Block until the CAN bus comes out of an error state."""
         errors_found = True
         if not self.receiving:
             self.receiving = True
@@ -296,14 +297,14 @@ class CAN(object):
 
         if not timeout:
             # Wait as long as necessary if there isn't a timeout set
-            while self.rxthread.errorsFound:
+            while self.rxthread.errors_found:
                 time.sleep(0.001)
             errors_found = False
         else:
             startTime = time.clock()
             timeout = float(timeout) / 1000.0
             while (time.clock() - startTime) < timeout:
-                if not self.rxthread.errorsFound:
+                if not self.rxthread.errors_found:
                     errors_found = False
                     break
                 time.sleep(0.001)
@@ -317,21 +318,21 @@ class CAN(object):
     def wait_for_error(self, timeout=0, flush=False):
         """ Blocks until the CAN bus goes into an error state """
         errors_found = False
-        self.rxthread.errorsFound = False
+        self.rxthread.errors_found = False
 
         if flush:
             flushRxQueue(self.portHandle)
 
         if not timeout:
             # Wait as long as necessary if there isn't a timeout set
-            while not self.rxthread.errorsFound:
+            while not self.rxthread.errors_found:
                 time.sleep(0.001)
             errors_found = True
         else:
             startTime = time.clock()
             timeout = float(timeout) / 1000.0
             while (time.clock() - startTime) < timeout:
-                if self.rxthread.errorsFound:
+                if self.rxthread.errors_found:
                     errors_found = True
                     break
                 time.sleep(0.001)
@@ -347,7 +348,7 @@ class CAN(object):
 
             if log_path:
                 self.start_logging(log_path, add_date=False)
-            self.rxthread.errorsFound = False
+            self.rxthread.errors_found = False
         return errors_found
 
     def _block_unless_found(self, msgID, timeout):
@@ -367,12 +368,12 @@ class CAN(object):
             return False
 
     def wait_for(self, msgID, data, timeout, alreadySearching=False,
-                 inDatabase=True):
+                 in_database=True):
         """Compares all received messages until message with value
            data is received or the timeout is reached"""
         resp = False
         if not alreadySearching:
-            msg = self.search_for(msgID, data, inDatabase=inDatabase)
+            msg = self.search_for(msgID, data, in_database=in_database)
             if msg:
                 resp = self._block_unless_found(msg.id, timeout)
             self.stopSearchingFor(msgID)
@@ -381,55 +382,23 @@ class CAN(object):
 
         return resp
 
-    def search_for(self, msgID, data, inDatabase=True):
-        """Adds a message to the search queue in the receive thread"""
-        if not self.initialized:
-            logging.error(
-                'Initialization required before messages can be received!')
-            return False
-        msg, data = self._get_message(msgID, data, inDatabase)
-        if not msg:
-            return False
-        mask = ''
-        if data:
-            tmpData = []
-            mask = []
-            for x in range(len(data)):
-                if data[x] == '*':
-                    tmpData.append('0')
-                    mask.append('0000')
-                else:
-                    tmpData.append(data[x])
-                    mask.append('1111')
-            mask = ''.join(mask)
-            mask = int(mask, 2)
-            data = int(''.join(tmpData), 16)
-        self.rxthread.search_for(msg.id, data, mask)
+    def search_for(self, msg_id, **kwargs):
+        """Start queuing all data received with msg_id."""
+        return self.__rx_thread.start_queuing(msg_id, **kwargs)
 
-        return msg
+    def clear_msg_queues(self):
+        """Clear all receive filters."""
+        self.__rx_thread.clear_filters()
 
-    def clear_search_queue(self):
-        """ Clears the received message queue """
-        resp = False
-        if self.receiving:
-            self.rxthread.clearSearchQueue()
-            resp = True
-        return resp
+    def remove_msg_filter(self, msg_id):
+        """Stop queuing received messages for a specific msg_id."""
+        return self.__rx_thread.remove_filter(msg_id)
 
-    def stop_searching_for(self, msgID, inDatabase=True):
-        """ Removes a message from the search queue """
-        resp = False
-        if self.receiving:
-            msg, data = self._get_message(msgID, '', inDatabase)
-            if msg:
-                self.rxthread.stopSearchingFor(msg.id)
-        return resp
+    def get_queued_data(self, msg_id):
+        """Get data queued for msg_id."""
 
-    def get_first_rx_message(self, msgID=False):
-        """ Returns the first received message """
         resp = None
-        if self.receiving:
-            resp = self.rxthread.getFirstRxMessage(msgID)
+        resp = self.rxthread.getFirstRxMessage(msg_id)
         return resp
 
     def get_all_rx_messages(self, msgID=False):
@@ -439,14 +408,13 @@ class CAN(object):
             resp = self.rxthread.getAllRxMessages(msgID)
         return resp
 
-    def send_diag(self, sendID, sendData, respID, respData='',
-                  inDatabase=True, timeout=150):
-        """Sends a diagnotistic message and returns the response"""
+    def send_recv(self, tx_id, tx_data, rx_id, timeout=150, **kwargs):
+        """Send a message and wait for a response."""
         resp = False
-        msg = self.search_for(respID, respData, inDatabase=inDatabase)
-        if msg:
-            self.send_message(sendID, sendData, inDatabase=inDatabase)
-            resp = self._block_unless_found(msg.id, timeout)
+        # TODO: Finish
+        self.start_queueing(rx_id, **kwargs)
+        self.send_message(tx_id, tx_data, **kwargs)
+        resp = self._block_unless_found(rx_id, timeout)
         return resp
 
     def print_periodics(self, info=False, search_for=''):
@@ -461,20 +429,20 @@ class CAN(object):
             elif status == 1:  # searching periodics by id
                 for periodic in self.currentPeriodics:
                     if periodic.id == msgID:
-                        self.lastFoundMessage = periodic
+                        self.last_found_msg = periodic
                         self._print_msg(periodic)
                         for sig in periodic.signals:
-                            self.lastFoundSignal = sig
+                            self.last_found_sig = sig
                             self._print_sig(sig, value=True)
             else:  # searching by string or printing all
                 found = False
                 for msg in self.currentPeriodics:
                     if search_for.lower() in msg.name.lower():
                         found = True
-                        self.lastFoundMessage = msg
+                        self.last_found_msg = msg
                         self._print_msg(msg)
                         for sig in msg.signals:
-                            self.lastFoundSignal = sig
+                            self.last_found_sig = sig
                             self._print_sig(sig, value=True)
                     else:
                         msgPrinted = False
@@ -486,21 +454,21 @@ class CAN(object):
                             if full_name or short_name:
                                 found = True
                                 if not msgPrinted:
-                                    self.lastFoundMessage = msg
+                                    self.last_found_msg = msg
                                     self._print_msg(msg)
                                     msgPrinted = True
-                                self.lastFoundSignal = sig
+                                self.last_found_sig = sig
                                 self._print_sig(sig, value=True)
                 if not found:
                     logging.error(
                         'Unable to find a periodic message with that string!')
         else:
             for msg in self.currentPeriodics:
-                self.lastFoundMessage = msg
+                self.last_found_msg = msg
                 self._print_msg(msg)
                 if info:
                     for sig in msg.signals:
-                        self.lastFoundSignal = sig
+                        self.last_found_sig = sig
                         self._print_sig(sig, value=True)
             if self.sendingPeriodics:
                 print('Currently sending: '+str(len(self.currentPeriodics)))
@@ -679,32 +647,6 @@ class CAN(object):
                                                           sig.max_val, rst))
 
 
-class MessageQueue(object):
-    """Holds a queue of received data for a single message."""
-
-    def __init__(self, msg_id, data, mask):
-        """."""
-        self.msg_id = msg_id
-        self.data = data
-        self.mask = mask
-        self.rxFrames = []
-
-    def get_first_msg(self):
-        """Get the first received message."""
-        resp = None
-        if self.rxFrames:
-            resp = self.rxFrames[0]
-            self.rxFrames = self.rxFrames[1:]
-        return resp
-
-    def get_all_msgs(self):
-        """Get all received messages."""
-        # Copy the list so we don't return the erased version
-        resp = list(self.rxFrames)
-        self.rxFrames = []
-        return resp
-
-
 class ReceiveThread(Thread):
     """Thread for receiving CAN messages."""
 
@@ -712,246 +654,325 @@ class ReceiveThread(Thread):
         """."""
         super(ReceiveThread, self).__init__()
         self.daemon = True
-        self.vxl = vxl
+        # Protect all variables so locks can be used where needed
+        self.__vxl = vxl
+        self.__rx_lock = lock
+        # This lock prevents queues from being removed from self.__msg_queues
+        # between the check 'msg_id in self.__msg_queues' and getting
+        # the item with self.__msg_queues[msg_id] which usually follows.
+        # Adding/replacing a queue in self.__msg_queues is safe since a
+        # reference will still exist when self.__msg_queues[msg_id] is called.
+        self.__queue_lock = RLock()
         self.__stopped = Event()
-        self.lock = lock
-        self.logging = False
-        self.outfile = None
-        self.errorsFound = False
-        self.messagesToFind = {}
-        self.outfile = None
-        self.close_pending = False
-        self.log_path = ''
-        self.sleep_time = 1
+        self.__log_path = ''
+        self.__log_file = None
+        self.__log_errors = False
+        self.__log_request = Queue()
+        self.__errors_found = False
+        self.__msg_queues = {}
+        self.__sleep_time = 0.1
+        self.__bus_status = ''
+        self.__tx_err_count = 0
+        self.__rx_err_count = 0
+        self.__time = None
 
     def run(self):
-        """Main receive loop.
+        """Main receive loop."""
+        # I've only found 5 different receive frame formats. I will keep this
+        # list updated as I find more. All formats have been identical up to
+        # the receive time (in nanoseconds), so this common part is checked
+        # first.
+        #  Type          Channel Time
+        # 'CHIP_STATE c=1, t=4308992, ' Chip state frames            (1 total)
+        # 'RX_MSG c=1, t=161054720, '   Valid Rx/TX and Error frames (4 total)
+        msg_start_pat = re.compile('^(\w+)\sc=(\d+),\st=(\d+),\s')
+        # Possible bus statuses for chip state frames:
+        # 'busStatus= ACTIVE, txErrCnt=8, rxErrCnt=0'
+        # 'busStatus= WARNING, txErrCnt=96, rxErrCnt=0'
+        # 'busStatus= PASSIVE, txErrCnt=127, rxErrCnt=0'
+        chip_pat = re.compile('\w+=\s(\w+),\s\w+=(\d+),\s\w+=(\d+)')
+        # Valid Transmitted CAN Message:
+        # 'id=0147 l=8, 0040800000000000 TX tid=00'
+        # Valid Received CAN Message with data:
+        # 'id=00D0 l=8, 8C845A61000003D0 tid=00'
+        # Valid Received CAN Message without data:
+        # 'id=81234567 l=0,  tid=00'
+        # Both should match the following pattern.
+        rx_tx_pat = re.compile('id=(\w+)\sl=(\d),\s(\w+)?\s(TX)?\s*tid=(\w+)')
+        # Error Frame:
+        # type=0147,  ERROR_FRAME tid=00
+        error_pat = re.compile('\w+=(\d+),\s+ERROR_FRAME\s\w+=(\d+)')
 
-        When the receive queue empty, new messages are checked for every 10ms.
-        When the receive queue has items, runs until all items are dequeued.
-        """
-        while not self.__stopped.wait(self.sleep_time):
-            # print('RX main loop - event.is_set() ={}'.format(self.__stopped.is_set()))
-            # Blocks until a message is received or the timeout (ms) expires.
-            # This event is passed to vxlApi via the setNotification function.
+        log_msgs = []
+        while not self.__stopped.wait(self.__sleep_time):
             # TODO: look into why setNotification isn't working and either
             #       remove or fix this.
             # WaitForSingleObject(self.msgEvent, 1)
-            data = self.vxl.receive()
-            """
-            msg = c_uint(1)
-            self.msgPtr = pointer(msg)
-            status = 0
-            received = False
-            rxMsgs = []
-            while not status:
-                rxEvent = event()
-                rxEventPtr = pointer(rxEvent)
-                self.lock.acquire()
-                status = receiveMsg(self.portHandle, self.msgPtr,
-                                    rxEventPtr)
-                error_status = str(getError(status))
-                rxmsg = ''.join(getEventStr(rxEventPtr)).split()
-                self.lock.release()
-                messagesToFind = dict(self.messagesToFind)
-                if error_status == 'XL_SUCCESS':
-                    received = True
-                    noError = 'error' not in rxmsg[4].lower()
-                    if not noError:
-                        self.errorsFound = True
+            # Only modify the log file from the Thread
+            if self.__log_request == 'start':
+                self.__start_logging()
+            elif self.__log_request == 'stop':
+                self.__stop_logging()
+
+            if self.__msg_queues:
+                # Requesting the chip state adds a message to the receive
+                # queue. If the chip state is requested as fast as possible,
+                # it will only add a message every 50ms. Since each received
+                # message has a timestamp, this will give a worst case
+                # resolution for self.get_time() of 50ms when no other CAN
+                # traffic is being received.
+                self.__vxl.request_chip_state()
+
+            data = self.__receive()
+            while data is not None:
+                match = msg_start_pat.search(data)
+                if not match:
+                    logging.error('Received unknown frame format \'{}\'. '
+                                  'Skipping...'.format(data))
+                    data = self.__receive()
+                    continue
+                msg_type = match.group(1)
+                channel = int(match.group(2)) + 1
+                # Convert from nanoseconds to seconds
+                time = int(match.group(3)) / 1000000000.0
+                self.__time = time
+                full_data = data
+                data = data.replace(match.group(0), '')
+                if msg_type == 'CHIP_STATE':
+                    cs = chip_pat.match(data)
+                    if cs:
+                        self.__bus_status = cs.group(1)
+                        self.__tx_err_count = int(cs.group(2))
+                        self.__rx_err_count = int(cs.group(3))
                     else:
-                        self.errorsFound = False
+                        logging.error('Received an unhandled format for '
+                                      'CHIP_STATE: {}'.format(data))
+                elif msg_type == 'RX_MSG':
+                    error = error_pat.match(data)
+                    if error:
+                        self.__errors_found = True
+                        if not self.__log_errors:
+                            data = self.__receive()
+                            continue
+                        else:
+                            raise NotImplementedError
+                            # TODO: implement logging error frames
+                            # data = self.__receive()
+                            # continue
+                    self.__errors_found = False
+                    rx_tx = rx_tx_pat.match(data)
+                    if not rx_tx:
+                        # id=81234567 l=0,  tid=00
+                        logging.error('Unknown rx_tx format: [{}]'
+                                      ''.format(full_data))
+                        data = self.__receive()
+                        continue
+                    elif rx_tx.group(4):
+                        # TX message
+                        msg_id = int(rx_tx.group(1), 16)
+                        dlc = rx_tx.group(2)
+                        d = rx_tx.group(3)
+                        if d:
+                            data = ' '.join([d[x:x + 2] for x in range(0,
+                                                                       len(d),
+                                                                       2)])
+                        else:
+                            data = ''
+                        if self.__log_file:
+                            if msg_id > 0x7FF:
+                                msg_id = '{:X}x'.format(msg_id & 0x1FFFFFFF)
+                            else:
+                                msg_id = '{:X}'.format(msg_id)
+                            log_msgs.append('{: >11.6f} {}  {: <16}Tx   d {} '
+                                            '{}\n'.format(time, channel,
+                                                          msg_id, dlc, data))
+                    else:
+                        # RX message
+                        msg_id = int(rx_tx.group(1), 16)
+                        dlc = rx_tx.group(2)
+                        d = rx_tx.group(3)
+                        if d:
+                            data = ' '.join([d[x:x + 2] for x in range(0,
+                                                                       len(d),
+                                                                       2)])
+                        else:
+                            data = ''
+                        self.__enqueue_msg(time, msg_id, data)
+                        if self.__log_file:
+                            if msg_id > 0x7FF:
+                                msg_id = '{:X}x'.format(msg_id & 0x1FFFFFFF)
+                            else:
+                                msg_id = '{:X}'.format(msg_id)
+                            log_msgs.append('{: >11.6f} {}  {: <16}Rx   d {} '
+                                            '{}\n'.format(time, channel,
+                                                          msg_id, dlc, data))
+                else:
+                    logging.error('Unknown msg_type: {} - full message [{}]'
+                                  ''.format(msg_type, data))
+                data = self.__receive()
+            # Writing to the log is placed after all messages have been
+            # received to minimize the frequency of file I/O during
+            # this thread. This hopefully favors notifying the main thread a
+            # new message was received as fast as possible. The downside is
+            # writes to a file are slightly delayed.
+            if self.__log_file is not None and log_msgs:
+                self.__log_file.writelines(log_msgs)
+                log_msgs = []
+        if self.__log_file is not None and log_msgs:
+            self.__log_file.writelines(log_msgs)
+            self.__stop_logging()
 
-                    if noError and 'chip' not in rxmsg[0].lower():
-                        # print(' '.join(rxmsg))
-                        tstamp = float(rxmsg[2][2:-1])
-                        tstamp = str(tstamp/1000000000.0).split('.')
-                        decVals = tstamp[1][:6]+((7-len(tstamp[1][:6]))*' ')
-                        tstamp = ((4-len(tstamp[0]))*' ')+tstamp[0]+'.'+decVals
-                        msgid = rxmsg[3][3:]
-                        if len(msgid) > 4:
-                            try:
-                                msgid = hex(int(msgid, 16)&0x1FFFFFFF)[2:-1]+'x'
-                            except ValueError:
-                                print(' '.join(rxmsg))
-                        msgid = msgid+((16-len(msgid))*' ')
-                        dlc = rxmsg[4][2]+' '
-                        io = 'Rx   d'
-                        if int(dlc) > 0:
-                            if rxmsg[6].lower() == 'tx':
-                                io = 'Tx   d'
-                        data = ''
-                        if int(dlc) > 0:
-                            data = ' '.join(findall('..?', rxmsg[5]))
-                        data += '\n'
-                        chan = str(int(2 ** int(rxmsg[1][2:-1])))
-                        rxMsgs.append(tstamp+' '+chan+' '+msgid+io+dlc+data)
-                        if messagesToFind:
-                            msgid = int(rxmsg[3][3:], 16)
-                            if msgid > 0xFFF:
-                                msgid = msgid&0x1FFFFFFF
-                            data = ''.join(findall('..?', rxmsg[5]))
+    def __del__(self):
+        """Close open log file."""
+        self.__stopped.set()
 
-                            # Is the received message one we're looking for?
-                            if msgid in messagesToFind:
-                                fndMsg = ''.join(findall('[0-9A-F][0-9A-F]?',
-                                                         rxmsg[5]))
-                                txt = 'Received CAN Msg: '+hex(msgid)
-                                logging.info(txt+' Data: '+fndMsg)
-                                storeMsg = False
-                                # Are we also looking for specific data?
-                                searchData = messagesToFind[msgid].data
-                                mask = messagesToFind[msgid].mask
-                                if searchData:
-                                    try:
-                                        data = int(data, 16) & mask
-                                        if data == searchData:
-                                            storeMsg = True
-                                    except ValueError:
-                                        pass
-                                else:
-                                    storeMsg = True
+    def __receive(self):
+        """Receive incoming can frames."""
+        self.__rx_lock.acquire()
+        data = self.__vxl.receive()
+        self.__rx_lock.release()
+        return data
 
-                                if storeMsg:
-                                    messagesToFind[msgid].rxFrames.append(fndMsg)
-                elif error_status != 'XL_ERR_QUEUE_IS_EMPTY':
-                    logging.error(error_status)
-                elif received:
-                    if self.logging:
-                        if not self.outfile.closed:
-                            self.outfile.writelines(rxMsgs)
-                            self.outfile.flush()
-                            if self.close_pending:
-                                self.logging = False
-                                self.close_pending = False
-                                try:
-                                    self.outfile.close()
-                                except IOError:
-                                    logging.warning('Failed to close log file!')
-            if self.logging:
-                if not self.outfile.closed:
-                    self.outfile.flush()
-                    if self.close_pending:
-                        self.logging = False
-                        self.close_pending = False
-                        try:
-                            self.outfile.close()
-                        except IOError:
-                            logging.warning('Failed to close log file!')
-        if self.logging:
-            if not self.outfile.closed:
-                self.outfile.flush()
-                try:
-                    self.outfile.close()
-                except IOError:
-                    logging.warning('Failed to close log file!')
-        """
-
-    def search_for(self, msgID, data, mask):
-        """Sets the variables needed to wait for a CAN message"""
-        self.messagesToFind[msgID] = MessageQueue(msgID, data, mask)
-        self.sleep_time = 0.01
-
-    def stopSearchingFor(self, msgID):
-        """Stop searching for a message."""
-        if self.messagesToFind:
-            if msgID in self.messagesToFind:
-                self.messagesToFind.pop(msgID)
-                if not self.messagesToFind and not self.logging:
-                    self.sleep_time = 1
-            else:
-                logging.error('Message ID not in the receive queue!')
-        else:
-            logging.error('No messages in the search queue!')
-
-    def _getRxMessages(self, msgID, single=False):
-        resp = None
-        if msgID in self.messagesToFind:
-            if single:
-                resp = self.messagesToFind[msgID].get_first_msg()
-            else:
-                resp = self.messagesToFind[msgID].get_all_msgs()
-        return resp
-
-    def getFirstRxMessage(self, msgID):
-        """Removes the first received message and returns it"""
-        return self._getRxMessages(msgID, single=True)
-
-    def getAllRxMessages(self, msgID):
-        """Removes all received messages and returns them"""
-        return self._getRxMessages(msgID)
-
-    def clearSearchQueue(self):
-        self.errorsFound = False
-        self.messagesToFind = {}
-        if not self.logging:
-            self.sleep_time = 1
-
-    def start_logging(self, log_path, add_date=True):
+    def __start_logging(self):
         """Start logging all traffic."""
-        if self.logging:
-            raise AssertionError('Already logging to {}. Call stop_logging '
-                                 'before starting a new log.'
-                                 ''.format(self.log_path))
-        if not isinstance(log_path, str):
-            raise TypeError('Expected str but got {}'.format(type(log_path)))
-        directory, _ = path.split(log_path)
-        if directory and not path.isdir(directory):
-            raise ValueError('{} is not a valid directory!'.format(directory))
+        self.__log_request = None
+        file_opts = 'w+'
+        # Append to the file if it already exists
+        if path.isfile(self.__log_path):
+            file_opts = 'a'
+        self.__log_file = open(self.__log_path, file_opts)
+        logging.info('Logging to: {}'.format(self.__log_path))
+        data_str = 'date {} {} {} {}:{}:{} {}\n'
+        days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+        months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug',
+                  'Sep', 'Oct', 'Nov', 'Dec']
         tmstr = localtime()
-        hr = tmstr.tm_hour % 12
-        mn = tmstr.tm_min
-        sc = tmstr.tm_sec
         mo = tmstr.tm_mon - 1
         da = tmstr.tm_mday
         wda = tmstr.tm_wday
         yr = tmstr.tm_year
+        hr = tmstr.tm_hour % 12
+        mn = tmstr.tm_min
+        sc = tmstr.tm_sec
+        self.__log_file.write(data_str.format(days[wda], months[mo], da, hr,
+                                              mn, sc, yr))
+        self.__log_file.write('base hex  timestamps absolute\n')
+        self.__log_file.write('no internal events logged\n')
+        self.__sleep_time = 0.01
+
+    def start_logging(self, log_path, add_date=True, log_errors=False):
+        """Request the thread start logging."""
+        if not isinstance(log_path, str):
+            raise TypeError('Expected str but got {}'.format(type(log_path)))
+        if self.__log_path:
+            raise AssertionError('Already logging. Call stop_logging first.')
+        directory, _ = path.split(log_path)
+        if directory and not path.isdir(directory):
+            raise ValueError('{} is not a valid directory!'.format(directory))
+        if self.__log_request == 'start' or self.__log_path:
+            raise AssertionError('Logging already started. Call stop_logging.')
+        elif self.__log_request == 'stop':
+            while self.__log_request == 'stop':
+                # Wait for the thread to stop the previous log
+                sleep(0.1)
+        tmstr = localtime()
+        hr = tmstr.tm_hour % 12
+        mn = tmstr.tm_min
+        sc = tmstr.tm_sec
         if add_date:
             log_path = '{}[{}-{}-{}].asc'.format(log_path, hr, mn, sc)
-        file_opts = 'w+'
-        if path.isfile(log_path):
-            # append to the file
-            file_opts = 'a'
-        for tries in range(5):
-            try:
-                self.outfile = open(log_path, file_opts)
-            except IOError:
-                sleep(0.2)
-            else:
-                break
-        else:
-            # Failed for the last 5 times, try one more time and raise error
-            self.outfile = open(log_path, file_opts)
-        self.log_path = path.abspath(log_path)
-        logging.info('Logging to: {}'.format(self.log_path))
-        days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
-        months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug',
-                  'Sep', 'Oct', 'Nov', 'Dec']
-        data_str = 'date {} {} {} {}:{}:{} {}\n'
-        self.outfile.write(data_str.format(days[wda], months[mo], da, hr, mn,
-                                           sc, yr))
-        self.outfile.write('base hex  timestamps absolute\n')
-        self.outfile.write('no internal events logged\n')
-        self.logging = True
-        self.sleep_time = 0.01
-        return self.log_path
+        self.__log_path = path.abspath(log_path)
+        self.__log_errors = log_errors
+        self.__log_request = 'start'
+        return self.__log_path
+
+    def __stop_logging(self):
+        """Stop logging. Only called from the run loop of the thread."""
+        self.__log_request = None
+        old_path = self.__log_path
+        self.__log_path = ''
+        if self.__log_file is not None and not self.__log_file.closed:
+            old_path = self.__log_path
+            self.__log_file.flush()
+            self.__log_file.close()
+            self.__log_file = None
+            logging.debug('Logging stopped.')
+            if not self.__msg_queues:
+                self.__sleep_time = 0.1
+                self.__logging = False
+        return old_path
 
     def stop_logging(self):
-        """Stop logging."""
-        old_path = ''
-        if self.logging:
-            old_path = self.log_path
-            try:
-                self.outfile.flush()
-                self.outfile.close()
-            except IOError:
-                self.close_pending = True
-                logging.error('Failed closing the log file!')
-            else:
-                if not self.messagesToFind:
-                    self.sleep_time = 1
-                self.logging = False
+        """Request the thread stop logging."""
+        if self.__log_request == 'start':
+            while self.__log_request == 'start':
+                # Wait for the thread to start the previous log
+                sleep(0.1)
+        if self.__log_request != 'stop' and self.__log_path:
+            old_path = self.__log_path
+            logging.debug('Stop logging requested.')
+            self.__log_request = 'stop'
+        else:
+            old_path = ''
+            logging.error('Logging already stopped!')
         return old_path
+
+    def get_time(self):
+        """Get the time of the last received CAN message.
+
+        When messages are being queued, this time will be updated every 50ms
+        even when no CAN messages are received.
+        """
+        return self.__time
+
+    def start_queuing(self, msg_id, max_size=1000):
+        """Start queuing all data received for msg_id."""
+        self.__msg_queues[msg_id] = Queue(max_size)
+        self.__sleep_time = 0.01
+
+    def stop_queuing(self, msg_id):
+        """Stop queuing received data for msg_id."""
+        self.__queue_lock.acquire()
+        if msg_id in self.__msg_queues:
+            self.__msg_queues.pop(msg_id)
+            if (not self.__msg_queues and not self.__log_request and
+               not self.__log_path):
+                self.__sleep_time = 0.1
+        self.__queue_lock.release()
+
+    def stop_all_queues(self):
+        """Stop all queues."""
+        self.__queue_lock.acquire()
+        self.errors_found = False
+        self.__msg_queues = {}
+        if not self.__log_request and not self.__log_path:
+            self.__sleep_time = 0.1
+        self.__queue_lock.release()
+
+    def __enqueue_msg(self, rx_time, msg_id, data):
+        """Put a received message in the queue."""
+        self.__queue_lock.acquire()
+        if msg_id in self.__msg_queues:
+            logging.debug('RX: {: >8X} {: <16}'.format(msg_id, data))
+            if not self.__msg_queues[msg_id].full():
+                self.__msg_queues[msg_id].put((rx_time, data))
+            else:
+                max_size = self.__msg_queues[msg_id].maxsize
+                logging.error('Queue for 0x{:X} is full. {} wasn\'t added. The'
+                              ' size is set to {}. Increase the size with the '
+                              'max_size kwarg or remove messages more quickly.'
+                              ''.format(msg_id, data, max_size))
+        self.__queue_lock.release()
+
+    def dequeue_msg(self, msg_id):
+        """Get queued message data in the order it was received."""
+        if msg_id in self.__msg_queues:
+            if self.__msg_queues[msg_id].qsize():
+                return self.__msg_queues[msg_id].get()
+        else:
+            logging.error('Queue for 0x{:X} hasn\'t been started! Call '
+                          'start_queuing first.'.format(msg_id))
+        return None
 
 
 class TransmitThread(Thread):
@@ -961,86 +982,70 @@ class TransmitThread(Thread):
         """."""
         super(TransmitThread, self).__init__()
         self.daemon = True
-        self.vxl = vxl
+        self.__vxl = vxl
         self.__stopped = Event()
-        self.lock = RLock()
-        self.messages = {}
-        self.elapsed = 0
-        self.increment = 0
-        self.currGcd = 1
-        self.currLcm = 0
+        self.__messages = {}
+        self.__elapsed = 0
+        self.__sleep_time_ms = 1
+        self.__sleep_time_s = 1
+        self.__max_increment = 0
 
     def run(self):
         """The main loop for the thread."""
-        while not self.__stopped.wait(self.currGcd):
-            # print('TX main loop - event.is_set() ={}'.format(self.__stopped.is_set()))
-            pass
-            """
-            self.lock.acquire()
-            for msg in self.tx_list[index]:
-                if msg.update_func:
-                    msg.set_data(unhexlify(msg[2].update_func(msg[2])))
-            self.lock.release()
-
-            for msg in self.messages:
-                if self.elapsed % msg[1] == 0:
-                    if msg[2].update_func:
-                        data = unhexlify(msg[2].update_func(msg[2]))
-                        '''
-                        data = create_string_buffer(data, len(data))
-                        tmpPtr = pointer(data)
-                        dataPtr = cast(tmpPtr, POINTER(c_ubyte*8))
-                        msg[0][0].tagData.msg.data = dataPtr.contents
-                        '''
-                    else:
-                        tx_msgs.append((msg.id, msg.get_data()))
-                    '''
-                    msgPtr = pointer(c_uint(1))
-                    tempEvent = event()
-                    eventPtr = pointer(tempEvent)
-                    memcpy(eventPtr, msg[0], sizeof(tempEvent))
-                    transmitMsg(self.portHandle, self.channel,
-                                msgPtr,
-                                eventPtr)
-                    '''
-            if self.elapsed >= self.currLcm:
-                self.elapsed = self.increment
+        while not self.__stopped.wait(self.__sleep_time_s):
+            for msg in self.__messages.values():
+                if self.__elapsed % msg.period == 0:
+                    if msg.update_func is not None:
+                        msg.set_data(msg.update_func(msg))
+                    self.__vxl.send(msg.id, msg.get_data())
+            if self.__elapsed >= self.__max_increment:
+                self.__elapsed = self.__sleep_time_ms
             else:
-                self.elapsed += self.increment
-            """
+                self.__elapsed += self.__sleep_time_ms
 
-    def update_tx_lists(self):
-        """Updates the GCD and LCM used in the run loop to ensure it's
-           looping most efficiently"""
-        self.lock.acquire()
-        if len(self.messages) == 1:
-            self.currGcd = float(self.messages[0][1]) / 1000.0
-            self.currLcm = self.elapsed = self.increment = self.messages[0][1]
+    def stop(self):
+        """Stop the thread."""
+        self.__stopped.set()
+
+    def __update_times(self):
+        """Update times for the transmit loop."""
+        if len(self.__messages) == 1:
+            msg = self.__messages.values()[0]
+            self.__sleep_time_s = msg.period / 1000.0
+            self.__max_increment = msg.period
+            self.__sleep_time_ms = msg.period
         else:
-            cGcd = self.increment
-            cLcm = self.currLcm
-            for i in range(len(self.messages)-1):
-                tmpGcd = gcd(self.messages[i][1], self.messages[i+1][1])
-                tmpLcm = (self.messages[i][1]*self.messages[i+1][1])/tmpGcd
-                if tmpGcd < cGcd:
-                    cGcd = tmpGcd
-                if tmpLcm > cLcm:
-                    cLcm = tmpLcm
-            self.increment = cGcd
-            self.currGcd = float(cGcd)/float(1000)
-            self.currLcm = cLcm
-        self.lock.release()
+            curr_gcd = self.__sleep_time_ms
+            curr_lcm = self.__max_increment
+            for i in range(1, len(self.__messages)):
+                _, prev = self.__messages[i - 1]
+                _, curr = self.__messages[i]
+                tmp_gcd = gcd(prev, curr)
+                tmp_lcm = prev * curr / tmp_gcd
+                if curr_gcd is None or tmp_gcd < curr_gcd:
+                    curr_gcd = tmp_gcd
+                if tmp_lcm > curr_lcm:
+                    curr_lcm = tmp_lcm
+            self.__sleep_time_ms = curr_gcd
+            self.__sleep_time_s = curr_gcd / 1000.0
+            self.__max_increment = curr_lcm
+        if self.__elapsed >= self.__max_increment:
+            self.__elapsed = self.__sleep_time_ms
 
     def add(self, msg):
         """Add a periodic message to the thread."""
-        self.messages[msg.id] = msg
-        self.update_tx_lists()
+        self.__messages[msg.id] = msg
+        self.__update_times()
+        logging.debug('Added periodic message: 0x{:03X} {: <16} period={}ms'
+                      ''.format(msg.id, msg.get_data(), msg.period))
 
     def remove(self, msg):
         """Remove a periodic message from the thread."""
-        if msg.id in self.messages:
-            self.messages.pop(msg.id)
-            self.update_tx_lists()
+        if msg.id in self.__messages:
+            self.__messages.pop(msg.id)
+            self.__update_times()
+            logging.debug('Removed periodic message: 0x{:03X} {: <16} period='
+                          '{}ms'.format(msg.id, msg.get_data(), msg.period))
         else:
             logging.error('{} (0x{:X}) is not being sent!'.format(msg.name,
                                                                   msg.id))

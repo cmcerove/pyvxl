@@ -1,39 +1,9 @@
 #!/usr/bin/env python
 
-"""Unit tests for pyvxl.vxl.
-
-Possible command line options for pytest:
-    --junitxml=report.xml
-        xml result output that should be readable by teamcity. There are
-        additional test fixture that can be used to add more information to
-        the xml report:
-            record_property
-            record_xml_attribute
-            record_testsuite_property
-    -q
-        quiet mode
-    -k
-        keyword expression (case insensitive) e.g. "MyClass and not method"
-    -m
-        marker expressions e.g. -m slow will run tests decorated with
-        @pytest.mark.slow
-    -x
-        stop after the first failure
-    --maxfail=2
-        stop after 2 failures
-
-pystest file_name::function_name
-    tests only function_name within file_name
-pystest file_name::TestClass::function_name
-    tests only function_name within TestClass within file_name
-
-Other pytest notes:
-    with pytest.raises(Exception) to test for an exception
-
-    def test_func(tmpdir) will create a temporary directory
-"""
+"""Unit tests for pyvxl.vxl."""
 import pytest
 import logging
+import re
 from pyvxl import VxlCan
 from pyvxl import vxl as vxl_file
 
@@ -174,12 +144,23 @@ def test_receive(vxl):
     """."""
     assert vxl.receive() is None
     assert vxl.send(0x123, '1234')
-    rx, ch, ts, mid, dlc, data, tx, tid = vxl.receive()
-    assert rx == 'RX_MSG'
-    assert mid == 'id=0123'
-    assert dlc == 'l=2,'
-    assert data == '1234'
-    assert tx == 'TX'
+    pat = re.compile('^(\w+)\sc=(\d+),\st=(\d+),\sid=(\w+)\sl=(\d),\s(\w+)\s(TX)*\s*tid=(\w+)')
+    data = vxl.receive()
+    matched = pat.match(data)
+    assert matched
+    assert matched.group(1) == 'RX_MSG'
+    # Channel might change, just check that it exists
+    channel = matched.group(2)
+    assert channel
+    assert int(channel)
+    # Timestamp will change, check that it exists
+    time = matched.group(3)
+    assert time
+    assert int(time)
+    assert matched.group(4) == '0123'
+    assert matched.group(5) == '2'
+    assert matched.group(6) == '1234'
+    assert matched.group(7) == 'TX'
 
 
 def test_get_can_channels(vxl):
