@@ -1036,7 +1036,7 @@ class TransmitThread(Thread):
         """Add a periodic message to the thread."""
         self.__messages[msg.id] = msg
         self.__update_times()
-        logging.debug('Added periodic message: 0x{:03X} {: <16} period={}ms'
+        logging.debug('TX: {: >8X} {: <16} period={}ms'
                       ''.format(msg.id, msg.get_data(), msg.period))
 
     def remove(self, msg):
