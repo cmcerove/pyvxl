@@ -14,25 +14,11 @@ Regerences:
     http://www.dabeaz.com/ply/PLYTalk.pdf
 """
 
-import sys
 import logging
-import ply.lex as lex
-import ply.yacc as yacc
-
-
-class DBCFile(object):
-    """DBC file object."""
-
-    def __init__(self):
-        """."""
-        self.version = None
-        self.symbols = None
-        self.nodes = None
-        self.messages = {}
-        self.envvars = None
-        self.attributes = None
-        self.signals = None
-        self.signals_by_name = None
+from sys import exit, argv
+from ply.lex import lex
+from ply.yacc import yacc
+from pyvxl import Database
 
 
 class DBCNode(object):
@@ -42,9 +28,7 @@ class DBCNode(object):
         """."""
         self.name = name
         self.source_id = 0
-        self.ecu_id = 0
         self.tx_messages = []
-        self.rx_messages = []
 
 
 class DBCMessage(object):
@@ -282,10 +266,11 @@ class DBCEnvVar(object):
                                                              self.initial,
                                                              self.index,
                                                              self.access)
-        return  one+two+" nodes:?, vals:?, comment:%s}" % (self.comment)
+        return one+two+" nodes:?, vals:?, comment:%s}" % (self.comment)
+
 
 class DBCLexer(object):
-    """DBC lexical analyzer object"""
+    """A lex based DBC lexical analyzer."""
 
     # Lexer token declaration
     tokens = ('VERSION', 'BO', 'BS', 'BU', 'SG', 'EV', 'SIG_VALTYPE', 'NS',
@@ -352,43 +337,40 @@ class DBCLexer(object):
     # Literal characters
     literals = ":;|,@+-[]()"
 
-    # Lexer constructor
-    def __init__(self, **kwargs):
-        self.lexer = lex.lex(module=self, **kwargs)
+    def __init__(self, **kwargs):  # noqa
+        self.lexer = lex(module=self, **kwargs)
 
-    # Test it output
-    def test(self, input): #pylint: disable=W0622
+    def test(self, input):
+        """Test the input."""
         self.lexer.input(input)
         while True:
             tok = self.lexer.token()
             if not tok:
                 break
-            #print tok
             print(repr(tok.type), repr(tok.value))
 
-    # Lexing error
     def t_error(self, t):
+        """Lexing error."""
         print("Illegal character '%s' on line %d" % (t.value[0],
                                                      t.lexer.lineno))
         t.lexer.skip(1)
 
-    # Dummy node vector
     def t_dummy_node_vector(self, t):
-        #r'DUMMY_NODE_VECTOR[0-3]'
+        """Dummy node vector."""
         r'DUMMY_NODE_VECTOR[0-9]+'
         t.value = int(t.value[17:])
         t.type = 'DUMMY_NODE_VECTOR'
         return t
 
-    # Identifier
     def t_id(self, t):
+        """Itendifier."""
         r'[a-zA-Z_][_a-zA-Z0-9]*'
         # Check for reserved identifiers
         t.type = self.reserved.get(t.value, 'ID')
         return t
 
-    # String literal
     def t_string(self, t):
+        """String literal."""
         r'\"([^"\\]|(\\.))*\"'
         if len(t.value) > 2:
             t.value = t.value[1:-1]
@@ -397,70 +379,71 @@ class DBCLexer(object):
         t.type = 'STRING_VAL'
         return t
 
-    # (Double precision) floating point number literal
     def t_double_val(self, t):
+        """(Double precision) floating point number literal."""
         r'[-+]?[0-9]+((\.[0-9]+([eE][-+]?[0-9]+)?)|([eE][-+]?[0-9]+))'
         t.value = float(t.value)
         t.type = 'DOUBLE_VAL'
         return t
 
-    # Decimal integer number literal
     def t_decnumber(self, t):
+        """Decimal integer number literal."""
         r'[-+]?[0-9]+'
         t.value = int(t.value)
         t.type = 'INT_VAL'
         return t
 
-    # Hexadecimal integer number literal
     def t_hexnumber(self, t):
+        """Hexadecimal integer number literal."""
         r'0x[0-9a-fA-F]+'
         t.value = int(t.value, 16)
         t.type = 'INT_VAL'
         return t
 
-    # New-line detection
     def t_newline(self, t):
+        """New-line detection."""
         r'\n+'
         t.lexer.lineno += t.value.count('\n')
 
+
 class DBCParser(object):
-    """The main DBC parser object"""
-    def __init__(self, lexer=None, **kwargs):
-        self.dbc = DBCFile()
-        self.signalDict = {}
-        self.signalDictByName = {}
+    """A yacc based DBC parser."""
+
+    def __init__(self, database, **kwargs):  # noqa
+        self.dbc = database
+        self.signals_by_id = {}
         self.send_types = []
-        self.nodeDict = {}
-        self.msgDict = {}
-        if lexer:
-            self.lexer = lexer
-        else:
-            self.lexer = DBCLexer()
-
+        self.send_types_expected = ['cyclicX', 'spontanX', 'cyclicIfActiveX',
+                                    'spontanWithDelay', 'cyclicAndSpontanX',
+                                    'cyclicAndSpontanWithDelay',
+                                    'spontanWithRepitition',
+                                    'cyclicIfActiveAndSpontanWD',
+                                    'cyclicIfActiveFast',
+                                    'cyclicWithRepeatOnDemand', 'none']
+        self.lexer = DBCLexer()
         self.tokens = self.lexer.tokens
-        self.parser = yacc.yacc(module=self, **kwargs)
+        self.parser = yacc(module=self, **kwargs)
+        self.parser.parse(self.dbc.db, self.lexer.lexer, 0, 0, None)
+        if not self.send_types:
+            raise AssertionError('')
+        update = True
+        if len(self.send_types) == len(self.send_types_expected):
+            for x in range(len(self.send_types)):
+                if self.send_types[x] != self.send_types_expected[x]:
+                    break
+            else:
+                update = False
 
-    def parse(self, dbc):
-        """Runs the dbc through the lexer"""
-        if dbc:
-            return self.parser.parse(dbc, self.lexer.lexer, 0, 0, None)
-        else:
-            return []
-
-
-    # Parsing rules
+        if update:
+            for msg in self.dbc.messages:
+                msg.send_type = self.send_types[msg.send_type_num]
 
     def p_error(self, p):
-        """Prints a parsing error"""
+        """Print a parsing error."""
         print("Syntax error at token %s (%s) on line %d" % (p.type, p.value,
                                                             p.lineno))
-        #yacc.errok()
 
-    # DBC file
-    #########################################################################
-
-    ###
-    def p_dbc(self, p):
+    def p_dbc(self, p):  # noqa
         '''dbc : version \
                  symbol_section \
                  message_section \
@@ -478,30 +461,23 @@ class DBCParser(object):
                  val_list \
                  sig_valtype_list \
                  signal_group_list'''
-        self.dbc.version = p[1]
-        self.dbc.symbols = p[2]
-        # message_section - ignored
-        self.dbc.nodes = self.nodeDict
-        self.dbc.messages = p[6]
-        self.dbc.envvars = p[8]
-        self.dbc.attributes = p[13]
+        # self.dbc.version = p[1]
+        # self.dbc.symbols = p[2]
+        # # message_section - ignored
+        # self.dbc.nodes = self.nodeDict
+        # self.dbc.messages = p[6]
+        # self.dbc.envvars = p[8]
+        # self.dbc.attributes = p[13]
         # envvar_data_list - ignored
-        self.dbc.signals_by_name = self.signalDictByName
-        self.dbc.signals = self.signalDict
+        # self.dbc.signalsByName = self.signalDictByName
+        # self.dbc.signals = self.signalDict
+        pass
 
-    # Version
-    #########################################################################
-
-    ###
-    def p_version(self, p):
+    def p_version(self, p):  # noqa
         '''version : VERSION STRING_VAL'''
         p[0] = p[2]
 
-    # Symbols
-    #########################################################################
-
-    ###
-    def p_symbol_section(self, p):
+    def p_symbol_section(self, p):  # noqa
         '''symbol_section : NS ':'
                           | NS ':' symbol_list'''
         if len(p) > 3 and len(p[3]) > 3:
@@ -509,8 +485,7 @@ class DBCParser(object):
         else:
             p[0] = []
 
-    ###
-    def p_symbol_list(self, p):
+    def p_symbol_list(self, p):  # noqa
         '''symbol_list : symbol
                        | symbol symbol_list'''
         if len(p) > 2:
@@ -519,8 +494,7 @@ class DBCParser(object):
         else:
             p[0] = [p[1]]
 
-    ###
-    def p_symbol(self, p):
+    def p_symbol(self, p):  # noqa
         '''symbol : NS_DESC
                   | CM
                   | BA_DEF
@@ -551,19 +525,11 @@ class DBCParser(object):
                   | SG_MUL_VAL'''
         p[0] = p[1]
 
-    # Message section
-    #########################################################################
-
-    ###
-    def p_message_section(self, p):
+    def p_message_section(self, p):  # noqa
         '''message_section : BS ':' '''
         pass
 
-    # Node list
-    #########################################################################
-
-    ###
-    def p_space_node_dict(self, p):
+    def p_space_node_dict(self, p):  # noqa
         '''space_node_dict : empty
                            | ID space_node_dict'''
         if p[1]:
@@ -572,48 +538,40 @@ class DBCParser(object):
         else:
             p[0] = {}
 
-    ###
-    def p_node_dict(self, p):
+    def p_node_dict(self, p):  # noqa
         '''node_dict : BU ':' space_node_dict'''
         p[0] = p[3]
-        self.nodeDict = p[3]
+        self.dbc.nodes = p[3]
 
-    # Valtable list
-    #########################################################################
-
-    def p_valtable_list(self, p):
+    def p_valtable_list(self, p):  # noqa
         '''valtable_list : empty
                          | valtable valtable_list'''
         pass
 
-    def p_valtable(self, p):
+    def p_valtable(self, p):  # noqa
         '''valtable : VAL_TABLE ID val_map ';' '''
         pass
 
-    # Message list
-    #########################################################################
-
-    ###
-    def p_message_dict(self, p):
+    def p_message_dict(self, p):  # noqa
         '''message_dict : empty
                         | message message_dict'''
         if p[1]:
+            self.dbc.messages[p[1].id] = p[1]
             p[0] = p[2]
             p[0][p[1].id] = p[1]
-            if not self.nodeDict.has_key(p[1].sender.lower()):
-                self.nodeDict[p[1].sender.lower()] = DBCNode(p[1].sender)
-            self.nodeDict[p[1].sender.lower()].tx_messages.append(p[1])
-            self.msgDict = p[0]
+            if p[1].sender.lower() not in self.dbc.nodes:
+                self.dbc.nodes[p[1].sender.lower()] = DBCNode(p[1].sender)
+            self.dbc.nodes[p[1].sender.lower()].tx_messages.append(p[1])
         else:
             p[0] = {}
 
-    def p_message(self, p):
+    def p_message(self, p):  # noqa
         '''message : BO INT_VAL ID ':' INT_VAL ID signal_list'''
         p[0] = DBCMessage(p[2], p[3], p[5], p[6], p[7])
         for sig in p[7]:
             sig.msg_id = p[2]
 
-    def p_signal_list(self, p):
+    def p_signal_list(self, p):  # noqa
         '''signal_list : empty
                        | signal signal_list'''
         if p[1]:
@@ -622,13 +580,13 @@ class DBCParser(object):
         else:
             p[0] = []
 
-    def p_signal(self, p):
+    def p_signal(self, p):  # noqa
         '''signal : SG signal_name mux_info ':' bit_start '|' bit_len '@' endianness signedness '(' scale ',' offset ')' '[' min '|' max ']' STRING_VAL comma_identifier_list'''
         p[0] = DBCSignal(p[2], p[3], p[5], p[7], p[9], p[10], p[12], p[14], p[17], p[19],
                          p[21], p[22])
-        self.signalDict[p[2].lower()] = p[0]
+        self.signals_by_id[p[2].lower()] = p[0]
 
-    def p_envvar_list(self, p):
+    def p_envvar_list(self, p):  # noqa
         '''envvar_list : empty
                        | envvar envvar_list'''
         if p[1]:
@@ -637,28 +595,27 @@ class DBCParser(object):
         else:
             p[0] = []
 
-    def p_envvar(self, p):
+    def p_envvar(self, p):  # noqa
         '''envvar : EV ID ':' INT_VAL '[' double_val '|' double_val ']' \
                     STRING_VAL double_val INT_VAL DUMMY_NODE_VECTOR comma_identifier_list ';' '''
         p[0] = DBCEnvVar(p[2], p[4], p[6], p[8], p[10], p[11], p[12], p[13], p[14])
 
-    def p_envvar_data_list(self, p):
+    def p_envvar_data_list(self, p):  # noqa
         '''envvar_data_list : empty
                             | envvar_data envvar_data_list'''
         pass
 
-    def p_envvar_data(self, p):
+    def p_envvar_data(self, p):  # noqa
         '''envvar_data : ENVVAR_DATA ID ':' INT_VAL ';' '''
         pass
 
-    def p_attribute_value(self, p):
+    def p_attribute_value(self, p):  # noqa
         '''attribute_value : INT_VAL
                            | STRING_VAL
                            | DOUBLE_VAL'''
         p[0] = p[1]
 
-
-    def p_attribute_list(self, p):
+    def p_attribute_list(self, p):  # noqa
         '''attribute_list : empty
                           | attribute attribute_list'''
         if p[1]:
@@ -667,21 +624,21 @@ class DBCParser(object):
         else:
             p[0] = {}
 
-    def p_attribute(self, p):
+    def p_attribute(self, p):  # noqa
         '''attribute : BA STRING_VAL attribute_value ';'
                      | BA STRING_VAL BU ID attribute_value ';'
                      | BA STRING_VAL BO INT_VAL attribute_value ';'
                      | BA STRING_VAL SG INT_VAL ID attribute_value ';'
                      | BA STRING_VAL EV ID attribute_value ';' '''
         if p[2] == 'SignalLongName':
-            self.signalDict[p[5].lower()].full_name = p[6]
-            self.signalDictByName[p[6].lower()] = self.signalDict[p[5].lower()]
+            self.signals_by_id[p[5].lower()].full_name = p[6]
+            self.dbc.signals[p[6].lower()] = self.signals_by_id[p[5].lower()]
         elif p[2] == 'GenSigStartValue':
-            self.signalDict[p[5].lower()].init_val = p[6]
+            self.signals_by_id[p[5].lower()].init_val = p[6]
         elif p[2] == 'GenSigSendOnInit':
-            self.signalDict[p[5].lower()].send_on_init = p[6]
+            self.signals_by_id[p[5].lower()].send_on_init = p[6]
         elif p[2] == 'SourceId':
-            self.nodeDict[p[4].lower()].source_id = p[5]
+            self.dbc.nodes[p[4].lower()].source_id = p[5]
         elif p[2] == 'GenMsgCycleTime':
             self.msgDict[p[4]].period = p[5]
         elif p[2] == 'GenMsgDelayTime':
@@ -692,37 +649,37 @@ class DBCParser(object):
         elif p[2] == 'GenMsgNrOfRepetitions':
             self.msgDict[p[4]].repetitions = p[5]
 
-    def p_attribute_rel_list(self, p):
+    def p_attribute_rel_list(self, p):  # noqa
         '''attribute_rel_list : empty
                               | attribute_rel attribute_rel_list'''
         pass
 
-    def p_attribute_rel(self, p):
+    def p_attribute_rel(self, p):  # noqa
         '''attribute_rel : BA_REL STRING_VAL BU_SG_REL ID SG INT_VAL signal_name attribute_value ';' '''
         pass
 
-    def p_attribute_definition_default_list(self, p):
+    def p_attribute_definition_default_list(self, p):  # noqa
         '''attribute_definition_default_list : empty
                                              | attribute_definition_default attribute_definition_default_list'''
         pass
 
-    def p_attribute_definition_default(self, p):
+    def p_attribute_definition_default(self, p):  # noqa
         '''attribute_definition_default : attribute_definition_object_or_relation STRING_VAL INT_VAL ';'
                                         | attribute_definition_object_or_relation STRING_VAL DOUBLE_VAL ';'
                                         | attribute_definition_object_or_relation STRING_VAL STRING_VAL ';' '''
         pass
 
-    def p_attribute_definition_object_or_relation(self, p):
+    def p_attribute_definition_object_or_relation(self, p):  # noqa
         '''attribute_definition_object_or_relation : BA_DEF_DEF
                                                    | BA_DEF_DEF_REL'''
         pass
 
-    def p_attribute_definition_list(self, p):
+    def p_attribute_definition_list(self, p):  # noqa
         '''attribute_definition_list : empty
                                      | attribute_definition attribute_definition_list'''
         pass
 
-    def p_attribute_definition(self, p):
+    def p_attribute_definition(self, p):  # noqa
         '''attribute_definition : attribute_object_type STRING_VAL INT INT_VAL INT_VAL ';'
                                 | attribute_object_type STRING_VAL FLOAT double_val double_val ';'
                                 | attribute_object_type STRING_VAL STRING ';'
@@ -732,7 +689,7 @@ class DBCParser(object):
             self.send_types = p[4]
             self.send_types.reverse()
 
-    def p_attribute_object_type(self, p):
+    def p_attribute_object_type(self, p):  # noqa
         '''attribute_object_type : BA_DEF
                                  | BA_DEF BU
                                  | BA_DEF BO
@@ -743,18 +700,18 @@ class DBCParser(object):
         if len(p) == 3:
             p[0] = p[2]
 
-    def p_val_list(self, p):
+    def p_val_list(self, p):  # noqa
         '''val_list : empty
                     | val val_list'''
         pass
 
-    def p_val(self, p):
+    def p_val(self, p):  # noqa
         '''val : VAL INT_VAL signal_name val_map ';'
                | VAL ID val_map ';' '''
         if len(p) == 6:
-            self.signalDict[p[3].lower()].values = p[4]
+            self.signals_by_id[p[3].lower()].values = p[4]
 
-    def p_val_map(self, p):
+    def p_val_map(self, p):  # noqa
         '''val_map : empty
                    | val_map_entry val_map'''
         if p[1]:
@@ -763,25 +720,25 @@ class DBCParser(object):
         else:
             p[0] = {}
 
-    def p_val_map_entry(self, p):
+    def p_val_map_entry(self, p):  # noqa
         '''val_map_entry : INT_VAL STRING_VAL'''
         p[0] = (p[1], p[2].lower())
 
-    def p_sig_valtype_list(self, p):
+    def p_sig_valtype_list(self, p):  # noqa
         '''sig_valtype_list : empty
                             | sig_valtype sig_valtype_list'''
         pass
 
-    def p_sig_valtype(self, p):
+    def p_sig_valtype(self, p):  # noqa
         '''sig_valtype : SIG_VALTYPE INT_VAL ID ':' INT_VAL ';' '''
         pass
 
-    def p_comment_list(self, p):
+    def p_comment_list(self, p):  # noqa
         '''comment_list : empty
                         | comment comment_list'''
         pass
 
-    def p_comment(self, p):
+    def p_comment(self, p):  # noqa
         '''comment : CM STRING_VAL ';'
                    | CM EV ID STRING_VAL ';'
                    | CM BU ID STRING_VAL ';'
@@ -789,30 +746,30 @@ class DBCParser(object):
                    | CM SG INT_VAL ID STRING_VAL ';' '''
         pass
 
-    def p_mux_info(self, p):
+    def p_mux_info(self, p):  # noqa
         '''mux_info : empty
                     | ID'''
         pass
 
-    def p_signal_name(self, p):
+    def p_signal_name(self, p):  # noqa
         '''signal_name : ID'''
         p[0] = p[1]
 
-    def p_signal_name_list(self, p):
+    def p_signal_name_list(self, p):  # noqa
         '''signal_name_list : space_identifier_list'''
         p[0] = p[1]
 
-    def p_space_identifier_list(self, p):
+    def p_space_identifier_list(self, p):  # noqa
         '''space_identifier_list : ID
                                  | ID space_identifier_list'''
         pass
 
-    def p_comma_identifier_list(self, p):
+    def p_comma_identifier_list(self, p):  # noqa
         '''comma_identifier_list : ID
                                  | ID ',' comma_identifier_list'''
         pass
 
-    def p_comma_string_list(self, p):
+    def p_comma_string_list(self, p):  # noqa
         '''comma_string_list : STRING_VAL
                              | STRING_VAL ',' comma_string_list'''
         if len(p) == 4:
@@ -821,7 +778,7 @@ class DBCParser(object):
         else:
             p[0] = [p[1]]
 
-    def p_double_val(self, p):
+    def p_double_val(self, p):  # noqa
         '''double_val : DOUBLE_VAL
                       | NAN
                       | INT_VAL'''
@@ -830,168 +787,100 @@ class DBCParser(object):
         else:
             p[0] = None
 
-    def p_bit_start(self, p):
+    def p_bit_start(self, p):  # noqa
         '''bit_start : INT_VAL'''
         p[0] = p[1]
 
-    def p_bit_len(self, p):
+    def p_bit_len(self, p):  # noqa
         '''bit_len : INT_VAL'''
         p[0] = p[1]
 
-    def p_scale(self, p):
+    def p_scale(self, p):  # noqa
         '''scale : double_val'''
         p[0] = p[1]
 
-    def p_offset(self, p):
+    def p_offset(self, p):  # noqa
         '''offset : double_val'''
         p[0] = p[1]
 
-    def p_min(self, p):
+    def p_min(self, p):  # noqa
         '''min : double_val'''
         p[0] = p[1]
 
-    def p_max(self, p):
+    def p_max(self, p):  # noqa
         '''max : double_val'''
         p[0] = p[1]
 
-    def p_endianness(self, p):
+    def p_endianness(self, p):  # noqa
         '''endianness : INT_VAL'''
         p[0] = p[1]
 
-    def p_signedness(self, p):
+    def p_signedness(self, p):  # noqa
         '''signedness : '+'
                       | '-' '''
         pass
 
-    def p_signal_group(self, p):
+    def p_signal_group(self, p):  # noqa
         '''signal_group : SIG_GROUP INT_VAL ID INT_VAL ':' signal_name_list ';' '''
         pass
 
-    def p_signal_group_list(self, p):
+    def p_signal_group_list(self, p):  # noqa
         '''signal_group_list : empty
                              | signal_group signal_group_list'''
         pass
 
-    def p_message_transmitters(self, p):
+    def p_message_transmitters(self, p):  # noqa
         '''message_transmitters : BO_TX_BU INT_VAL ':' comma_identifier_list ';' '''
         pass
 
-    def p_message_transmitter_list(self, p):
+    def p_message_transmitter_list(self, p):  # noqa
         '''message_transmitter_list : empty
                                     | message_transmitters message_transmitter_list'''
         pass
 
-    def p_empty(self, p):
+    def p_empty(self, p):  # noqa
         'empty :'
         pass
 
 
-def _msbMap():
-    """Return a translation dictionary for converting byte order."""
-    msbMap = {}
-    for x in range(9):
-        if x > 1:
-            littleEndian = 0
-            bigEndian = (x-1)*8
-            ret = {}
-            for i in range(x/2*8):
-                ret[bigEndian] = littleEndian
-                ret[littleEndian] = bigEndian
-                littleEndian += 1
-                bigEndian += 1
-                if bigEndian % 8 == 0:
-                    bigEndian -= 16
-            msbMap[x] = ret
-    return msbMap
+import_str = '''
+----------------------------------------------------
+Import Statistics
+----------------------------------------------------
+Nodes: {}
+Messages: {}
+Signals: {}
+----------------------------------------------------
+Test Structure - All signals of a message in a node
+'''
 
 
-def import_dbc(path):
-    """Imports a vector database file"""
-
-    with open(path, 'r') as inputfile:
-        dbc = inputfile.read()
-
-    # Construct lexer
-    l = DBCLexer(debug=False)
-
-    # Construct parser and parse file
-    p = DBCParser(l, write_tables=0, debug=False)
-    p.parse(dbc)
-    if not p.dbc.messages:
-        raise ValueError('{} contains no messages or is not a valid dbc.'
-                         ''.format(path))
-    msbMap = _msbMap()
-    for msg in p.dbc.messages.values():
-        setendianness = False
-        if msg.send_type_num is not None and\
-           msg.send_type_num < len(p.send_types):
-            msg.send_type = p.send_types[msg.send_type_num]
-        for sig in msg.signals:
-            if not setendianness:
-                if msg.id > 0xFFFF:
-                    if msg.sender.lower() in p.dbc.nodes:
-                        sender = p.dbc.nodes[msg.sender.lower()].source_id
-                        if (sender&0xF00) > 0:
-                            print(msg.name)
-                        msg.id = (msg.id&0xFFFF000)|0x10000000|sender
-                    else:
-                        print(msg.sender, msg.name)
-                msg.endianness = sig.endianness
-                setendianness = True
-            if msg.dlc > 0:
-                try:
-                    sig.bit_start = msbMap[msg.dlc][sig.bit_msb] - (sig.bit_len-1)
-                except KeyError: # This only happens when the msb doesn't change
-                    sig.bit_start = sig.bit_msb-(sig.bit_len-1)
-                sig.set_mask()
-                if sig.init_val is not None:
-                    sig.set_val(sig.init_val * sig.scale + sig.offset)
-    return p.dbc
-
-
-def main():
-    """."""
-    if len(sys.argv) != 2:
+def main():  # noqa
+    if len(argv) != 2:
         print(__doc__)
-        sys.exit(1)
+        exit(1)
 
-    fspec = sys.argv[1]
-
-    # Read whole DBC file
-    with open(fspec, 'r') as inputfile:
-        dbc = inputfile.read()
-
-    # Construct lexer
-    l = DBCLexer(debug=False)
-
-    # Construct parser and parse file
-    p = DBCParser(l, write_tables=0, debug=False)
-    p.parse(dbc)
+    dbc = Database(argv)
 
     nodes = []
     messages = []
     signals = []
-    for node in p.dbc.nodes.values():
+    for node in dbc.nodes.values():
         nodes.append(node)
         for msg in node.tx_messages:
             messages.append(msg)
             for sig in msg.signals:
                 signals.append(sig)
-    print('----------------------------------------------------')
-    print('Import Statistics')
-    print('----------------------------------------------------')
-    print('Nodes: '+str(len(nodes)))
-    print('Messages: '+str(len(messages)))
-    print('Signals: '+str(len(signals)))
-    print('----------------------------------------------------')
-    print('Test Structure - All signals of a message in a node\n')
+
+    print(import_str.format(len(nodes), len(messages), len(signals)))
 
     if len(nodes) > 0:
-        print('N - '+nodes[0].name)
-        print('   M - '+msg.name)
+        print(f'N - {nodes[0].name}')
+        print(f'   M - {msg.name}')
         if len(nodes[0].txMessages) > 0:
             for sig in nodes[0].txMessages[0].signals:
-                print('      S - '+sig.name)
+                print(f'      S - {sig.name}')
+
 
 if __name__ == '__main__':
     main()

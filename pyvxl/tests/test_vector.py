@@ -34,7 +34,7 @@ Other pytest notes:
 """
 import pytest
 import logging
-from time import time
+from time import sleep
 from os import path
 from pyvxl import CAN
 from pyvxl import vector
@@ -79,13 +79,22 @@ def can():
 def test_logging(can):
     """."""
     name = 'test_log'
-    opened = can.start_logging(name)
-    assert name in opened
+    opened = can.start_logging(name, False)
+    # Give the receive thread time to start logging
+    sleep(0.1)
+    assert (name + '.asc') == path.basename(opened)
     assert opened.endswith('.asc')
-    # Check that the file exists
-    # Send a message and check that it's in the file
+    assert path.isfile(opened)
+    can.send_message('msg3')
+    # Give the receive thread time to receive it
+    sleep(0.3)
     closed = can.stop_logging()
     assert opened == closed
+    msg = can.get_message('msg3')
+    assert msg is not None
+    # Send a message and check that it's in the file
+    with open(opened, 'r') as f:
+        assert ' {:X} '.format(msg.id) in f.read()
 
 
 def test_import_db(can, caplog):

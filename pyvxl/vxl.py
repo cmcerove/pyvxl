@@ -2,16 +2,16 @@
 
 """Holds classes designed to interact specific protocols of vxlAPI."""
 
-from pyvxl.vxl_functions import vxl_open_driver, vxl_close_driver
-from pyvxl.vxl_functions import vxl_open_port, vxl_close_port
-from pyvxl.vxl_functions import vxl_activate_channel, vxl_deactivate_channel
-from pyvxl.vxl_functions import vxl_reset_clock, vxl_get_driver_config
-from pyvxl.vxl_functions import vxl_transmit, vxl_receive
-from pyvxl.vxl_functions import vxl_get_receive_queue_size
-from pyvxl.vxl_functions import vxl_set_baudrate, vxl_get_sync_time
-from pyvxl.vxl_functions import vxl_get_event_str, vxl_request_chip_state
-from pyvxl.vxl_functions import vxl_flush_tx_queue, vxl_flush_rx_queue
-from pyvxl.vxl_data_types import vxl_driver_config_type, vxl_event_type
+from pyvxl.vxl_c_functions import vxl_open_driver, vxl_close_driver
+from pyvxl.vxl_c_functions import vxl_open_port, vxl_close_port
+from pyvxl.vxl_c_functions import vxl_activate_channel, vxl_deactivate_channel
+from pyvxl.vxl_c_functions import vxl_reset_clock, vxl_get_driver_config
+from pyvxl.vxl_c_functions import vxl_transmit, vxl_receive
+from pyvxl.vxl_c_functions import vxl_get_receive_queue_size
+from pyvxl.vxl_c_functions import vxl_set_baudrate, vxl_get_sync_time
+from pyvxl.vxl_c_functions import vxl_get_event_str, vxl_request_chip_state
+from pyvxl.vxl_c_functions import vxl_flush_tx_queue, vxl_flush_rx_queue
+from pyvxl.vxl_c_types import vxl_driver_config_type, vxl_event_type
 
 import os
 import logging
@@ -56,6 +56,7 @@ class VxlCan(object):
         self.channel_index = 0
         # channel_mask = 1 << channel_index
         self.channel_mask = 0
+        self.access_mask = 0
         self.rx_queue_size = rx_queue_size
         self.baud_rate = baud_rate
         vxl_open_driver()
@@ -66,6 +67,15 @@ class VxlCan(object):
         """."""
         self.stop()
         vxl_close_driver()
+
+    def get_dll_version(self):
+        """Get the version of the vxlAPI.dll."""
+        ver = self.driver_config.dllVersion
+        major = ((ver & 0xFF000000) >> 24)
+        minor = ((ver & 0xFF0000) >> 16)
+        build = ver & 0xFFFF
+        # return f'{major}.{minor}.{build}'
+        return '{}.{}.{}'.format(major, minor, build)
 
     def set_channel(self, channel):
         """Set the vector hardware channel."""
@@ -82,6 +92,7 @@ class VxlCan(object):
                 self.channel = self.driver_config.channelCount
             self.channel_index = self.channel - 1
             self.channel_mask = c_ulonglong(1 << int(self.channel_index))
+            self.access_mask = c_ulonglong(1 << int(self.channel_index))
             channel_config = self.driver_config.channel[self.channel_index]
             if channel_config.channelBusCapabilities & CAN_SUPPORTED:
                 self.channel_valid = True
@@ -103,13 +114,13 @@ class VxlCan(object):
         """Connect to the CAN channel."""
         if self.channel_valid:
             ph_ptr = pointer(self.port_handle)
-            app_name = create_string_buffer('pyvxl', 32)
-            perm_mask = c_ulonglong(self.channel_mask.value)
+            app_name = create_string_buffer('pyvxl.VxlCan', 32)
+            perm_mask = c_ulonglong(self.access_mask.value)
             perm_ptr = pointer(perm_mask)
             # portHandle, userName, accessMask, permissionMask, rxQueueSize,
             # interfaceVersion, busType
             self.port_opened = vxl_open_port(ph_ptr, app_name,
-                                             self.channel_mask, perm_ptr,
+                                             self.access_mask, perm_ptr,
                                              self.rx_queue_size, 3,
                                              CAN_BUS_TYPE)
             if not self.port_opened:
@@ -117,14 +128,14 @@ class VxlCan(object):
             else:
                 # Check if we have init access
                 if perm_mask.value == self.channel_mask.value:
-                    vxl_set_baudrate(self.port_handle, self.channel_mask,
+                    vxl_set_baudrate(self.port_handle, self.access_mask,
                                      int(self.baud_rate))
-                    vxl_reset_clock(self.port_handle)
-                    vxl_flush_tx_queue(self.port_handle, self.channel_mask)
+                    # vxl_reset_clock(self.port_handle)
+                    vxl_flush_tx_queue(self.port_handle, self.access_mask)
                     vxl_flush_rx_queue(self.port_handle)
 
                 # portHandle, accessMask, busType, flags
-                if vxl_activate_channel(self.port_handle, self.channel_mask,
+                if vxl_activate_channel(self.port_handle, self.access_mask,
                                         CAN_BUS_TYPE, 8):
                     self.channel_activated = True
                     txt = 'Successfully connected to Channel {} @ {}Bd!'
@@ -139,25 +150,25 @@ class VxlCan(object):
     def stop(self):
         """Disconnect from the CAN channel."""
         if self.channel_activated:
-            vxl_deactivate_channel(self.port_handle, self.channel_mask)
+            vxl_deactivate_channel(self.port_handle, self.access_mask)
             self.channel_activated = False
         if self.port_opened:
             vxl_close_port(self.port_handle)
             self.port_opened = False
 
-    def reconnect(self):
-        """Reconnect to the CAN channel.
+    def flush_queues(self):
+        """Flush the transmit and receive queues for all connected channels.
 
         This is useful when the transciever is stuck transmitting a frame
         because it's not being acknowledged. Unfortunately, there's an issue
         with the vxlAPI.dll where this won't work if another program is also
-        connected to the same CAN channel; the only way I've found to fix this
+        connected to the same CAN channel. The only way I've found to fix this
         case is by disconnecting all programs from the channel.
         """
-        vxl_deactivate_channel(self.port_handle, self.channel_mask)
-        vxl_flush_tx_queue(self.port_handle, self.channel_mask)
+        vxl_deactivate_channel(self.port_handle, self.access_mask)
+        vxl_flush_tx_queue(self.port_handle, self.access_mask)
         vxl_flush_rx_queue(self.port_handle)
-        vxl_activate_channel(self.port_handle, self.channel_mask, CAN_BUS_TYPE,
+        vxl_activate_channel(self.port_handle, self.access_mask, CAN_BUS_TYPE,
                              8)
 
     def send(self, msg_id, msg_data):
@@ -244,8 +255,8 @@ class VxlCan(object):
             virtual_channel = bool('Virtual' in channel_config.name)
             if virtual_channel:
                 virtual_channels_found = True
-            can_supported = bool(channel_config.channelBusCapabilities &
-                                 CAN_SUPPORTED)
+            bus_capabilities = channel_config.channelBusCapabilities
+            can_supported = bool(bus_capabilities & CAN_SUPPORTED)
             if can_supported:
                 if include_virtual or not virtual_channel:
                     if virtual_channels_found:
