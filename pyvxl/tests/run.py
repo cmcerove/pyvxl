@@ -6,8 +6,7 @@ from sys import argv
 from os import system as run
 
 
-def main():
-    """."""
+def main():  # noqa
     run_str = 'coverage run --include={} --omit=./* -m pytest {}'
     arg = ''
     # All source files included in coverage
@@ -17,7 +16,7 @@ def main():
     elif len(argv) == 2:
         arg = argv[1]
         if ':' in argv[1]:
-            includes = argv[1].split(':')[0]
+            includes = argv[1].split('::')[0]
     else:
         raise NotImplementedError('More than one argument hasn\'t been '
                                   'implemented')
@@ -26,6 +25,7 @@ def main():
 
     # Generate the html coverage report and ignore errors
     run('coverage html -i')
+
 
 if __name__ == '__main__':
     main()

@@ -115,17 +115,17 @@ class DBCSignal(object):
                  scale, offset, min_val, max_val, units, receivers):
         """."""
         self.name = name
-        self.mux = mux
+        self.mux = mux  # not implemented
         self.bit_msb = bit_msb
         self.bit_len = bit_len
         self.endianness = endianness
-        self.signedness = signedness
+        self.signedness = signedness  # not implemented
         self.scale = scale
         self.offset = offset
         self.min_val = min_val
         self.max_val = max_val
         self.units = units
-        self.receivers = receivers
+        self.receivers = receivers  # not implemented
         self.full_name = ''
         self.values = {}
         self.msg_id = 0

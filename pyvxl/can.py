@@ -30,33 +30,43 @@ class CAN(object):
     """
 
     # Synchronizes calls to VxlCan.receive since it's not reentrant
-    rx_lock = None
+    __rx_lock = None
 
     def __init__(self, channel=0, db_path=None, baud_rate=500000):
         """."""
         self.vxl = VxlCan(channel, baud_rate)
         self.vxl.start()
         self.__db_path = db_path
-        if CAN.rx_lock is None:
-            CAN.rx_lock = RLock()
+        if CAN.__rx_lock is None:
+            CAN.__rx_lock = RLock()
         self.__tx_thread = TransmitThread(self.vxl)
         self.__tx_thread.start()
-        self.__rx_thread = ReceiveThread(self.vxl, CAN.rx_lock)
+        self.__rx_thread = ReceiveThread(self.vxl, CAN.__rx_lock)
         self.__rx_thread.start()
-        self.__imported = None
-        self.last_found_msg = None
-        self.last_found_sig = None
-        self.last_found_node = None
         init()
 
     def __del__(self):
         """."""
         deinit()
 
+    def __requires(self, properties):
+        """Check that required properties exist."""
+        pass
+
     @property
     def channels(self):
-        """A list of CAN channels."""
+        """A dictionary of CAN channels."""
         return self.__channels
+
+    @property
+    def dbs(self):
+        """A list of databases ordered by channel."""
+        return self.__dbs
+
+    def add_channel(self, num=0, baud=500000, db=''):
+        """."""
+        # Raise an error if the channel doesn't exist
+        pass
 
     def import_db(self, db_path=None):
         """Import the database."""

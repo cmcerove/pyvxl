@@ -1,249 +1,220 @@
 #!/usr/bin/env python
 
-"""Types used by pyvxl."""
+"""vxlAPI.dll C types."""
 
-from os import path
-from pydbc import DBCParser
+from ctypes import Structure, Union, c_ubyte, c_char, c_ushort, c_uint
+from ctypes import c_ulong, c_ulonglong
 
-
-class Channel:
-    """A CAN or LIN channel."""
-
-    def __init__(self, num=0, name='', baud=500000, protocol='CAN'):  # noqa
-        self.num = num
-        self.name = name
-        self.baud = baud
-        self.protocol = protocol
-        self.__connected = False
-
-    def __str__(self):
-        """Return a string representation of this channel."""
-        return (f'Channel({self.num}, {self.name}, {self.baud}, '
-                f'{self.protocol})')
-
-    def connect(self):
-        """Connect to the channel."""
-        if self.connected:
-            raise AssertionError(f'{self} is already connected')
-        self.__connected = True
-
-    def disconnect(self):
-        """Disconnect from the channel."""
-        if not self.connected:
-            raise AssertionError(f'{self} is already disconnected')
-        self.__connected = False
-
-    @property
-    def connected(self):
-        """Whether the channel is connected."""
-        return self.__connected
-
-    @property
-    def num(self):
-        """The numeric value of this channel."""
-        return self.__num
-
-    @num.setter
-    def num(self, num):
-        """Set the channel number."""
-        if not isinstance(num, int):
-            raise TypeError(f'Expected int, got {type(num)}')
+"""
+An example of a C struct that was replicated below
+struct s_xl_event {
+    unsigned char       tag;
+    unsigned char       chanIndex;
+    unsigned short      transId;
+    unsigned short      portHandle;
+    unsigned char       flags;
+    unsigned char       reserved;
+    XLuint64            timeStamp;
+    union s_xl_tag_data tagData;
+    };
+"""
 
 
-class Database:
-    """An imported database."""
-
-    def __init__(self, db_path): # noqa
-        self.__nodes = {}
-        self.__messages = {}
-        self.__messages_by_id = {}
-        self.__signals = {}
-        self.__db_path = None
-
-    @property
-    def db(self):
-        """Return the imported database path if imported, otherwise None."""
-        return self.__db_path
-
-    @db.setter
-    def db(self, db):
-        """Import a database."""
-        if not isinstance(db, str):
-            raise TypeError(f'Expected str but got {type(db)}')
-        if not path.isfile(db):
-            raise ValueError(f'Database {db} does not exist')
-        _, ext = path.splitext(db)
-        # TODO: Implement .arxml import
-        supported = ['.dbc']
-        if ext not in supported:
-            raise TypeError(f'{db} is not supported. Supported file types: '
-                            f'{supported}')
-        if ext == '.dbc':
-            self.__import_dbc(db)
-
-    def __import_dbc(self, db):
-        """Import a dbc."""
-        with open(db, 'r') as f:
-            dbc = f.read()
-
-        self.__db_path = db
-        p = DBCParser(self, write_tables=0, debug=False)
-        p.parse(dbc)
-        if not p.dbc.messages:
-            raise ValueError('{} contains no messages or is not a valid dbc.'
-                             ''.format(db))
-        msbMap = {}
-        for x in range(1, 9):
-            littleEndian = 0
-            bigEndian = (x - 1) * 8
-            ret = {}
-            for i in range(x / 2 * 8):
-                ret[bigEndian] = littleEndian
-                ret[littleEndian] = bigEndian
-                littleEndian += 1
-                bigEndian += 1
-                if bigEndian % 8 == 0:
-                    bigEndian -= 16
-        msbMap[x] = ret
-
-        for msg in p.dbc.messages.values():
-
-            if msg.send_type_num is not None and\
-               msg.send_type_num < len(p.send_types):
-                msg.send_type = p.send_types[msg.send_type_num]
-
-            setendianness = False
-            for sig in msg.signals:
-                if not setendianness:
-                    if msg.id > 0xFFFF:
-                        if msg.sender.lower() in p.dbc.nodes:
-                            sender = p.dbc.nodes[msg.sender.lower()].source_id
-                            if (sender & 0xF00) > 0:
-                                print(msg.name)
-                            msg.id = (msg.id & 0xFFFF000) | 0x10000000 | sender
-                        else:
-                            print(msg.sender, msg.name)
-                    msg.endianness = sig.endianness
-                    setendianness = True
-                if msg.dlc > 0:
-                    try:
-                        sig.bit_start = msbMap[msg.dlc][sig.bit_msb] - (sig.bit_len-1)
-                    except KeyError:  # This only happens when the msb doesn't change
-                        sig.bit_start = sig.bit_msb - (sig.bit_len - 1)
-                    sig.set_mask()
-                    if sig.init_val is not None:
-                        sig.set_val(sig.init_val * sig.scale + sig.offset)
-        return p.dbc
-
-    @property
-    def nodes(self):
-        """A dictionary of imported nodes."""
-        return self.__nodes
-
-    @nodes.setter
-    def nodes(self, node):
-        """Add a node to the dictionary."""
-        if not isinstance(node, Node):
-            raise TypeError(f'Expected {Node} but got {type(node)}')
-        self.__nodes[node.name] = node
-
-    @property
-    def messages(self):
-        """A dictionary of imported messages stored by message name."""
-        return self.__messages
-
-    @messages.setter
-    def messages(self, msg):
-        """Add a message to the dictionary."""
-        if not isinstance(msg, Message):
-            raise TypeError(f'Expected {Message} but got {type(msg)}')
-        if msg.name in self.__messages:
-            old_msg = self.__messages.pop(msg.name)
-            self.__messages_by_id.pop(old_msg)
-        if msg.id in self.__messages:
-            old_msg = self.__messages_by_id.pop(msg.name)
-            self.__messages.pop(old_msg)
-        self.__messages[msg.name] = msg
-        self.__messages_by_id[msg.id] = msg
-
-    @property
-    def message_ids(self):
-        """A dictionary of imported messages stored by id."""
-        return self.__messages_by_id
-
-    @property
-    def signals(self):
-        """A dictionary of imported signals."""
-        return self.__signals
-
-    @signals.setter
-    def signals(self, sig):
-        """Add a signal to the dictionary."""
-        if not isinstance(sig, Signal):
-            raise TypeError(f'Expected {Signal} but got {type(sig)}')
-        self.__signals[sig.name] = sig
+class vxl_can_type(Structure):  # noqa
+    _fields_ = [("bitRate", c_uint),
+                ("sjw", c_ubyte),
+                ("tseg1", c_ubyte),
+                ("tseg2", c_ubyte),
+                ("sam", c_ubyte),
+                ("outputMode", c_ubyte)]
 
 
-class Node:
-    """A CAN node."""
-
-    def __init__(self, name):  # noqa
-        self.name = name
-
-    @property
-    def name(self):
-        """The name of the node."""
-        return self.__name
-
-    @name.setter
-    def name(self, name):
-        """Set the name of the node."""
-        if isinstance(name, str):
-            self.__name = name
-        else:
-            raise TypeError(f'Expected str but got {type(name)}')
+class vxl_most_type(Structure):  # noqa
+    _fields_ = [("activeSpeedGrade", c_uint),
+                ("compatibleSpeedGrade", c_uint)]
 
 
-class Message:
-    """A CAN message."""
-
-    def __init__(self, name):  # noqa
-        self.name = name
-
-    @property
-    def name(self):
-        """The name of the message."""
-        return self.__name
-
-    @name.setter
-    def name(self, name):
-        """Set the name of the message."""
-        if isinstance(name, str):
-            self.__name = name
-        else:
-            raise TypeError(f'Expected str but got {type(name)}')
-
-    if msg.send_type_num is not None and\
-       msg.send_type_num < len(p.send_types):
-        msg.send_type = p.send_types[msg.send_type_num]
-    pass
+class vxl_flexray_type(Structure):  # noqa
+    _fields_ = [("status", c_uint),
+                ("cfgMode", c_uint),
+                ("baudrate", c_uint)]
 
 
-class Signal:
-    """A CAN signal."""
+class vxl_data_type(Union):  # noqa
+    _fields_ = [("can", vxl_can_type),
+                ("most", vxl_most_type),
+                ("flexray", vxl_flexray_type),
+                ("raw", c_ubyte * 32)]
 
-    def __init__(self, name):  # noqa
-        self.name = name
 
-    @property
-    def name(self):
-        """The name of the signal."""
-        return self.__name
+class vxl_bus_params_type(Structure):  # noqa
+    _fields_ = [("busType", c_uint),
+                ("data", vxl_data_type)]
 
-    @name.setter
-    def name(self, name):
-        """Set the name of the signal."""
-        if isinstance(name, str):
-            self.__name = name
-        else:
-            raise TypeError(f'Expected str but got {type(name)}')
+
+class vxl_channel_config_type(Structure):  # noqa
+    _pack_ = 1
+    _fields_ = [("name", c_char * 32),
+                ("hwType", c_ubyte),
+                ("hwIndex", c_ubyte),
+                ("hwChannel", c_ubyte),
+                ("transceiverType", c_ushort),
+                ("transceiverState", c_ushort),
+                ("configError", c_ushort),
+                ("channelIndex", c_ubyte),
+                ("channelMask", c_ulonglong),
+                ("channelCapabilities", c_uint),
+                ("channelBusCapabilities", c_uint),
+                ("isOnBus", c_ubyte),
+                ("connectedBusType", c_uint),
+                ("busParams", vxl_bus_params_type),
+                ("driverVersion", c_uint),
+                ("interfaceVersion", c_uint),
+                ("raw_data", c_uint * 10),
+                ("serialNumber", c_uint),
+                ("articleNumber", c_uint),
+                ("transceiverName", c_char * 32),
+                ("specialCabFlags", c_uint),
+                ("dominantTimeout", c_uint),
+                ("dominantRecessiveDelay", c_ubyte),
+                ("recessiveDominantDelay", c_ubyte),
+                ("connectionInfo", c_ubyte),
+                ("currentlyAvailableTimestamps", c_ubyte),
+                ("minimalSupplyVoltage", c_ushort),
+                ("maximalSupplyVoltage", c_ushort),
+                ("maximalBaudrate", c_uint),
+                ("fpgaCoreCapabilities", c_ubyte),
+                ("specialDeviceStatus", c_ubyte),
+                ("channelBusActiveCapabilities", c_ushort),
+                ("breakOffset", c_ushort),
+                ("delimiterOffset", c_ushort),
+                ("reserved", c_uint * 3)]
+
+
+class vxl_driver_config_type(Structure):  # noqa
+    _fields_ = [("dllVersion", c_uint),
+                ("channelCount", c_uint),
+                ("reserved", c_uint * 10),
+                ("channel", vxl_channel_config_type * 64)]
+
+
+class vxl_license_info_type(Structure):  # noqa
+    _fields_ = [("bAvailable", c_ubyte),
+                ("licName", c_char * 65)]
+
+
+class vxl_sync_pulse_type(Structure):  # noqa
+    _pack_ = 1
+    _fields_ = [("pulseCode", c_ubyte),
+                ("time", c_ulonglong)]
+
+
+class vxl_can_msg_type(Structure):  # noqa
+    _fields_ = [("id", c_ulong),
+                ("flags", c_ushort),
+                ("dlc", c_ushort),
+                ("res1", c_ulonglong),
+                ("data", c_ubyte * 8),
+                ("res2", c_ulonglong)]
+
+
+class vxl_daio_data_type(Structure):  # noqa
+    _fields_ = [("flags", c_ushort),
+                ("timestamp_correction", c_uint),
+                ("mask_digital", c_ubyte),
+                ("reserved0", c_ubyte),
+                ("value_analog", c_ushort * 4),
+                ("pwm_frequency", c_uint),
+                ("reserved1", c_uint),
+                ("reserved2", c_uint)]
+
+
+class vxl_digital_data_type(Structure):  # noqa
+    _fields_ = [("digitalInputData", c_uint)]
+
+
+class vxl_analog_data_type(Structure):  # noqa
+    _fields_ = [("measuredAnalogData0", c_uint),
+                ("measuredAnalogData1", c_uint),
+                ("measuredAnalogData2", c_uint),
+                ("measuredAnalogData3", c_uint)]
+
+
+class vxl_pig_u_type(Union):  # noqa
+    _fields_ = [("digital", vxl_digital_data_type),
+                ("analog", vxl_analog_data_type)]
+
+
+class vxl_daio_piggy_data_type(Structure):  # noqa
+    _fields_ = [("daioEvtTag", c_uint),
+                ("triggerType", c_uint),
+                ("pigU", vxl_pig_u_type)]
+
+
+class vxl_chip_state_type(Structure):  # noqa
+    _fields_ = [("busStatus", c_ubyte),
+                ("txErrorCounter", c_ubyte),
+                ("rxErrorCounter", c_ubyte)]
+
+
+class vxl_transceiver_type(Structure):  # noqa
+    _fields_ = [("event_reason", c_ubyte),
+                ("is_present", c_ubyte)]
+
+
+class vxl_lin_msg_type(Structure):  # noqa
+    _fields_ = [("id", c_ubyte),
+                ("dlc", c_ubyte),
+                ("flags", c_ushort),
+                ("data", c_ubyte * 8),
+                ("crc", c_ubyte)]
+
+
+class vxl_lin_no_ans_type(Structure):  # noqa
+    _fields_ = [("id", c_ubyte)]
+
+
+class vxl_lin_wake_up_type(Structure):  # noqa
+    _fields_ = [("flag", c_ubyte)]
+
+
+class vxl_lin_sleep_type(Structure):  # noqa
+    _fields_ = [("flag", c_ubyte)]
+
+
+class vxl_lin_crc_info_type(Structure):  # noqa
+    _fields_ = [("id", c_ubyte),
+                ("flags", c_ubyte)]
+
+
+class linMsgApi(Union):  # noqa
+    _fields_ = [("linMsg", vxl_lin_msg_type),
+                ("linNoAns", vxl_lin_msg_type),
+                ("linWakeUp", vxl_lin_wake_up_type),
+                ("linSleep", vxl_lin_sleep_type),
+                ("linCRCinfo", vxl_lin_crc_info_type)]
+
+
+class vxl_tag_data_type(Union):  # noqa
+    _fields_ = [("msg", vxl_can_msg_type),
+                ("chipState", vxl_chip_state_type),
+                ("linMsgApi", linMsgApi),
+                ("syncPulse", vxl_sync_pulse_type),
+                ("daioData", vxl_daio_data_type),
+                ("transceiver", vxl_transceiver_type),
+                ("daioPiggyData", vxl_daio_piggy_data_type)]
+
+
+class vxl_event_type(Structure):  # noqa
+    _fields_ = [("tag", c_ubyte),
+                ("chanIndex", c_ubyte),
+                ("transId", c_ushort),
+                ("portHandle", c_ushort),
+                ("flags", c_ubyte),
+                ("reserved", c_ubyte),
+                ("timeStamp", c_ulonglong),
+                ("tagData", vxl_tag_data_type)]
+
+
+class vxl_events_type(Structure):  # noqa
+    _fields_ = [("event", vxl_event_type * 5)]
