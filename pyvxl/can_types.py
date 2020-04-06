@@ -228,18 +228,6 @@ class Database:
         """A dictionary of imported messages stored by id."""
         return self.__messages_by_id
 
-    @property
-    def signals(self):
-        """A dictionary of imported signals."""
-        return self.__signals
-
-    @signals.setter
-    def signals(self, sig):
-        """Add a signal to the dictionary."""
-        if not isinstance(sig, Signal):
-            raise TypeError(f'Expected {Signal} but got {type(sig)}')
-        self.__signals[sig.name] = sig
-
     def get_message(self, name_or_id):
         """Get a message by name or id."""
         if self.
@@ -251,7 +239,63 @@ class Database:
 
         Returns a list of message objects.
         """
-        pass
+        num_found = 0
+        msg_id = self._check_type(msg)
+        if isinstance(msg_id, int) or isinstance(msg_id, long):
+            try:
+                if msg_id > 0x8000:
+                    # msg_id = (msg_id&~0xF0000FFF)|0x80000000
+                    msg_id |= 0x80000000
+                    msg = self.imported.messages[msg_id]
+                else:
+                    msg = self.imported.messages[msg_id]
+                num_found += 1
+                self.last_found_msg = msg
+                if display:
+                    self._print_msg(msg)
+                    for sig in msg.signals:
+                        self._print_sig(sig)
+            except KeyError:
+                logging.error('Message ID 0x{:X} not found!'.format(msg_id))
+                self.last_found_msg = None
+                return False
+        else:
+            for msg in self.imported.messages.values():
+                if not exact:
+                    if msg_id.lower() in msg.name.lower():
+                        num_found += 1
+                        self.last_found_msg = msg
+                        if display:
+                            self._print_msg(msg)
+                            for sig in msg.signals:
+                                self._print_sig(sig)
+                else:
+                    if msg_id.lower() == msg.name.lower():
+                        num_found += 1
+                        self.last_found_msg = msg
+                        if display:
+                            self._print_msg(msg)
+                            for sig in msg.signals:
+                                self._print_sig(sig)
+        if num_found == 0:
+            self.last_found_msg = None
+            if display:
+                logging.info('No messages found for that input')
+        elif num_found > 1:
+            self.last_found_msg = None
+        return True
+
+    @property
+    def signals(self):
+        """A dictionary of imported signals."""
+        return self.__signals
+
+    @signals.setter
+    def signals(self, sig):
+        """Add a signal to the dictionary."""
+        if not isinstance(sig, Signal):
+            raise TypeError(f'Expected {Signal} but got {type(sig)}')
+        self.__signals[sig.name] = sig
 
     def get_signal(self, name):
         """Get a signal by name."""
@@ -332,6 +376,60 @@ class Message:
         msg.send_type = p.send_types[msg.send_type_num]
     pass
 
+    def _reverse(self, num, dlc):
+        """Reverse the byte order of data."""
+        out = ''
+        if dlc > 0:
+            out = num[:2]
+        if dlc > 1:
+            out = num[2:4] + out
+        if dlc > 2:
+            out = num[4:6] + out
+        if dlc > 3:
+            out = num[6:8] + out
+        if dlc > 4:
+            out = num[8:10] + out
+        if dlc > 5:
+            out = num[10:12] + out
+        if dlc > 6:
+            out = num[12:14] + out
+        if dlc > 7:
+            out = num[14:] + out
+        return out
+
+    def _print_msg(self, msg):
+        """Print a colored CAN message."""
+        print('')
+        color = Style.BRIGHT + Fore.GREEN
+        msgid = hex(msg.id)
+        data = hex(msg.data)[2:]
+        if msgid[-1] == 'L':
+            msgid = msgid[:-1]
+        if data[-1] == 'L':
+            data = data[:-1]
+        while len(data) < (msg.dlc * 2):
+            data = '0' + data
+        if msg.endianness != 0:
+            data = self._reverse(data, msg.dlc)
+        print('{}Message: {} - ID: {} - Data: 0x{}'.format(color, msg.name,
+                                                           msgid, data))
+        reset_color = Fore.RESET + Style.RESET_ALL
+        node_color = Back.RESET + Fore.MAGENTA
+        cycle_status = ' - Non-periodic'
+        node = '{} - TX Node: {}{}'.format(node_color, msg.sender, reset_color)
+        if msg.period != 0:
+            sending = 'Not Sending'
+            send_color = Fore.WHITE + Back.RED
+            if msg.sending:
+                sending = 'Sending'
+                send_color = Fore.WHITE + Back.GREEN
+            cycle = ' - Cycle time(ms): {}'.format(msg.period)
+            status = ' - Status: {}{}'.format(send_color, sending)
+            node = '{} - TX Node: {}{}'.format(node_color, msg.sender,
+                                               reset_color)
+            cycle_status = cycle + status
+        print(cycle_status + node)
+
 
 class Signal:
     """A CAN signal."""
@@ -351,3 +449,64 @@ class Signal:
             self.__name = name
         else:
             raise TypeError(f'Expected str but got {type(name)}')
+
+    def _check_signal(self, signal, value=None, force=False):
+        """Check the validity of a signal and optionally it's value.
+
+        Returns the message object containing the updated signal on success.
+        """
+        if not self.imported:
+            self.import_dbc()
+        if not isinstance(signal, str):
+            raise TypeError('Expected str but got {}'.format(type(signal)))
+        # Grab the signal object by full or short name
+        if signal.lower() not in self.imported.signals:
+            if signal.lower() not in self.imported.signals_by_name:
+                raise ValueError('Signal {} not found in the database!'
+                                 ''.format(signal))
+            else:
+                sig = self.imported.signals_by_name[signal.lower()]
+        else:
+            sig = self.imported.signals[signal.lower()]
+        logging.debug('Found signal {} - msg id {:X}'
+                      ''.format(sig.name, sig.msg_id))
+        # Grab the message this signal is transmitted from
+        if sig.msg_id not in self.imported.messages:
+            raise KeyError('Signal {} has no associated messages!'.format(signal))
+        msg = self.imported.messages[sig.msg_id]
+        if value:
+            # Update the signal value
+            sig.set_val(value, force=force)
+        return msg
+
+    def _print_sig(self, sig, short_name=False, value=False):
+        """Print a colored CAN signal."""
+        color = Fore.CYAN + Style.BRIGHT
+        rst = Fore.RESET + Style.RESET_ALL
+        if not short_name and not sig.full_name:
+            short_name = True
+        if short_name:
+            name = sig.name
+        else:
+            name = sig.full_name
+        print('{} - Signal: {}'.format(color, name))
+        if sig.values.keys():
+            if value:
+                print('            ^- {}{}'.format(sig.get_val(), rst))
+            else:
+                print('            ^- [')
+                multiple = False
+                for key, val in sig.values.items():
+                    if multiple:
+                        print(', ')
+                    print('{}({})'.format(key, hex(val)))
+                    multiple = True
+                print(']{}\n'.format(rst))
+        else:
+            if value:
+                print('            ^- {}{}{}'.format(sig.get_val(), sig.units,
+                                                     rst))
+            else:
+                print('            ^- [{} : {}]{}'.format(sig.min_val,
+                                                          sig.max_val, rst))
+
