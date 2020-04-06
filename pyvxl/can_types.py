@@ -4,57 +4,100 @@
 
 from os import path
 from pyvxl.pydbc import DBCParser
-from pyvxl.vxl import VxlCan
+from pyvxl.vxl import VxlCan, VxlChannel
 
 
-class Channel:
-    """A CAN channel."""
+class Channel(VxlChannel):
+    """A named transmit only extension of VxlChannel adding databases."""
 
-    def __init__(self, num=0, baud=500000, name='', db='', vxl=None):  # noqa
-        self.num = num
+    def __init__(self, name, num=0, baud=500000, db=''):  # noqa
         self.name = name
-        self.baud = baud
-        self.__connected = False
-        if vxl is None:
-            self.__vxl = VxlCan(num, baud)
-        elif isinstance(vxl, VxlCan):
-            self.__vxl = vxl
-            if self.__vxl.started:
-                self.__connected = True
-        else:
-            raise TypeError(f'Expected {VxlCan}, but got {type(vxl)}')
+        # Minimum queue size since we won't be receiving
+        self.__vxl = VxlCan(num, baud, rx_queue_size=16)
+        self.db = db
 
     def __str__(self):
         """Return a string representation of this channel."""
         return (f'Channel({self.num}, {self.baud}, {self.name})')
 
-    def connect(self):
-        """Connect to the channel."""
-        if self.connected:
-            raise AssertionError(f'{self} is already connected')
-        self.__connected = True
+    @property
+    def name(self):
+        """The name of the channel."""
+        return self.__name
 
-    def disconnect(self):
-        """Disconnect from the channel."""
-        if not self.connected:
-            raise AssertionError(f'{self} is already disconnected')
-        self.__connected = False
+    @name.setter
+    def name(self, name):
+        """Set the name of the channel."""
+        if not isinstance(name, str):
+            raise TypeError('Expected str, but got {}'.format(type(name)))
+        self.__name = name
 
     @property
-    def connected(self):
-        """Whether the channel is connected."""
-        return self.__connected
+    def db(self):
+        """The database for this channel."""
+        return self.__db
 
-    @property
-    def num(self):
-        """The numeric value of this channel."""
-        return self.__num
+    @db.setter
+    def db(self, db_path):
+        """Set the database for this channel."""
+        self.__db = None
+        if db_path:
+            self.__db = Database(db_path)
 
-    @num.setter
-    def num(self, num):
-        """Set the channel number."""
-        if not isinstance(num, int):
-            raise TypeError(f'Expected int, got {type(num)}')
+    def _send(self, msg, send_once=False):
+        """Send a message."""
+        if msg.update_func is not None:
+            msg.set_data(msg.update_func(msg))
+        data = msg.get_data()
+        self.vxl.send(msg.id, data)
+        if not send_once and msg.period:
+            self.__tx_thread.add(msg)
+        logging.debug('TX: {: >8X} {: <16}'.format(msg.id, data))
+
+    def send_message(self, msg_id, data='', period=0, send_once=False,
+                     in_database=True):
+        """Send a message by name or id."""
+        msg = self._get_message_obj(msg_id, data, period, in_database)
+        self._send(msg, send_once)
+
+    def stop_message(self, msg_id):
+        """Stop sending a periodic message.
+
+        Args:
+            msg_id: message name or message id
+        """
+        msg = self._get_message_obj(msg_id)
+        self.__tx_thread.remove(msg)
+
+    def stop_all_messages(self):
+        """Stop sending all periodic messages."""
+        self.__tx_thread.remove_all()
+
+    def send_signal(self, signal, value, send_once=False, force=False):
+        """Send the message containing signal."""
+        msg = self._check_signal(signal, value, force)
+        return self._send(msg, send_once)
+
+    def stop_signal(self, signal):
+        """Stop transmitting the periodic message containing signal."""
+        msg = self._check_signal(signal)
+        self.__tx_thread.remove(msg)
+
+    def _check_node(self, node):
+        """Check if a node is valid."""
+        if self.imported is None:
+            raise AssertionError('No database imported! Call import_db first.')
+        if node.lower() not in self.imported.nodes:
+            raise ValueError('Node named: {} not found in {}'
+                             ''.format(node, self.__db_path))
+
+    def start_node(self, node):
+        """Start transmitting all periodic messages sent by node."""
+        raise NotImplementedError
+
+    def stop_node(self):
+        """Stop transmitting all periodic messages sent by node."""
+        raise NotImplementedError
 
 
 class Database:
@@ -154,6 +197,13 @@ class Database:
             raise TypeError(f'Expected {Node} but got {type(node)}')
         self.__nodes[node.name] = node
 
+    def get_node(self, name):
+        """Get a node by name."""
+        pass
+
+    def find_node(self, name):
+        """Find nodes by name."""
+
     @property
     def messages(self):
         """A dictionary of imported messages stored by message name."""
@@ -189,6 +239,53 @@ class Database:
         if not isinstance(sig, Signal):
             raise TypeError(f'Expected {Signal} but got {type(sig)}')
         self.__signals[sig.name] = sig
+
+    def get_message(self, name_or_id):
+        """Get a message by name or id."""
+        if self.
+        msg = None
+        for msg in self.
+
+    def find_message(self, name_or_id, exact=False):
+        """Find messages by name or id.
+
+        Returns a list of message objects.
+        """
+        pass
+
+    def get_signal(self, name):
+        """Get a signal by name."""
+        return self.find_signal(name, exact=True)
+
+    def find_signal(self, name, exact=False):
+        """Find signals by name."""
+        if not isinstance(name, str):
+            raise TypeError(f'Expected str, but got {type(name)}')
+        num_found = 0
+        for msg in self.imported.messages.values():
+            msgPrinted = False
+            for sig in msg.signals:
+                if not exact:
+                    short_name = (search_str.lower() in sig.name.lower())
+                    full_name = (search_str.lower() in sig.full_name.lower())
+                else:
+                    short_name = (search_str.lower() == sig.name.lower())
+                    full_name = (search_str.lower() == sig.full_name.lower())
+                if full_name or short_name:
+                    num_found += 1
+                    self.last_found_sig = sig
+                    self.last_found_msg = msg
+                    if display:
+                        if not msgPrinted:
+                            self._print_msg(msg)
+                            msgPrinted = True
+                        self._print_sig(sig)
+        if num_found == 0:
+            self.last_found_sig = None
+            logging.info('No signals found for that input')
+        elif num_found > 1:
+            self.last_found_sig = None
+        return True
 
 
 class Node:

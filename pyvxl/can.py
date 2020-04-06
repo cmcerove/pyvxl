@@ -32,11 +32,10 @@ class CAN(object):
     # Synchronizes calls to VxlCan.receive since it's not reentrant
     __rx_lock = None
 
-    def __init__(self, channel=0, db_path=None, baud_rate=500000):
-        """."""
-        self.vxl = VxlCan(channel, baud_rate)
+    def __init__(self):  # noqa
+        self.__vxl = VxlCan(channel=None)
         self.vxl.start()
-        self.__db_path = db_path
+
         if CAN.__rx_lock is None:
             CAN.__rx_lock = RLock()
         self.__tx_thread = TransmitThread(self.vxl)
@@ -49,26 +48,32 @@ class CAN(object):
         """."""
         deinit()
 
-    def __requires(self, properties):
-        """Check that required properties exist."""
-        pass
-
     @property
     def channels(self):
-        """A dictionary of CAN channels."""
+        """A dictionary of CAN channels by name."""
         return self.__channels
 
     @property
-    def dbs(self):
-        """A list of databases ordered by channel."""
-        return self.__dbs
+    def channel_names(self):
+        """A list of channel names."""
+        return list(self.__channels.keys())
 
-    def add_channel(self, num=0, baud=500000, db=''):
-        """."""
-        # Raise an error if the channel doesn't exist
+    def add_channel(self, name, num=0, baud=500000, db='', uds=False):
+        """Add a channel."""
+        channel = Channel(name, num, baud, db, uds)
+        if channel
+        self.channels
+
+    def remove_channel(self, channel):
+        """Remove a channel."""
         pass
 
-    def import_db(self, db_path=None):
+    @property
+    def dbs(self):
+        """A dictionary of imported databases by channel."""
+        return self.__dbs
+
+    def add_db(self, db_path):
         """Import the database."""
         if db_path is not None:
             self.__db_path = db_path
@@ -93,6 +98,9 @@ class CAN(object):
             logging.info('-' * 60)
             raise
 
+    def remove_db(self, db_path, channel=0):
+        """Remove a database."""
+
     def start_logging(self, *args, **kwargs):
         """Start logging."""
         return self.__rx_thread.start_logging(*args, **kwargs)
@@ -100,199 +108,6 @@ class CAN(object):
     def stop_logging(self):
         """Stop logging."""
         return self.__rx_thread.stop_logging()
-
-    def _send(self, msg, send_once=False):
-        """Send a message."""
-        if msg.update_func is not None:
-            msg.set_data(msg.update_func(msg))
-        data = msg.get_data()
-        self.vxl.send(msg.id, data)
-        if not send_once and msg.period:
-            self.__tx_thread.add(msg)
-        logging.debug('TX: {: >8X} {: <16}'.format(msg.id, data))
-
-    def send_message(self, msg_id, data='', period=0, send_once=False,
-                     in_database=True):
-        """Send a message by name or id."""
-        msg = self._get_message_obj(msg_id, data, period, in_database)
-        self._send(msg, send_once)
-
-    def stop_message(self, msg_id):
-        """Stop sending a periodic message.
-
-        Args:
-            msg_id: message name or message id
-        """
-        msg = self._get_message_obj(msg_id)
-        self.__tx_thread.remove(msg)
-
-    def stop_all_messages(self):
-        """Stop sending all periodic messages."""
-        self.__tx_thread.remove_all()
-
-    def send_signal(self, signal, value, send_once=False, force=False):
-        """Send the message containing signal."""
-        msg = self._check_signal(signal, value, force)
-        self._send(msg, send_once)
-
-    def stop_signal(self, signal):
-        """Stop transmitting the periodic message containing signal."""
-        msg = self._check_signal(signal)
-        self.__tx_thread.remove(msg)
-
-    def _check_node(self, node):
-        """Check if a node is valid."""
-        if self.imported is None:
-            raise AssertionError('No database imported! Call import_db first.')
-        if node.lower() not in self.imported.nodes:
-            raise ValueError('Node named: {} not found in {}'
-                             ''.format(node, self.__db_path))
-
-    def start_node(self, node):
-        """Start transmitting all periodic messages sent by node."""
-        raise NotImplementedError
-
-    def stop_node(self):
-        """Stop transmitting all periodic messages sent by node."""
-        raise NotImplementedError
-
-    def find_node(self, node, display=False):
-        """Prints all nodes of the dbc matching 'node'"""
-        if not self.imported:
-            logging.error('No CAN databases currently imported!')
-            return False
-        (status, node) = self._checkMsgID(node)
-        if status == 0:
-            return False
-        num_found = 0
-        for anode in self.imported.nodes.values():
-            if status == 1:
-                if node == anode.source_id:
-                    num_found += 1
-                    self.last_found_node = anode
-            else:
-                if node.lower() in anode.name.lower():#pylint: disable=E1103
-                    num_found += 1
-                    self.last_found_node = anode
-                    if display:
-                        txt = Fore.MAGENTA+Style.DIM+'Node: '+anode.name
-                        txt2 = ' - ID: '+hex(anode.source_id)
-                        print(txt+txt2+Fore.RESET+Style.RESET_ALL)
-        if num_found == 0:
-            self.last_found_node = None
-            logging.info('No nodes found for that input')
-        elif num_found > 1:
-            self.last_found_node = None
-
-    def find_message(self, msg, display=False, exact=True):
-        """Find all messages matching 'msg'."""
-        self.last_found_msg = None
-        num_found = 0
-        msg_id = self._check_type(msg)
-        if isinstance(msg_id, int) or isinstance(msg_id, long):
-            try:
-                if msg_id > 0x8000:
-                    # msg_id = (msg_id&~0xF0000FFF)|0x80000000
-                    msg_id |= 0x80000000
-                    msg = self.imported.messages[msg_id]
-                else:
-                    msg = self.imported.messages[msg_id]
-                num_found += 1
-                self.last_found_msg = msg
-                if display:
-                    self._print_msg(msg)
-                    for sig in msg.signals:
-                        self._print_sig(sig)
-            except KeyError:
-                logging.error('Message ID 0x{:X} not found!'.format(msg_id))
-                self.last_found_msg = None
-                return False
-        else:
-            for msg in self.imported.messages.values():
-                if not exact:
-                    if msg_id.lower() in msg.name.lower():
-                        num_found += 1
-                        self.last_found_msg = msg
-                        if display:
-                            self._print_msg(msg)
-                            for sig in msg.signals:
-                                self._print_sig(sig)
-                else:
-                    if msg_id.lower() == msg.name.lower():
-                        num_found += 1
-                        self.last_found_msg = msg
-                        if display:
-                            self._print_msg(msg)
-                            for sig in msg.signals:
-                                self._print_sig(sig)
-        if num_found == 0:
-            self.last_found_msg = None
-            if display:
-                logging.info('No messages found for that input')
-        elif num_found > 1:
-            self.last_found_msg = None
-        return True
-
-    def find_signal(self, search_str, display=False, exact=False):
-        """Prints all signals of the dbc matching 'search_str'"""
-        if not search_str or (type(search_str) != type('')):
-            logging.error('No search string found!')
-            return False
-        if not self.imported:
-            logging.warning('No CAN databases currently imported!')
-            return False
-        num_found = 0
-        for msg in self.imported.messages.values():
-            msgPrinted = False
-            for sig in msg.signals:
-                if not exact:
-                    short_name = (search_str.lower() in sig.name.lower())
-                    full_name = (search_str.lower() in sig.full_name.lower())
-                else:
-                    short_name = (search_str.lower() == sig.name.lower())
-                    full_name = (search_str.lower() == sig.full_name.lower())
-                if full_name or short_name:
-                    num_found += 1
-                    self.last_found_sig = sig
-                    self.last_found_msg = msg
-                    if display:
-                        if not msgPrinted:
-                            self._print_msg(msg)
-                            msgPrinted = True
-                        self._print_sig(sig)
-        if num_found == 0:
-            self.last_found_sig = None
-            logging.info('No signals found for that input')
-        elif num_found > 1:
-            self.last_found_sig = None
-        return True
-
-    def get_message(self, msg):
-        """Get the message object by name or id."""
-        ret = None
-        if self.find_message(msg, exact=True) and self.last_found_msg:
-            ret = self.last_found_msg
-        return ret
-
-    def get_signals(self, search_str):
-        """ Returns a list of signals objects associated with message search_str
-
-        search_str (string): the message name whose signals will be returned
-        """
-        ret = None
-        if self.find_message(search_str, exact=True) and self.last_found_msg:
-            ret = self.last_found_msg.signals
-        return ret
-
-    def get_signal_values(self, search_str):
-        """ Returns a dictionary of values associated with signal search_str
-
-        search_str (string): the signal name whose values will be returned
-        """
-        ret = None
-        if self.find_signal(search_str, exact=True) and self.last_found_sig:
-            ret = self.last_found_sig.values
-        return ret
 
     def wait_for_no_error(self, timeout=0):
         """Block until the CAN bus comes out of an error state."""
@@ -482,27 +297,6 @@ class CAN(object):
             if self.sendingPeriodics:
                 print('Currently sending: '+str(len(self.currentPeriodics)))
 
-    def _reverse(self, num, dlc):
-        """Reverse the byte order of data."""
-        out = ''
-        if dlc > 0:
-            out = num[:2]
-        if dlc > 1:
-            out = num[2:4] + out
-        if dlc > 2:
-            out = num[4:6] + out
-        if dlc > 3:
-            out = num[6:8] + out
-        if dlc > 4:
-            out = num[8:10] + out
-        if dlc > 5:
-            out = num[10:12] + out
-        if dlc > 6:
-            out = num[12:14] + out
-        if dlc > 7:
-            out = num[14:] + out
-        return out
-
     def _check_type(self, msg_id, display=False):
         """Check for errors in a message id."""
         if not msg_id:
@@ -561,99 +355,6 @@ class CAN(object):
                 raise ValueError('Message Name: {} not found in the'
                                  ' database!'.format(msg_id))
         return msg
-
-    def _check_signal(self, signal, value=None, force=False):
-        """Check the validity of a signal and optionally it's value.
-
-        Returns the message object containing the updated signal on success.
-        """
-        if not self.imported:
-            self.import_dbc()
-        if not isinstance(signal, str):
-            raise TypeError('Expected str but got {}'.format(type(signal)))
-        # Grab the signal object by full or short name
-        if signal.lower() not in self.imported.signals:
-            if signal.lower() not in self.imported.signals_by_name:
-                raise ValueError('Signal {} not found in the database!'
-                                 ''.format(signal))
-            else:
-                sig = self.imported.signals_by_name[signal.lower()]
-        else:
-            sig = self.imported.signals[signal.lower()]
-        logging.debug('Found signal {} - msg id {:X}'
-                      ''.format(sig.name, sig.msg_id))
-        # Grab the message this signal is transmitted from
-        if sig.msg_id not in self.imported.messages:
-            raise KeyError('Signal {} has no associated messages!'.format(signal))
-        msg = self.imported.messages[sig.msg_id]
-        if value:
-            # Update the signal value
-            sig.set_val(value, force=force)
-        return msg
-
-    def _print_msg(self, msg):
-        """Print a colored CAN message."""
-        print('')
-        color = Style.BRIGHT + Fore.GREEN
-        msgid = hex(msg.id)
-        data = hex(msg.data)[2:]
-        if msgid[-1] == 'L':
-            msgid = msgid[:-1]
-        if data[-1] == 'L':
-            data = data[:-1]
-        while len(data) < (msg.dlc * 2):
-            data = '0' + data
-        if msg.endianness != 0:
-            data = self._reverse(data, msg.dlc)
-        print('{}Message: {} - ID: {} - Data: 0x{}'.format(color, msg.name,
-                                                           msgid, data))
-        reset_color = Fore.RESET + Style.RESET_ALL
-        node_color = Back.RESET + Fore.MAGENTA
-        cycle_status = ' - Non-periodic'
-        node = '{} - TX Node: {}{}'.format(node_color, msg.sender, reset_color)
-        if msg.period != 0:
-            sending = 'Not Sending'
-            send_color = Fore.WHITE + Back.RED
-            if msg.sending:
-                sending = 'Sending'
-                send_color = Fore.WHITE + Back.GREEN
-            cycle = ' - Cycle time(ms): {}'.format(msg.period)
-            status = ' - Status: {}{}'.format(send_color, sending)
-            node = '{} - TX Node: {}{}'.format(node_color, msg.sender,
-                                               reset_color)
-            cycle_status = cycle + status
-        print(cycle_status + node)
-
-    def _print_sig(self, sig, short_name=False, value=False):
-        """Print a colored CAN signal."""
-        color = Fore.CYAN + Style.BRIGHT
-        rst = Fore.RESET + Style.RESET_ALL
-        if not short_name and not sig.full_name:
-            short_name = True
-        if short_name:
-            name = sig.name
-        else:
-            name = sig.full_name
-        print('{} - Signal: {}'.format(color, name))
-        if sig.values.keys():
-            if value:
-                print('            ^- {}{}'.format(sig.get_val(), rst))
-            else:
-                print('            ^- [')
-                multiple = False
-                for key, val in sig.values.items():
-                    if multiple:
-                        print(', ')
-                    print('{}({})'.format(key, hex(val)))
-                    multiple = True
-                print(']{}\n'.format(rst))
-        else:
-            if value:
-                print('            ^- {}{}{}'.format(sig.get_val(), sig.units,
-                                                     rst))
-            else:
-                print('            ^- [{} : {}]{}'.format(sig.min_val,
-                                                          sig.max_val, rst))
 
 
 class ReceiveThread(Thread):
