@@ -16,6 +16,7 @@ import shlex
 from re import findall
 from argparse import ArgumentParser
 from threading import Thread, Event, RLock
+from Queue import Queue
 from ctypes import cdll, CDLL, c_uint, c_int, c_ubyte, c_ulong, cast
 from ctypes import c_ushort, c_ulonglong, pointer, sizeof, POINTER
 from ctypes import c_short, c_long, create_string_buffer
@@ -74,21 +75,25 @@ class messageToFind(object):
         self.msg_id = msg_id
         self.data = data
         self.mask = mask
-        self.rxFrames = []
+        self.rx_queue = Queue()
+
 
     def getFirstMessage(self):
         """ Returns the first found message """
         resp = None
-        if self.rxFrames:
-            resp = self.rxFrames[0]
-            self.rxFrames = self.rxFrames[1:]
+        if not self.rx_queue.empty():
+            resp = self.rx_queue.get_nowait()
         return resp
 
     def getAllMessages(self):
         """ Returns all found messages """
         # Copy the list so we don't return the erased version
-        resp = list(self.rxFrames)
-        self.rxFrames = []
+        resp = []
+        while not self.rx_queue.empty():
+            data = self.rx_queue.get_nowait()
+            if data is None:
+                break
+            resp.append(data)
         return resp
 
 
@@ -194,7 +199,7 @@ class receiveThread(Thread):
                                     storeMsg = True
 
                                 if storeMsg:
-                                    messagesToFind[msgid].rxFrames.append(fndMsg)
+                                    messagesToFind[msgid].rx_queue.put_nowait(fndMsg)
                 elif error_status != 'XL_ERR_QUEUE_IS_EMPTY':
                     logging.error(error_status)
                 elif received:

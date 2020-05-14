@@ -1,3 +1,0 @@
-TODO:
- - Update the installer for this repo
- - Add unit tests from autotest
