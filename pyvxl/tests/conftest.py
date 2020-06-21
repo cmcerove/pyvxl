@@ -28,8 +28,8 @@ pytest_collection_modifyitems(session, config, items):
     May filter or re-order the items in-place.
 
     Parameters:
-        session (_pytest.main.Session) – the pytest session object
-        config (_pytest.config.Config) – pytest config object
-        items (List[_pytest.nodes.Item]) – list of item objects
+        session (_pytest.main.Session) - the pytest session object
+        config (_pytest.config.Config) - pytest config object
+        items (List[_pytest.nodes.Item]) - list of item objects
     """
 '''

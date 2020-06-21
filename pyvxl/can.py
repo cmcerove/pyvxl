@@ -1,105 +1,69 @@
 #!/usr/bin/env python
 
-"""Contains the CAN class for interacting with vector hardware."""
+"""Contains the classes CAN, Channel, TransmitThread and ReceiveThread."""
 
-import traceback
 import logging
 import re
 from os import path
-from sys import stdout
 from queue import Queue
 from time import localtime, sleep
 from threading import Thread, Event, RLock
-# Condition
+# TODO: Look into adding a condition for pausing the main thread while
+#       waiting for received messages.
 from fractions import gcd
-from pyvxl.pydbc import import_dbc, DBCMessage
-from pyvxl.vxl import VxlCan
-from colorama import init, deinit, Fore, Back, Style
+from pyvxl.vxl import VxlCan, VxlChannel
+from pyvxl.uds import UDS
+from pyvxl.can_types import Database  # Message, Signal
 
 
 class CAN(object):
-    """A class for transmitting or receiving CAN.
+    """."""
 
-    Features:
-        - Import and search databases (only .dbc is supported)
-        - Transmit messages by (periodic messages will transmit periodically):
-            - Imported message name or id (send_message)
-            - Imported signal name (send_signal)
-        - Receive message by:
-            - TODO: Finish filling out
-    """
-
-    # Synchronizes calls to VxlCan.receive since it's not reentrant
+    # Synchronizes calls to pyvxl.Vxl.receive since it's not reentrant
     __rx_lock = None
 
     def __init__(self):  # noqa
-        self.__vxl = VxlCan(channel=None)
-        self.vxl.start()
-
         if CAN.__rx_lock is None:
             CAN.__rx_lock = RLock()
-        self.__tx_thread = TransmitThread(self.vxl)
+        self.__channels = {}
+        self.__rx_vxl = VxlCan(channel=None)
+        self.__tx_thread = TransmitThread()
         self.__tx_thread.start()
-        self.__rx_thread = ReceiveThread(self.vxl, CAN.__rx_lock)
+        self.__rx_thread = ReceiveThread(self.__rx_vxl, CAN.__rx_lock)
         self.__rx_thread.start()
-        init()
-
-    def __del__(self):
-        """."""
-        deinit()
 
     @property
     def channels(self):
-        """A dictionary of CAN channels by name."""
-        return self.__channels
+        """A dictionary of added CAN channels by number."""
+        # dict is called to prevent editting self.__channels externally.
+        return dict(self.__channels)
 
-    @property
-    def channel_names(self):
-        """A list of channel names."""
-        return list(self.__channels.keys())
-
-    def add_channel(self, name, num=0, baud=500000, db='', uds=False):
+    def add_channel(self, num=0, baud=500000, db=''):
         """Add a channel."""
-        channel = Channel(name, num, baud, db, uds)
-        if channel
-        self.channels
+        channel = Channel(self.__tx_thread, num, baud, db)
+        if num in self.__channels:
+            raise ValueError(f'Channel {num} has already been added')
+        elif num in self.__rx_vxl.channels:
+            raise ValueError(f'{num} has already been added')
+        self.__channels[num] = channel
 
-    def remove_channel(self, channel):
+        # If the receive port has already been started, it needs to be stopped
+        # before adding a new channel and restarted after or data won't be
+        # received from the new channel.
+        if self.__rx_vxl.started():
+            self.__rx_vxl.stop()
+        self.__rx_vxl.add_channel(num, baud)
+        self.__rx_vxl.start()
+
+        logging.debug(f'Added {channel}')
+        return channel
+
+    def remove_channel(self, num):
         """Remove a channel."""
-        pass
-
-    @property
-    def dbs(self):
-        """A dictionary of imported databases by channel."""
-        return self.__dbs
-
-    def add_db(self, db_path):
-        """Import the database."""
-        if db_path is not None:
-            self.__db_path = db_path
-        elif self.__db_path is None:
-            raise ValueError('No database path specified!')
-        if not isinstance(self.__db_path, str):
-            raise TypeError('Expected str but got {}'
-                            ''.format(type(self.__db_path)))
-        if not path.isfile(self.__db_path):
-            raise ValueError('Database {} does not exist'
-                             ''.format(self.__db_path))
-
-        try:
-            self.imported = import_dbc(self.__db_path)
-            logging.info('Successfully imported: {}'
-                         ''.format(path.basename(self.__db_path)))
-        except Exception:
-            self.imported = None
-            logging.error('Import failed!')
-            logging.info('-' * 60)
-            traceback.print_exc(file=stdout)
-            logging.info('-' * 60)
-            raise
-
-    def remove_db(self, db_path, channel=0):
-        """Remove a database."""
+        if num not in self.__channels:
+            raise ValueError(f'Channel {num} has already been removed')
+        self.__rx_vxl.remove_channel(num)
+        return self.__channels.pop(num)
 
     def start_logging(self, *args, **kwargs):
         """Start logging."""
@@ -108,6 +72,151 @@ class CAN(object):
     def stop_logging(self):
         """Stop logging."""
         return self.__rx_thread.stop_logging()
+
+    def stop_all_messages(self):
+        """Stop transmitting periodic messages on all channels."""
+        for channel in self.__channels:
+            channel.stop_all_messages()
+
+    def print_periodics(self, info=False, search_for=''):
+        """Print all periodic messages currently being sent."""
+        if not self.sendingPeriodics:
+            logging.info('No periodics currently being sent')
+        if search_for:
+            # pylint: disable=W0612
+            (status, msgID) = self._checkMsgID(search_for)
+            if not status:
+                return False
+            elif status == 1:  # searching periodics by id
+                for periodic in self.currentPeriodics:
+                    if periodic.id == msgID:
+                        self.last_found_msg = periodic
+                        self._print_msg(periodic)
+                        for sig in periodic.signals:
+                            self.last_found_sig = sig
+                            self._print_sig(sig, value=True)
+            else:  # searching by string or printing all
+                found = False
+                for msg in self.currentPeriodics:
+                    if search_for.lower() in msg.name.lower():
+                        found = True
+                        self.last_found_msg = msg
+                        self._print_msg(msg)
+                        for sig in msg.signals:
+                            self.last_found_sig = sig
+                            self._print_sig(sig, value=True)
+                    else:
+                        msgPrinted = False
+                        for sig in msg.signals:
+                            #pylint: disable=E1103
+                            short_name = (msgID.lower() in sig.name.lower())
+                            full_name = (msgID.lower() in sig.full_name.lower())
+                            #pylint: enable=E1103
+                            if full_name or short_name:
+                                found = True
+                                if not msgPrinted:
+                                    self.last_found_msg = msg
+                                    self._print_msg(msg)
+                                    msgPrinted = True
+                                self.last_found_sig = sig
+                                self._print_sig(sig, value=True)
+                if not found:
+                    logging.error(
+                        'Unable to find a periodic message with that string!')
+        else:
+            for msg in self.currentPeriodics:
+                self.last_found_msg = msg
+                self._print_msg(msg)
+                if info:
+                    for sig in msg.signals:
+                        self.last_found_sig = sig
+                        self._print_sig(sig, value=True)
+            if self.sendingPeriodics:
+                print('Currently sending: '+str(len(self.currentPeriodics)))
+
+
+class Channel(VxlChannel):
+    """A transmit only extension of VxlChannel."""
+
+    def __init__(self, tx_thread, num, baud, db):  # noqa
+        # Minimum queue size since we won't be receiving
+        self.__tx_thread = tx_thread
+        self.__vxl = VxlCan(num, baud, rx_queue_size=16)
+        self.__vxl.start()
+        self.db = db
+        self.uds = UDS(self)
+
+    def __str__(self):
+        """Return a string representation of this channel."""
+        return (f'Channel(num={self.num}, baud={self.baud}, db={self.db})')
+
+    @property
+    def db(self):
+        """The database for this channel."""
+        return self.__db
+
+    @db.setter
+    def db(self, db_path):
+        """Set the database for this channel."""
+        self.__db = None
+        if db_path:
+            self.__db = Database(db_path)
+
+    def _send(self, msg, send_once=False):
+        """Send a message."""
+        if msg.update_func is not None:
+            msg.set_data(msg.update_func(msg))
+        data = msg.get_data()
+        self.__vxl.send(msg.id, data)
+        if not send_once and msg.period:
+            self.__tx_thread.add(msg, self.__vxl)
+        logging.debug('TX: {: >8X} {: <16}'.format(msg.id, data))
+
+    def send_message(self, msg_id, data='', period=0, send_once=False,
+                     in_database=True):
+        """Send a message by name or id."""
+        msg = self._get_message_obj(msg_id, data, period, in_database)
+        self._send(msg, send_once)
+
+    def stop_message(self, msg_id):
+        """Stop sending a periodic message.
+
+        Args:
+            msg_id: message name or message id
+        """
+        msg = self._get_message_obj(msg_id)
+        self.__tx_thread.remove(msg)
+
+    def stop_all_messages(self):
+        """Stop sending all periodic messages."""
+        self.__tx_thread.remove_all(self.__vxl)
+
+    def send_signal(self, signal, value, send_once=False, force=False):
+        """Send the message containing signal."""
+        msg = self._check_signal(signal, value, force)
+        return self._send(msg, send_once)
+
+    def stop_signal(self, signal):
+        """Stop transmitting the periodic message containing signal."""
+        msg = self._check_signal(signal)
+        self.__tx_thread.remove(msg)
+
+    # TODO: Finish updating functions below
+    def _check_node(self, node):
+        """Check if a node is valid."""
+        if self.imported is None:
+            raise AssertionError('No database imported! Call import_db first.')
+        if node.lower() not in self.imported.nodes:
+            raise ValueError('Node named: {} not found in {}'
+                             ''.format(node, self.__db_path))
+
+    def start_node(self, node):
+        """Start transmitting all periodic messages sent by node."""
+        raise NotImplementedError
+
+    def stop_node(self):
+        """Stop transmitting all periodic messages sent by node."""
+        raise NotImplementedError
 
     def wait_for_no_error(self, timeout=0):
         """Block until the CAN bus comes out of an error state."""
@@ -220,7 +329,6 @@ class CAN(object):
 
     def get_queued_data(self, msg_id):
         """Get data queued for msg_id."""
-
         resp = None
         resp = self.rxthread.getFirstRxMessage(msg_id)
         return resp
@@ -240,62 +348,6 @@ class CAN(object):
         self.send_message(tx_id, tx_data, **kwargs)
         resp = self._block_unless_found(rx_id, timeout)
         return resp
-
-    def print_periodics(self, info=False, search_for=''):
-        """Print all periodic messages currently being sent."""
-        if not self.sendingPeriodics:
-            logging.info('No periodics currently being sent')
-        if search_for:
-            # pylint: disable=W0612
-            (status, msgID) = self._checkMsgID(search_for)
-            if not status:
-                return False
-            elif status == 1:  # searching periodics by id
-                for periodic in self.currentPeriodics:
-                    if periodic.id == msgID:
-                        self.last_found_msg = periodic
-                        self._print_msg(periodic)
-                        for sig in periodic.signals:
-                            self.last_found_sig = sig
-                            self._print_sig(sig, value=True)
-            else:  # searching by string or printing all
-                found = False
-                for msg in self.currentPeriodics:
-                    if search_for.lower() in msg.name.lower():
-                        found = True
-                        self.last_found_msg = msg
-                        self._print_msg(msg)
-                        for sig in msg.signals:
-                            self.last_found_sig = sig
-                            self._print_sig(sig, value=True)
-                    else:
-                        msgPrinted = False
-                        for sig in msg.signals:
-                            #pylint: disable=E1103
-                            short_name = (msgID.lower() in sig.name.lower())
-                            full_name = (msgID.lower() in sig.full_name.lower())
-                            #pylint: enable=E1103
-                            if full_name or short_name:
-                                found = True
-                                if not msgPrinted:
-                                    self.last_found_msg = msg
-                                    self._print_msg(msg)
-                                    msgPrinted = True
-                                self.last_found_sig = sig
-                                self._print_sig(sig, value=True)
-                if not found:
-                    logging.error(
-                        'Unable to find a periodic message with that string!')
-        else:
-            for msg in self.currentPeriodics:
-                self.last_found_msg = msg
-                self._print_msg(msg)
-                if info:
-                    for sig in msg.signals:
-                        self.last_found_sig = sig
-                        self._print_sig(sig, value=True)
-            if self.sendingPeriodics:
-                print('Currently sending: '+str(len(self.currentPeriodics)))
 
     def _check_type(self, msg_id, display=False):
         """Check for errors in a message id."""
@@ -423,7 +475,8 @@ class ReceiveThread(Thread):
             # TODO: look into why setNotification wasn't working and either
             #       remove or fix this.
             # WaitForSingleObject(self.msgEvent, 1)
-            # Only modify the log file from the Thread
+
+            # Check for changes in CAN hardware once per second
             elapsed += self.__sleep_time
             if elapsed >= 1:
                 elapsed = 0
@@ -435,6 +488,7 @@ class ReceiveThread(Thread):
                         # main thread.
                         raise AssertionError('CAN case was connected or '
                                              'disconnected.')
+            # Only modify the log file from the Thread
             if self.__log_request == 'start':
                 self.__start_logging()
             elif self.__log_request == 'stop':
@@ -705,11 +759,10 @@ class ReceiveThread(Thread):
 class TransmitThread(Thread):
     """Thread for transmitting CAN messages."""
 
-    def __init__(self, vxl):
+    def __init__(self):
         """."""
-        super(TransmitThread, self).__init__()
+        super().__init__()
         self.daemon = True
-        self.__vxl = vxl
         self.__stopped = Event()
         self.__messages = {}
         self.__elapsed = 0
@@ -720,11 +773,11 @@ class TransmitThread(Thread):
     def run(self):
         """The main loop for the thread."""
         while not self.__stopped.wait(self.__sleep_time_s):
-            for msg in self.__messages.values():
+            for msg, vxl in self.__messages.values():
                 if self.__elapsed % msg.period == 0:
                     if msg.update_func is not None:
                         msg.set_data(msg.update_func(msg))
-                    self.__vxl.send(msg.id, msg.get_data())
+                    vxl.send(msg.id, msg.get_data())
             if self.__elapsed >= self.__max_increment:
                 self.__elapsed = self.__sleep_time_ms
             else:
@@ -737,7 +790,7 @@ class TransmitThread(Thread):
     def __update_times(self):
         """Update times for the transmit loop."""
         if len(self.__messages) == 1:
-            msg = self.__messages.values()[0]
+            msg, _ = self.__messages.values()[0]
             self.__sleep_time_s = msg.period / 1000.0
             self.__max_increment = msg.period
             self.__sleep_time_ms = msg.period
@@ -745,8 +798,8 @@ class TransmitThread(Thread):
             curr_gcd = self.__sleep_time_ms
             curr_lcm = self.__max_increment
             for i in range(1, len(self.__messages)):
-                _, prev = self.__messages[i - 1]
-                _, curr = self.__messages[i]
+                prev, _ = self.__messages[i - 1]
+                curr, _ = self.__messages[i]
                 tmp_gcd = gcd(prev, curr)
                 tmp_lcm = prev * curr / tmp_gcd
                 if curr_gcd is None or tmp_gcd < curr_gcd:
@@ -759,9 +812,9 @@ class TransmitThread(Thread):
         if self.__elapsed >= self.__max_increment:
             self.__elapsed = self.__sleep_time_ms
 
-    def add(self, msg):
+    def add(self, msg, vxl):
         """Add a periodic message to the thread."""
-        self.__messages[msg.id] = msg
+        self.__messages[msg.id] = (msg, vxl)
         self.__update_times()
         logging.debug('TX: {: >8X} {: <16} period={}ms'
                       ''.format(msg.id, msg.get_data(), msg.period))
@@ -771,8 +824,13 @@ class TransmitThread(Thread):
         if msg.id in self.__messages:
             self.__messages.pop(msg.id)
             self.__update_times()
-            logging.debug('Removed periodic message: 0x{:03X} {: <16} period='
-                          '{}ms'.format(msg.id, msg.get_data(), msg.period))
+            logging.debug(f'Removed periodic message: 0x{msg.id:03X} '
+                          f'{msg.get_data(): <16} period={msg.period}ms')
         else:
-            logging.error('{} (0x{:X}) is not being sent!'.format(msg.name,
-                                                                  msg.id))
+            logging.error(f'{msg.name} (0x{msg.id:X}) is not being sent!')
+
+    def remove_all(self, channel):
+        """Remove all periodic messages for a specific channel."""
+        for msg, vxl in self.__messages.values():
+            if vxl is channel:
+                self.remove(msg)

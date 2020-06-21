@@ -1,107 +1,16 @@
 #!/usr/bin/env python
 
-"""Types used by pyvxl."""
+"""CAN types used by pyvxl.CAN."""
 
 from os import path
 from pyvxl.pydbc import DBCParser
-from pyvxl.vxl import VxlCan, VxlChannel
-
-
-class Channel(VxlChannel):
-    """A named transmit only extension of VxlChannel adding databases."""
-
-    def __init__(self, name, num=0, baud=500000, db=''):  # noqa
-        self.name = name
-        # Minimum queue size since we won't be receiving
-        self.__vxl = VxlCan(num, baud, rx_queue_size=16)
-        self.db = db
-
-    def __str__(self):
-        """Return a string representation of this channel."""
-        return (f'Channel({self.num}, {self.baud}, {self.name})')
-
-    @property
-    def name(self):
-        """The name of the channel."""
-        return self.__name
-
-    @name.setter
-    def name(self, name):
-        """Set the name of the channel."""
-        if not isinstance(name, str):
-            raise TypeError('Expected str, but got {}'.format(type(name)))
-        self.__name = name
-
-    @property
-    def db(self):
-        """The database for this channel."""
-        return self.__db
-
-    @db.setter
-    def db(self, db_path):
-        """Set the database for this channel."""
-        self.__db = None
-        if db_path:
-            self.__db = Database(db_path)
-
-    def _send(self, msg, send_once=False):
-        """Send a message."""
-        if msg.update_func is not None:
-            msg.set_data(msg.update_func(msg))
-        data = msg.get_data()
-        self.vxl.send(msg.id, data)
-        if not send_once and msg.period:
-            self.__tx_thread.add(msg)
-        logging.debug('TX: {: >8X} {: <16}'.format(msg.id, data))
-
-    def send_message(self, msg_id, data='', period=0, send_once=False,
-                     in_database=True):
-        """Send a message by name or id."""
-        msg = self._get_message_obj(msg_id, data, period, in_database)
-        self._send(msg, send_once)
-
-    def stop_message(self, msg_id):
-        """Stop sending a periodic message.
-
-        Args:
-            msg_id: message name or message id
-        """
-        msg = self._get_message_obj(msg_id)
-        self.__tx_thread.remove(msg)
-
-    def stop_all_messages(self):
-        """Stop sending all periodic messages."""
-        self.__tx_thread.remove_all()
-
-    def send_signal(self, signal, value, send_once=False, force=False):
-        """Send the message containing signal."""
-        msg = self._check_signal(signal, value, force)
-        return self._send(msg, send_once)
-
-    def stop_signal(self, signal):
-        """Stop transmitting the periodic message containing signal."""
-        msg = self._check_signal(signal)
-        self.__tx_thread.remove(msg)
-
-    def _check_node(self, node):
-        """Check if a node is valid."""
-        if self.imported is None:
-            raise AssertionError('No database imported! Call import_db first.')
-        if node.lower() not in self.imported.nodes:
-            raise ValueError('Node named: {} not found in {}'
-                             ''.format(node, self.__db_path))
-
-    def start_node(self, node):
-        """Start transmitting all periodic messages sent by node."""
-        raise NotImplementedError
-
-    def stop_node(self):
-        """Stop transmitting all periodic messages sent by node."""
-        raise NotImplementedError
+from colorama import Fore, Back, Style
+from colorama import init as colorama_init
+from colorama import deinit as colorama_deinit
 
 
 class Database:
-    """."""
+    """A CAN database."""
 
     def __init__(self, db_path): # noqa
         self.__nodes = {}
@@ -109,6 +18,10 @@ class Database:
         self.__messages_by_id = {}
         self.__signals = {}
         self.path = db_path
+
+    def __str__(self):
+        """Return a string representation of this database."""
+        return (f'Database({path.basename(self.path)})')
 
     @property
     def path(self):
@@ -129,7 +42,7 @@ class Database:
             raise TypeError(f'{db_path} is not supported. Supported file '
                             f'types: {supported}')
         if ext == '.dbc':
-            self.__import_dbc(db)
+            self.__import_dbc(db_path)
 
     def __import_dbc(self, db):
         """Import a dbc."""
@@ -230,9 +143,12 @@ class Database:
 
     def get_message(self, name_or_id):
         """Get a message by name or id."""
+        pass
+        '''
         if self.
         msg = None
         for msg in self.
+        '''
 
     def find_message(self, name_or_id, exact=False):
         """Find messages by name or id.
@@ -371,10 +287,10 @@ class Message:
         else:
             raise TypeError(f'Expected str but got {type(name)}')
 
-    if msg.send_type_num is not None and\
-       msg.send_type_num < len(p.send_types):
-        msg.send_type = p.send_types[msg.send_type_num]
-    pass
+    # if msg.send_type_num is not None and\
+    #    msg.send_type_num < len(p.send_types):
+    #     msg.send_type = p.send_types[msg.send_type_num]
+    # pass
 
     def _reverse(self, num, dlc):
         """Reverse the byte order of data."""
@@ -399,6 +315,7 @@ class Message:
 
     def _print_msg(self, msg):
         """Print a colored CAN message."""
+        colorama_init()
         print('')
         color = Style.BRIGHT + Fore.GREEN
         msgid = hex(msg.id)
@@ -429,6 +346,7 @@ class Message:
                                                reset_color)
             cycle_status = cycle + status
         print(cycle_status + node)
+        colorama_deinit()
 
 
 class Signal:
@@ -481,6 +399,7 @@ class Signal:
 
     def _print_sig(self, sig, short_name=False, value=False):
         """Print a colored CAN signal."""
+        colorama_init()
         color = Fore.CYAN + Style.BRIGHT
         rst = Fore.RESET + Style.RESET_ALL
         if not short_name and not sig.full_name:
@@ -509,4 +428,4 @@ class Signal:
             else:
                 print('            ^- [{} : {}]{}'.format(sig.min_val,
                                                           sig.max_val, rst))
-
+        colorama_deinit()
