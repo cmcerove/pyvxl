@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 """CAN types used by pyvxl.CAN."""
 
@@ -53,23 +53,26 @@ class Database:
         if not p.messages:
             raise ValueError('{} contains no messages or is not a valid dbc.'
                              ''.format(db))
-        msbMap = {}
+
+        self.__nodes = p.nodes
+        self.__messages = p.messages
+        self.__signals = p.signals
+
+        msb_map = {}
         for x in range(1, 9):
-            littleEndian = 0
-            bigEndian = (x - 1) * 8
+            little_endian = 0
+            big_endian = (x - 1) * 8
             ret = {}
-            for i in range(x / 2 * 8):
-                ret[bigEndian] = littleEndian
-                ret[littleEndian] = bigEndian
-                littleEndian += 1
-                bigEndian += 1
-                if bigEndian % 8 == 0:
-                    bigEndian -= 16
-        msbMap[x] = ret
+            for i in range(int(x / 2) * 8):
+                ret[big_endian] = little_endian
+                ret[little_endian] = big_endian
+                little_endian += 1
+                big_endian += 1
+                if big_endian % 8 == 0:
+                    big_endian -= 16
+            msb_map[x] = ret
 
         for msg in p.messages.values():
-            self.
-
             if msg.send_type_num is not None and\
                msg.send_type_num < len(p.send_types):
                 msg.send_type = p.send_types[msg.send_type_num]
@@ -88,9 +91,9 @@ class Database:
                     msg.endianness = sig.endianness
                     setendianness = True
                 if msg.dlc > 0:
-                    try:
-                        sig.bit_start = msbMap[msg.dlc][sig.bit_msb] - (sig.bit_len-1)
-                    except KeyError:  # This only happens when the msb doesn't change
+                    if sig.bit_msb in msb_map[msg.dlc]:
+                        sig.bit_start = msb_map[msg.dlc][sig.bit_msb] - (sig.bit_len-1)
+                    else:
                         sig.bit_start = sig.bit_msb - (sig.bit_len - 1)
                     sig.set_mask()
                     if sig.init_val is not None:
@@ -100,13 +103,6 @@ class Database:
     def nodes(self):
         """A dictionary of imported nodes."""
         return self.__nodes
-
-    @nodes.setter
-    def nodes(self, node):
-        """Add a node to the dictionary."""
-        if not isinstance(node, Node):
-            raise TypeError(f'Expected {Node} but got {type(node)}')
-        self.__nodes[node.name] = node
 
     def get_node(self, name):
         """Get a node by name."""
@@ -119,13 +115,6 @@ class Database:
     def messages(self):
         """A dictionary of imported messages stored by message name."""
         return self.__messages
-
-    @messages.setter
-    def messages(self, msg_dict):
-        """Add a message to the dictionary."""
-        if not isinstance(msg_dict, dict):
-            raise TypeError(f'Expected {dict} but got {type(msg_dict)}')
-        self.__messages = msg_dict
 
     @property
     def message_ids(self):
@@ -437,6 +426,10 @@ class Signal:
         self.bit_start = 0
         self.msg = None
 
+    def __str__(self):
+        """Return a string representation of this database."""
+        return f'Signal({self.name})'
+
     @property
     def name(self):
         """The name of the signal."""
@@ -551,8 +544,11 @@ class Signal:
     def set_mask(self):
         """Set the signal's mask based on bit_start and bit_len."""
         if self.bit_start < 0:
-            print(self.name)
-        self.mask = pow(2, self.bit_len) - 1 << self.bit_start
+            raise ValueError(f'{self}.bit_start is negative!')
+        try:
+            self.mask = 2 ** self.bit_len - 1 << self.bit_start
+        except ValueError:
+            print(self.bit_len, self.bit_start)
 
     def _check_signal(self, signal, value=None, force=False):
         """Check the validity of a signal and optionally it's value.
@@ -633,26 +629,22 @@ def main():  # noqa
         print(__doc__)
         exit(1)
 
-    nodes = {}
-    messages = {}
-    signals = {}
-
     # Construct parser and parse file
-    DBCParser(argv[1], Node, messages, signals, write_tables=0, debug=False)
+    db = Database(argv[1])
 
-    print(import_str.format(len(nodes), len(messages), len(signals)))
+    print(import_str.format(len(db.nodes), len(db.messages), len(db.signals)))
 
-    if len(nodes) > 0:
+    if len(db.nodes) > 0:
         # The key for nodes is the node name in lowercase.
-        _, node = nodes.popitem()
+        _, node = db.nodes.popitem()
         print(f'N - {node.name}')
-    if len(messages) > 0:
+    if len(db.messages) > 0:
         # The key for messages is the message ID.
-        _, message = messages.popitem()
+        _, message = db.messages.popitem()
         print(f'   M - {message.name}')
-    if len(signals) > 0:
+    if len(db.signals) > 0:
         # The key for signals is the signal name in lowercase.
-        _, signal = signals.popitem()
+        _, signal = db.signals.popitem()
         print(f'      S - {signal.name}')
 
 
