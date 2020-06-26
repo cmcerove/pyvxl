@@ -14,230 +14,8 @@ Regerences:
     http://www.dabeaz.com/ply/PLYTalk.pdf
 """
 
-import logging
-from sys import exit, argv
 from ply.lex import lex
 from ply.yacc import yacc
-
-
-class DBCNode:
-    """DBC node object."""
-
-    def __init__(self, name):
-        """."""
-        self.name = name
-        self.source_id = 0
-        self.tx_messages = []
-
-
-class DBCMessage:
-    """DBC message object."""
-
-    def __init__(self, msgid, name, length, sender=None, signals=[]):
-        """."""
-        self.id = int(msgid)
-        self.dlc = length
-        self.__data = 0
-        self.data = 0
-        self.endianness = 0
-        self.name = str(name)
-        self.sender = str(sender)
-        self.signals = signals
-        for signal in signals:
-            signal.add_msg_ref(self)
-        self.period = 0
-        self.delay = None
-        self.send_type_num = None
-        self.send_type = None
-        self.repetitions = None
-        self.sending = False
-        self.update_func = None
-
-        # TODO: delete these three below after making sure they aren't used
-        self.comment = ''
-        self.attributes = None
-        self.transmitters = None
-
-    def get_data(self):
-        """Get the current message data based on each signal value.
-
-        Returns a the current message data as a hexadecimal string
-        padded with zeros to the message length.
-        """
-        # TODO: switch to __data
-        # data = self.__data
-        return '{:0{}X}'.format(self.data, self.dlc * 2)
-
-    def set_data(self, data):
-        """Update signal values based on data.
-
-        Accepts a hexadecimal string or an integer.
-        """
-        if data:
-            if isinstance(data, str):
-                data = data.replace(' ', '')
-                try:
-                    data = int(data, 16)
-                except ValueError:
-                    raise ValueError('Cannot set data to non-hexadecimal'
-                                     ' string {}!'.format(data))
-            if isinstance(data, int):
-                # Check for invalid length
-                if len('{:X}'.format(data)) > (self.dlc * 2):
-                    raise ValueError('{:X} is longer than message length of {}'
-                                     ' bytes'.format(data, self.dlc))
-            else:
-                raise TypeError('Expected an int or str but got {}'.format(type(data)))
-                # Handling for messages without signals
-            for sig in self.signals:
-                sig.val = data & sig.mask
-            self.update_data()
-        else:
-            logging.error('set_data called with no data!')
-
-    def update_data(self):
-        """Update the message data based on signal values."""
-        # data = self.__data
-        data = self.data
-        for sig in self.signals:
-            # Clear the signal value in data
-            data &= ~sig.mask
-            # Set the value
-            data |= sig.val
-        self.data = data
-
-
-class DBCSignal:
-    """DBC signal object."""
-
-    def __init__(self, name, mux, bit_msb, bit_len, endianness, signedness,
-                 scale, offset, min_val, max_val, units, receivers):
-        """."""
-        self.name = name
-        self.mux = mux  # not implemented
-        self.bit_msb = bit_msb
-        self.bit_len = bit_len
-        self.endianness = endianness
-        self.signedness = signedness  # not implemented
-        self.scale = scale
-        self.offset = offset
-        self.min_val = min_val
-        self.max_val = max_val
-        self.units = units
-        self.receivers = receivers  # not implemented
-        self.full_name = ''
-        self.values = {}
-        self.msg_id = 0
-        self.val = 0
-        self.init_val = None
-        self.send_on_init = 0
-        self.mask = 0
-        self.bit_start = 0
-        self.msg = None
-
-    def add_msg_ref(self, msg):
-        """Add a reference to message this signal is included in."""
-        self.msg = msg
-
-    def set_val(self, value, force=False):
-        """Set the signal's value based on the offset and scale."""
-        negative = False
-
-        # self.values will only be set if the signal has a discrete set of
-        # values, otherwise the signal will be defined with min_val and max_val
-        if self.values and not force:
-            if isinstance(value, str):
-                if value.lower() in self.values:
-                    num = self.values[value]
-                else:
-                    raise ValueError('{} is invalid for {}; valid values = {}'
-                                     ''.format(value, self.name, self.values))
-            else:
-                try:
-                    num = float(value)
-                    if value not in self.values.values():
-                        raise ValueError('{} is invalid for {}; valid values ='
-                                         ' {}'.format(value, self.name,
-                                                      self.values))
-                except ValueError:
-                    raise ValueError('{} is invalid for {}; valid values = {}'
-                                     ''.format(value, self.name, self.values))
-        elif force:
-            try:
-                num = float(value)
-            except ValueError:
-                logging.error('Unable to force a non numerical value!')
-        elif (float(value) < self.min_val) or (float(value) > self.max_val):
-            raise ValueError('Value {} out of range! Valid range is {} to {}'
-                             ' for signal {}.'.format(float(value),
-                                                      self.min_val,
-                                                      self.max_val,
-                                                      self.name))
-        else:
-            num = value
-
-        # Convert the number based on it's location
-        num = int((float(num) - float(self.offset)) / float(self.scale))
-
-        if num < 0:
-            num = abs(num)
-            negative = True
-
-        size = len('{:b}'.format(num))
-        if not force:
-            if size > self.bit_len:
-                raise ValueError('Unable to set {} to  {}; value too large!'
-                                 ''.format(self.name, num))
-                return False
-        else:
-            logging.warning('Ignoring dbc specs for this signal value')
-
-        if negative:
-            num = self._twos_complement(num)
-
-        self.val = num << self.bit_start
-        self.msg.update_data()
-        return True
-
-    def get_val(self, raw=False):
-        """Get the signal's value.
-
-        Args:
-            raw: If True, always returns the numeric value of the signal.
-        """
-        tmp = self.val >> self.bit_start
-        curr_val = (tmp * self.scale + self.offset)
-        # Check if curr_val should be negative
-        if curr_val > 0 and self.min_val < 0:
-            bval = '{:b}'.format(int(curr_val))
-            if bval[0] == '1' and len(bval) == self.bit_len:
-                curr_val = float(-self._twos_complement(int(curr_val)))
-
-        if self.values:
-            if not raw:
-                for key, val in self.values.items():
-                    if val == curr_val:
-                        curr_val = key
-            else:
-                curr_val = int(curr_val)
-        return curr_val
-
-    def _twos_complement(self, num):
-        """Return the twos complement value of a number."""
-        tmp = '{:b}'.format(num)
-        tmp = tmp.replace('0', '2')
-        tmp = tmp.replace('1', '0')
-        tmp = tmp.replace('2', '1')
-
-        while len(tmp) < self.bit_len:
-            tmp = '1' + tmp
-        return int(tmp, 2) + 1
-
-    def set_mask(self):
-        """Set the signal's mask based on bit_start and bit_len."""
-        if self.bit_start < 0:
-            print(self.name)
-        self.mask = pow(2, self.bit_len) - 1 << self.bit_start
 
 
 class DBCEnvVar:
@@ -396,10 +174,13 @@ class DBCLexer:
 class DBCParser:
     """A yacc based DBC parser."""
 
-    def __init__(self, path, nodes, messages, signals, **kwargs):  # noqa
-        self.nodes = nodes
-        self.messages = messages
-        self.signals = signals
+    def __init__(self, path, node_type, message_type, signal_type, **kwargs):  # noqa
+        self.node_type = node_type
+        self.message_type = message_type
+        self.signal_type = signal_type
+        self.nodes = {}
+        self.messages = {}
+        self.signals = {}
         self.send_types = []
         self.send_types_expected = ['cyclicX', 'spontanX', 'cyclicIfActiveX',
                                     'spontanWithDelay', 'cyclicAndSpontanX',
@@ -513,7 +294,7 @@ class DBCParser:
                            | ID space_node_dict'''
         if p[1]:
             p[0] = p[2]
-            p[0][p[1].lower()] = DBCNode(p[1])
+            p[0][p[1].lower()] = self.node_type(p[1])
         else:
             p[0] = self.nodes
 
@@ -537,14 +318,14 @@ class DBCParser:
             p[0] = p[2]
             p[0][p[1].id] = p[1]
             if p[1].sender.lower() not in self.nodes:
-                self.nodes[p[1].sender.lower()] = DBCNode(p[1].sender)
+                self.nodes[p[1].sender.lower()] = self.node_type(p[1].sender)
             self.nodes[p[1].sender.lower()].tx_messages.append(p[1])
         else:
             p[0] = self.messages
 
     def p_message(self, p):  # noqa
         '''message : BO INT_VAL ID ':' INT_VAL ID signal_list'''
-        p[0] = DBCMessage(p[2], p[3], p[5], p[6], p[7])
+        p[0] = self.message_type(p[2], p[3], p[5], p[6], p[7])
         for sig in p[7]:
             sig.msg_id = p[2]
 
@@ -559,8 +340,8 @@ class DBCParser:
 
     def p_signal(self, p):  # noqa
         '''signal : SG signal_name mux_info ':' bit_start '|' bit_len '@' endianness signedness '(' scale ',' offset ')' '[' min '|' max ']' STRING_VAL comma_identifier_list'''
-        p[0] = DBCSignal(p[2], p[3], p[5], p[7], p[9], p[10], p[12], p[14], p[17], p[19],
-                         p[21], p[22])
+        p[0] = self.signal_type(p[2], p[3], p[5], p[7], p[9], p[10], p[12],
+                                p[14], p[17], p[19], p[21], p[22])
         self.signals[p[2].lower()] = p[0]
 
     def p_envvar_list(self, p):  # noqa
@@ -817,47 +598,3 @@ class DBCParser:
     def p_empty(self, p):  # noqa
         'empty :'
         pass
-
-
-import_str = '''
-----------------------------------------------------
-Import Statistics
-----------------------------------------------------
-Nodes: {}
-Messages: {}
-Signals: {}
-----------------------------------------------------
-Test Structure - All signals of a message in a node
-'''
-
-
-def main():  # noqa
-    if len(argv) != 2:
-        print(__doc__)
-        exit(1)
-
-    nodes = {}
-    messages = {}
-    signals = {}
-
-    # Construct parser and parse file
-    DBCParser(argv[1], nodes, messages, signals, write_tables=0, debug=False)
-
-    print(import_str.format(len(nodes), len(messages), len(signals)))
-
-    if len(nodes) > 0:
-        # The key for nodes is the node name in lowercase.
-        _, node = nodes.popitem()
-        print(f'N - {node.name}')
-    if len(messages) > 0:
-        # The key for messages is the message ID.
-        _, message = messages.popitem()
-        print(f'   M - {message.name}')
-    if len(signals) > 0:
-        # The key for signals is the signal name in lowercase.
-        _, signal = signals.popitem()
-        print(f'      S - {signal.name}')
-
-
-if __name__ == '__main__':
-    main()

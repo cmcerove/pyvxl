@@ -2,7 +2,9 @@
 
 """CAN types used by pyvxl.CAN."""
 
+import logging
 from os import path
+from sys import exit, argv
 from pyvxl.pydbc import DBCParser
 from colorama import Fore, Back, Style
 from colorama import init as colorama_init
@@ -46,13 +48,9 @@ class Database:
 
     def __import_dbc(self, db):
         """Import a dbc."""
-        with open(db, 'r') as f:
-            dbc = f.read()
-
         self.__path = db
-        p = DBCParser(self, write_tables=0, debug=False)
-        p.parse(dbc)
-        if not p.dbc.messages:
+        p = DBCParser(db, Node, Message, Signal, write_tables=0, debug=False)
+        if not p.messages:
             raise ValueError('{} contains no messages or is not a valid dbc.'
                              ''.format(db))
         msbMap = {}
@@ -69,7 +67,8 @@ class Database:
                     bigEndian -= 16
         msbMap[x] = ret
 
-        for msg in p.dbc.messages.values():
+        for msg in p.messages.values():
+            self.
 
             if msg.send_type_num is not None and\
                msg.send_type_num < len(p.send_types):
@@ -79,8 +78,8 @@ class Database:
             for sig in msg.signals:
                 if not setendianness:
                     if msg.id > 0xFFFF:
-                        if msg.sender.lower() in p.dbc.nodes:
-                            sender = p.dbc.nodes[msg.sender.lower()].source_id
+                        if msg.sender.lower() in p.nodes:
+                            sender = p.nodes[msg.sender.lower()].source_id
                             if (sender & 0xF00) > 0:
                                 print(msg.name)
                             msg.id = (msg.id & 0xFFFF000) | 0x10000000 | sender
@@ -96,7 +95,6 @@ class Database:
                     sig.set_mask()
                     if sig.init_val is not None:
                         sig.set_val(sig.init_val * sig.scale + sig.offset)
-        return p.dbc
 
     @property
     def nodes(self):
@@ -123,18 +121,11 @@ class Database:
         return self.__messages
 
     @messages.setter
-    def messages(self, msg):
+    def messages(self, msg_dict):
         """Add a message to the dictionary."""
-        if not isinstance(msg, Message):
-            raise TypeError(f'Expected {Message} but got {type(msg)}')
-        if msg.name in self.__messages:
-            old_msg = self.__messages.pop(msg.name)
-            self.__messages_by_id.pop(old_msg)
-        if msg.id in self.__messages:
-            old_msg = self.__messages_by_id.pop(msg.name)
-            self.__messages.pop(old_msg)
-        self.__messages[msg.name] = msg
-        self.__messages_by_id[msg.id] = msg
+        if not isinstance(msg_dict, dict):
+            raise TypeError(f'Expected {dict} but got {type(msg_dict)}')
+        self.__messages = msg_dict
 
     @property
     def message_ids(self):
@@ -253,6 +244,8 @@ class Node:
 
     def __init__(self, name):  # noqa
         self.name = name
+        self.source_id = 0
+        self.tx_messages = []
 
     @property
     def name(self):
@@ -271,8 +264,27 @@ class Node:
 class Message:
     """A CAN message."""
 
-    def __init__(self, name):  # noqa
+    def __init__(self, msgid, name, length, sender=None, signals=[]):  # noqa
+        self.id = int(msgid)
         self.name = name
+        self.dlc = length
+        self.sender = sender
+        self.signals = signals
+        for signal in signals:
+            signal.add_msg_ref(self)
+        self.__data = 0
+        self.data = 0
+        self.endianness = 0
+        self.period = 0
+        self.delay = None
+        self.send_type_num = None
+        self.send_type = None
+        self.repetitions = None
+        self.sending = False
+        self.update_func = None
+
+        # TODO: Populate this on import
+        self.transmitters = None
 
     @property
     def name(self):
@@ -291,6 +303,54 @@ class Message:
     #    msg.send_type_num < len(p.send_types):
     #     msg.send_type = p.send_types[msg.send_type_num]
     # pass
+
+    def get_data(self):
+        """Get the current message data based on each signal value.
+
+        Returns a the current message data as a hexadecimal string
+        padded with zeros to the message length.
+        """
+        # TODO: switch to __data
+        # data = self.__data
+        return f'{self.data:0{self.dlc*2}X}'
+
+    def set_data(self, data):
+        """Update signal values based on data.
+
+        Accepts a hexadecimal string or an integer.
+        """
+        if data:
+            if isinstance(data, str):
+                data = data.replace(' ', '')
+                try:
+                    data = int(data, 16)
+                except ValueError:
+                    raise ValueError('Cannot set data to non-hexadecimal'
+                                     f' string {data}!')
+            if isinstance(data, int):
+                # Check for invalid length
+                if len('{:X}'.format(data)) > (self.dlc * 2):
+                    raise ValueError(f'{data:X} is longer than message length '
+                                     f'of {self.dlc} bytes')
+            else:
+                raise TypeError(f'Expected an int or str but got {type(data)}')
+                # Handling for messages without signals
+            for sig in self.signals:
+                sig.val = data & sig.mask
+            self.update_data()
+        else:
+            logging.error('set_data called with no data!')
+
+    def update_data(self):
+        """Update the message data based on signal values."""
+        # data = self.__data
+        data = self.data
+        for sig in self.signals:
+            # Clear the signal value in data
+            data &= ~sig.mask
+            # Set the value
+            data |= sig.val
+        self.data = data
 
     def _reverse(self, num, dlc):
         """Reverse the byte order of data."""
@@ -352,8 +412,30 @@ class Message:
 class Signal:
     """A CAN signal."""
 
-    def __init__(self, name):  # noqa
+    def __init__(self, name, mux, bit_msb, bit_len, endianness, signedness,
+                 scale, offset, min_val, max_val, units, receivers):  # noqa
+        """."""
         self.name = name
+        self.mux = mux  # not implemented
+        self.bit_msb = bit_msb
+        self.bit_len = bit_len
+        self.endianness = endianness
+        self.signedness = signedness  # not implemented
+        self.scale = scale
+        self.offset = offset
+        self.min_val = min_val
+        self.max_val = max_val
+        self.units = units
+        self.receivers = receivers  # not implemented
+        self.full_name = ''
+        self.values = {}
+        self.msg_id = 0
+        self.val = 0
+        self.init_val = None
+        self.send_on_init = 0
+        self.mask = 0
+        self.bit_start = 0
+        self.msg = None
 
     @property
     def name(self):
@@ -367,6 +449,110 @@ class Signal:
             self.__name = name
         else:
             raise TypeError(f'Expected str but got {type(name)}')
+
+    def add_msg_ref(self, msg):
+        """Add a reference to message this signal is included in."""
+        self.msg = msg
+
+    def set_val(self, value, force=False):
+        """Set the signal's value based on the offset and scale."""
+        negative = False
+
+        # self.values will only be set if the signal has a discrete set of
+        # values, otherwise the signal will be defined with min_val and max_val
+        if self.values and not force:
+            if isinstance(value, str):
+                if value.lower() in self.values:
+                    num = self.values[value]
+                else:
+                    raise ValueError('{} is invalid for {}; valid values = {}'
+                                     ''.format(value, self.name, self.values))
+            else:
+                try:
+                    num = float(value)
+                    if value not in self.values.values():
+                        raise ValueError('{} is invalid for {}; valid values ='
+                                         ' {}'.format(value, self.name,
+                                                      self.values))
+                except ValueError:
+                    raise ValueError('{} is invalid for {}; valid values = {}'
+                                     ''.format(value, self.name, self.values))
+        elif force:
+            try:
+                num = float(value)
+            except ValueError:
+                logging.error('Unable to force a non numerical value!')
+        elif (float(value) < self.min_val) or (float(value) > self.max_val):
+            raise ValueError('Value {} out of range! Valid range is {} to {}'
+                             ' for signal {}.'.format(float(value),
+                                                      self.min_val,
+                                                      self.max_val,
+                                                      self.name))
+        else:
+            num = value
+
+        # Convert the number based on it's location
+        num = int((float(num) - float(self.offset)) / float(self.scale))
+
+        if num < 0:
+            num = abs(num)
+            negative = True
+
+        size = len('{:b}'.format(num))
+        if not force:
+            if size > self.bit_len:
+                raise ValueError('Unable to set {} to  {}; value too large!'
+                                 ''.format(self.name, num))
+                return False
+        else:
+            logging.warning('Ignoring dbc specs for this signal value')
+
+        if negative:
+            num = self._twos_complement(num)
+
+        self.val = num << self.bit_start
+        self.msg.update_data()
+        return True
+
+    def get_val(self, raw=False):
+        """Get the signal's value.
+
+        Args:
+            raw: If True, always returns the numeric value of the signal.
+        """
+        tmp = self.val >> self.bit_start
+        curr_val = (tmp * self.scale + self.offset)
+        # Check if curr_val should be negative
+        if curr_val > 0 and self.min_val < 0:
+            bval = '{:b}'.format(int(curr_val))
+            if bval[0] == '1' and len(bval) == self.bit_len:
+                curr_val = float(-self._twos_complement(int(curr_val)))
+
+        if self.values:
+            if not raw:
+                for key, val in self.values.items():
+                    if val == curr_val:
+                        curr_val = key
+            else:
+                curr_val = int(curr_val)
+        return curr_val
+
+    def _twos_complement(self, num):
+        """Return the twos complement value of a number."""
+        tmp = '{:b}'.format(num)
+        tmp = tmp.replace('0', '2')
+        tmp = tmp.replace('1', '0')
+        tmp = tmp.replace('2', '1')
+
+        while len(tmp) < self.bit_len:
+            tmp = '1' + tmp
+        return int(tmp, 2) + 1
+
+    def set_mask(self):
+        """Set the signal's mask based on bit_start and bit_len."""
+        if self.bit_start < 0:
+            print(self.name)
+        self.mask = pow(2, self.bit_len) - 1 << self.bit_start
 
     def _check_signal(self, signal, value=None, force=False):
         """Check the validity of a signal and optionally it's value.
@@ -429,3 +615,46 @@ class Signal:
                 print('            ^- [{} : {}]{}'.format(sig.min_val,
                                                           sig.max_val, rst))
         colorama_deinit()
+
+
+import_str = '''
+----------------------------------------------------
+Import Statistics
+----------------------------------------------------
+Nodes: {}
+Messages: {}
+Signals: {}
+----------------------------------------------------
+'''
+
+
+def main():  # noqa
+    if len(argv) != 2:
+        print(__doc__)
+        exit(1)
+
+    nodes = {}
+    messages = {}
+    signals = {}
+
+    # Construct parser and parse file
+    DBCParser(argv[1], Node, messages, signals, write_tables=0, debug=False)
+
+    print(import_str.format(len(nodes), len(messages), len(signals)))
+
+    if len(nodes) > 0:
+        # The key for nodes is the node name in lowercase.
+        _, node = nodes.popitem()
+        print(f'N - {node.name}')
+    if len(messages) > 0:
+        # The key for messages is the message ID.
+        _, message = messages.popitem()
+        print(f'   M - {message.name}')
+    if len(signals) > 0:
+        # The key for signals is the signal name in lowercase.
+        _, signal = signals.popitem()
+        print(f'      S - {signal.name}')
+
+
+if __name__ == '__main__':
+    main()
