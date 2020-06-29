@@ -230,32 +230,27 @@ class Vxl:
     def print_config(self, debug=False):
         """Print the current hardware configuration."""
         found_piggy = False
-        buff = create_string_buffer(32)
-        printf('----------------------------------------------------------\n')
-        printf('- %2d channels       Hardware Configuration              -\n',
-               self.config.channelCount)
-        printf('----------------------------------------------------------\n')
+        print('----------------------------------------------------------')
+        print(f'- {self.config.channelCount: 2} channels       Hardware '
+              'Configuration              -')
+        print('----------------------------------------------------------')
         for i in range(self.config.channelCount):
             channel = self.config.channel[i]
             if debug:
-                chan = str(int(channel.channelIndex))
-                print('- Channel Index: ' + chan + ', ')
-                chan = hex(int(channel.channelMask))
-                print(' Channel Mask: ' + chan + ', ')
+                print(f'- Channel Index: {channel.channelIndex}, ', end='')
+                print(f' Channel Mask: {channel.channelMask}, ', end='')
             else:
-                chan = str(int(channel.channelIndex) + 1)
-                print('- Channel: ' + chan + ', ')
-            strncpy(buff, channel.name, 23)
-            printf(' %23s, ', buff)
-            memset(buff, 0, sizeof(buff))
-            if channel.transceiverType != 0x0000:
+                print(f'- Channel: {channel.channelIndex + 1}, ', end='')
+            name = channel.name.decode('utf-8')
+            print(f' {name: >16}, ', end='')
+            if channel.transceiverType != 0:
                 found_piggy = True
-                strncpy(buff, channel.transceiverName, 13)
-                printf('%13s -\n', buff)
+                name = channel.transceiverName.decode('utf-8')
+                print(f'{name: >13} -')
             else:
-                printf('    no Cab!   -\n', buff)
+                print('    no Cab!           -')
 
-        printf('----------------------------------------------------------\n')
+        print('----------------------------------------------------------')
         if not found_piggy:
             logging.info('Virtual channels only!')
             return False
@@ -483,19 +478,13 @@ class VxlCan(Vxl):
         # Update driver config in case more channels were
         # connected since instantiating this object.
         self.update_config()
-        virtual_channels_found = False
         # Search through all channels
         for i in range(self.config.channelCount):
             channel = self.config.channel[i]
             virtual_channel = bool(b'Virtual' in channel.name)
-            if virtual_channel:
-                virtual_channels_found = True
             bus_capabilities = channel.channelBusCapabilities
             can_supported = bool(bus_capabilities & (BUS_TYPE_CAN << 16))
             if can_supported:
                 if include_virtual or not virtual_channel:
-                    if virtual_channels_found:
-                        can_channels.append(int(channel.channelIndex) - 1)
-                    else:
-                        can_channels.append(int(channel.channelIndex) + 1)
+                    can_channels.append(int(channel.channelIndex) + 1)
         return can_channels

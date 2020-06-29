@@ -36,7 +36,7 @@ import pytest
 import logging
 from time import sleep
 from os import path
-from pyvxl import CAN
+from pyvxl import CAN, VxlCan
 
 
 # Possible keyword arguments for @pytest.fixture:
@@ -97,22 +97,38 @@ def test_logging(can):
     with open(opened, 'r') as f:
         assert ' {:X} '.format(msg.id) in f.read()
 
-
-def test_import_db(can, caplog):
-    """."""
-    pass
-    '''
-    caplog.set_level(logging.INFO)
-    can.import_db()
-    assert caplog.record_tuples == [('root', logging.INFO,
-                                     'Successfully imported: test_dbc.dbc')]
+def test_add_remove_channel(can):  # noqa
+    current_channel = list(can.channels.keys())[0]
+    with pytest.raises(ValueError):
+        can.add_channel(current_channel)
+    all_can_channels = VxlCan().get_can_channels(True)
+    for channel in all_can_channels:
+        if channel not in can.channels:
+            with pytest.raises(ValueError):
+                can.remove_channel(channel)
+            added_channel = can.add_channel(channel)
+            removed_channel = can.remove_channel(added_channel)
+            assert added_channel == removed_channel
+        else:
+            can.remove_channel(channel)
+    assert can.channels == {}
     with pytest.raises(TypeError):
-        can.import_db(1234)
-    with pytest.raises(ValueError):
-        can.import_db('1234')
-    with pytest.raises(ValueError):
-        can.db_path = None
-        can.import_db()
-    with pytest.raises(ValueError):
-        can.import_db('test_vector.py')
-    '''
+        can.remove_channel('fake_channel')
+    dbc_path = path.join(path.dirname(path.realpath(__file__)), 'test_dbc.dbc')
+    can.add_channel(db=dbc_path)
+
+def test_stop_all_messages(can):  # noqa
+    channel = list(can.channels.values())[0]
+    msg1 = channel.db.get_message('msg1')
+    assert msg1.sending is False
+    msg2 = channel.db.get_message('msg2')
+    assert msg2.sending is False
+    msg1comp = channel.send_message('msg1')
+    assert msg1 is msg1comp
+    assert msg1.sending is True
+    msg2comp = channel.send_message('msg2')
+    assert msg2 is msg2comp
+    assert msg2.sending is True
+    can.stop_all_messages()
+    assert msg1.sending is False
+    assert msg2.sending is False

@@ -10,7 +10,7 @@ from time import localtime, sleep
 from threading import Thread, Event, RLock
 # TODO: Look into adding a condition for pausing the main thread while
 #       waiting for received messages.
-from fractions import gcd
+from math import gcd
 from pyvxl.vxl import VxlCan
 from pyvxl.uds import UDS
 from pyvxl.can_types import Database  # Message, Signal
@@ -43,9 +43,7 @@ class CAN(object):
         channel = Channel(self.__tx_thread, num, baud, db)
         if num in self.__channels:
             raise ValueError(f'Channel {num} has already been added')
-        elif num in self.__rx_vxl.channels:
-            raise ValueError(f'{num} has already been added')
-        self.__channels[num] = channel
+        self.__channels[channel.num] = channel
 
         # If the receive port has already been started, it needs to be stopped
         # before adding a new channel and restarted after or data won't be
@@ -58,12 +56,23 @@ class CAN(object):
         logging.debug(f'Added {channel}')
         return channel
 
-    def remove_channel(self, num):
+    def remove_channel(self, num_or_chan):
         """Remove a channel."""
-        if num not in self.__channels:
-            raise ValueError(f'Channel {num} has already been removed')
+        if isinstance(num_or_chan, int):
+            num = num_or_chan
+            if num not in self.__channels:
+                raise ValueError(f'Channel {num} has already been removed')
+        elif isinstance(num_or_chan, Channel):
+            num = num_or_chan.num
+        else:
+            raise TypeError(f'Expected int or Channel got {type(num_or_chan)}')
+        if self.__rx_vxl.started:
+            self.__rx_vxl.stop()
         self.__rx_vxl.remove_channel(num)
-        return self.__channels.pop(num)
+        removed = self.__channels.pop(num)
+        if self.__rx_vxl.channels:
+            self.__rx_vxl.start()
+        return removed
 
     def start_logging(self, *args, **kwargs):
         """Start logging."""
@@ -75,7 +84,7 @@ class CAN(object):
 
     def stop_all_messages(self):
         """Stop transmitting periodic messages on all channels."""
-        for channel in self.__channels:
+        for channel in self.__channels.values():
             channel.stop_all_messages()
 
     def print_periodics(self, info=False, search_for=''):
@@ -179,6 +188,7 @@ class Channel:
         """Send a message by name or id."""
         msg = self.db._get_message_obj(msg_id, data, period, in_database)
         self._send(msg, send_once)
+        return msg
 
     def stop_message(self, msg_id):
         """Stop sending a periodic message.
@@ -446,7 +456,9 @@ class ReceiveThread(Thread):
                 # traffic is being received.
                 self.__vxl.request_chip_state()
 
-            data = self.__receive()
+            data = None
+            if self.__vxl.started and self.__vxl.channels:
+                data = self.__receive()
             while data is not None:
                 match = msg_start_pat.search(data)
                 if not match:
@@ -734,16 +746,19 @@ class TransmitThread(Thread):
     def __update_times(self):
         """Update times for the transmit loop."""
         if len(self.__messages) == 1:
-            msg, _ = self.__messages.values()[0]
+            msg, _ = list(self.__messages.values())[0]
             self.__sleep_time_s = msg.period / 1000.0
             self.__max_increment = msg.period
             self.__sleep_time_ms = msg.period
         else:
             curr_gcd = self.__sleep_time_ms
             curr_lcm = self.__max_increment
-            for i in range(1, len(self.__messages)):
-                prev, _ = self.__messages[i - 1]
-                curr, _ = self.__messages[i]
+            msgs = list(self.__messages.values())
+            for i in range(1, len(msgs)):
+                prev, _ = msgs[i - 1]
+                prev = prev.period
+                curr, _ = msgs[i]
+                curr = curr.period
                 tmp_gcd = gcd(prev, curr)
                 tmp_lcm = prev * curr / tmp_gcd
                 if curr_gcd is None or tmp_gcd < curr_gcd:
@@ -758,6 +773,7 @@ class TransmitThread(Thread):
 
     def add(self, msg, vxl):
         """Add a periodic message to the thread."""
+        msg.sending = True
         self.__messages[msg.id] = (msg, vxl)
         self.__update_times()
         logging.debug('TX: {: >8X} {: <16} period={}ms'
@@ -766,7 +782,8 @@ class TransmitThread(Thread):
     def remove(self, msg):
         """Remove a periodic message from the thread."""
         if msg.id in self.__messages:
-            self.__messages.pop(msg.id)
+            msg, vxl = self.__messages.pop(msg.id)
+            msg.sending = False
             self.__update_times()
             logging.debug(f'Removed periodic message: 0x{msg.id:03X} '
                           f'{msg.get_data(): <16} period={msg.period}ms')
@@ -775,6 +792,6 @@ class TransmitThread(Thread):
 
     def remove_all(self, channel):
         """Remove all periodic messages for a specific channel."""
-        for msg, vxl in self.__messages.values():
+        for msg, vxl in list(self.__messages.values()):
             if vxl is channel:
                 self.remove(msg)
