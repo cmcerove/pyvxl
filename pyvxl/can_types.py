@@ -17,8 +17,10 @@ class Database:
     def __init__(self, db_path): # noqa
         self.__nodes = {}
         self.__messages = {}
-        self.__messages_by_id = {}
         self.__signals = {}
+        self.last_found_node = None
+        self.last_found_msg = None
+        self.last_found_sig = None
         self.path = db_path
 
     def __str__(self):
@@ -116,28 +118,21 @@ class Database:
         """A dictionary of imported messages stored by message name."""
         return self.__messages
 
-    @property
-    def message_ids(self):
-        """A dictionary of imported messages stored by id."""
-        return self.__messages_by_id
-
     def get_message(self, name_or_id):
         """Get a message by name or id."""
-        pass
-        '''
-        if self.
-        msg = None
-        for msg in self.
-        '''
+        ret = None
+        if self.find_message(name_or_id, exact=True) and self.last_found_msg:
+            ret = self.last_found_msg
+        return ret
 
-    def find_message(self, name_or_id, exact=False):
+    def find_message(self, name_or_id, exact=False, print_result=False):
         """Find messages by name or id.
 
         Returns a list of message objects.
         """
         num_found = 0
-        msg_id = self._check_type(msg)
-        if isinstance(msg_id, int) or isinstance(msg_id, long):
+        msg_id = self._check_message(name_or_id)
+        if isinstance(msg_id, int):
             try:
                 if msg_id > 0x8000:
                     # msg_id = (msg_id&~0xF0000FFF)|0x80000000
@@ -147,7 +142,7 @@ class Database:
                     msg = self.imported.messages[msg_id]
                 num_found += 1
                 self.last_found_msg = msg
-                if display:
+                if print_result:
                     self._print_msg(msg)
                     for sig in msg.signals:
                         self._print_sig(sig)
@@ -156,12 +151,12 @@ class Database:
                 self.last_found_msg = None
                 return False
         else:
-            for msg in self.imported.messages.values():
+            for msg in self.messages.values():
                 if not exact:
                     if msg_id.lower() in msg.name.lower():
                         num_found += 1
                         self.last_found_msg = msg
-                        if display:
+                        if print_result:
                             self._print_msg(msg)
                             for sig in msg.signals:
                                 self._print_sig(sig)
@@ -169,17 +164,76 @@ class Database:
                     if msg_id.lower() == msg.name.lower():
                         num_found += 1
                         self.last_found_msg = msg
-                        if display:
+                        if print_result:
                             self._print_msg(msg)
                             for sig in msg.signals:
                                 self._print_sig(sig)
         if num_found == 0:
             self.last_found_msg = None
-            if display:
+            if print_result:
                 logging.info('No messages found for that input')
         elif num_found > 1:
             self.last_found_msg = None
         return True
+
+    def _check_message(self, msg_id):
+        """Check for errors in a message id."""
+        if not msg_id:
+            raise ValueError('Invalid message ID {}'.format(msg_id))
+        if isinstance(msg_id, str):
+            try:
+                # Check for a decimal string
+                msg_id = int(msg_id)
+            except ValueError:
+                # Check for a hex string
+                try:
+                    msg_id = int(msg_id, 16)
+                except ValueError:
+                    # Not a number in a string, so process as text
+                    pass
+                else:
+                    if msg_id < 0 or msg_id > 0xFFFFFFFF:
+                        raise ValueError('Invalid message id {} - negative or too large!'.format(msg_id))
+            else:
+                if msg_id < 0 or msg_id > 0xFFFFFFFF:
+                    raise ValueError('Invalid message id {} - negative or too large!'.format(msg_id))
+        elif isinstance(msg_id, int) or isinstance(msg_id, long):
+            if msg_id < 0 or msg_id > 0xFFFFFFFF:
+                raise ValueError('Invalid message id {} - negative or too large!'.format(msg_id))
+        else:
+            raise TypeError('Expected str or int but got {}'.format(type(msg_id)))
+        return msg_id
+
+    def _get_message_obj(self, msg_id, data='', period=0, in_database=True):
+        """Get the message object from the database or create one."""
+        msg = None
+        msg_id = self._check_message(msg_id)
+        # Find the message id based on the input type
+        if isinstance(msg_id, int):
+            # number
+            if in_database:
+                self.find_message(msg_id)
+                if self.last_found_msg:
+                    msg = self.last_found_msg
+                    if data:
+                        msg.set_data(data)
+                else:
+                    raise ValueError('Message ID: 0x{:X} not found in the'
+                                     ' database!'.format(msg_id))
+            else:
+                data = data.replace(' ', '')
+                dlc = (len(data) / 2) + (len(data) % 2)
+                msg = Message(msg_id, 'Unknown', dlc)
+                msg.period = period
+        elif isinstance(msg_id, str):
+            for message in self.messages.values():
+                if msg_id.lower() == message.name.lower():
+                    msg = message
+                    break
+            else:
+                raise ValueError('Message Name: {} not found in the'
+                                 ' database!'.format(msg_id))
+        return msg
 
     @property
     def signals(self):
@@ -202,7 +256,7 @@ class Database:
         if not isinstance(name, str):
             raise TypeError(f'Expected str, but got {type(name)}')
         num_found = 0
-        for msg in self.imported.messages.values():
+        for msg in self.messages.values():
             msgPrinted = False
             for sig in msg.signals:
                 if not exact:
@@ -226,6 +280,33 @@ class Database:
         elif num_found > 1:
             self.last_found_sig = None
         return True
+
+    def _check_signal(self, signal, value=None, force=False):
+        """Check the validity of a signal and optionally it's value.
+
+        Returns the message object containing the updated signal on success.
+        """
+        if not isinstance(signal, str):
+            raise TypeError('Expected str but got {}'.format(type(signal)))
+        # Grab the signal object by full or short name
+        if signal.lower() not in self.parser.dbc.signals:
+            if signal.lower() not in self.parser.dbc.signalsByName:
+                raise ValueError('Signal {} not found in the database!'
+                                 ''.format(signal))
+            else:
+                sig = self.parser.dbc.signalsByName[signal.lower()]
+        else:
+            sig = self.parser.dbc.signals[signal.lower()]
+        logging.debug('Found signal {} - msg id {:X}'
+                      ''.format(sig.name, sig.msg_id))
+        # Grab the message this signal is transmitted from
+        if sig.msg_id not in self.parser.dbc.messages:
+            raise KeyError('Signal {} has no associated messages!'.format(signal))
+        msg = self.parser.dbc.messages[sig.msg_id]
+        if value:
+            # Update the signal value
+            sig.set_val(value, force=force)
+        return msg
 
 
 class Node:
@@ -262,7 +343,6 @@ class Message:
         for signal in signals:
             signal.add_msg_ref(self)
         self.__data = 0
-        self.data = 0
         self.endianness = 0
         self.period = 0
         self.delay = None
@@ -293,14 +373,23 @@ class Message:
     #     msg.send_type = p.send_types[msg.send_type_num]
     # pass
 
+    @property
+    def data(self):
+        """A 64 bit int of all message data."""
+        data = 0
+        for sig in self.signals:
+            # Clear the signal value in data
+            data &= ~sig.mask
+            # Set the value
+            data |= sig.val
+        return data
+
     def get_data(self):
         """Get the current message data based on each signal value.
 
         Returns a the current message data as a hexadecimal string
         padded with zeros to the message length.
         """
-        # TODO: switch to __data
-        # data = self.__data
         return f'{self.data:0{self.dlc*2}X}'
 
     def set_data(self, data):
@@ -326,20 +415,8 @@ class Message:
                 # Handling for messages without signals
             for sig in self.signals:
                 sig.val = data & sig.mask
-            self.update_data()
         else:
             logging.error('set_data called with no data!')
-
-    def update_data(self):
-        """Update the message data based on signal values."""
-        # data = self.__data
-        data = self.data
-        for sig in self.signals:
-            # Clear the signal value in data
-            data &= ~sig.mask
-            # Set the value
-            data |= sig.val
-        self.data = data
 
     def _reverse(self, num, dlc):
         """Reverse the byte order of data."""
@@ -504,7 +581,6 @@ class Signal:
             num = self._twos_complement(num)
 
         self.val = num << self.bit_start
-        self.msg.update_data()
         return True
 
     def get_val(self, raw=False):
@@ -555,8 +631,7 @@ class Signal:
 
         Returns the message object containing the updated signal on success.
         """
-        if not self.imported:
-            self.import_dbc()
+        # TODO: delete after Database._check_signal is working
         if not isinstance(signal, str):
             raise TypeError('Expected str but got {}'.format(type(signal)))
         # Grab the signal object by full or short name

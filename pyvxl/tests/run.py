@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 """Run pytest with coverage and generate an html report."""
 
@@ -7,7 +7,7 @@ from os import system as run
 
 
 def main():  # noqa
-    run_str = 'coverage run --include={} --omit=./* -m pytest {}'
+    run_str = 'python3 -m coverage run --include={} --omit=./* -m pytest {}'
     arg = ''
     # All source files included in coverage
     includes = '../*'
@@ -24,7 +24,7 @@ def main():  # noqa
     run(run_str.format(includes, arg))
 
     # Generate the html coverage report and ignore errors
-    run('coverage html -i')
+    run('python3 -m coverage html -i')
 
 
 if __name__ == '__main__':

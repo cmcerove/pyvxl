@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 """Unit tests for pyvxl.vector.
 
@@ -77,6 +77,7 @@ def can():
 
 def test_logging(can):
     """."""
+    can1 = list(can.channels.values())[0]
     name = 'test_log'
     opened = can.start_logging(name, False)
     # Give the receive thread time to start logging
@@ -84,12 +85,13 @@ def test_logging(can):
     assert (name + '.asc') == path.basename(opened)
     assert opened.endswith('.asc')
     assert path.isfile(opened)
-    can.send_message('msg3')
+    can1.send_message('msg3')
     # Give the receive thread time to receive it
     sleep(0.3)
     closed = can.stop_logging()
+    sleep(0.3)
     assert opened == closed
-    msg = can.get_message('msg3')
+    msg = can1.db.get_message('msg3')
     assert msg is not None
     # Send a message and check that it's in the file
     with open(opened, 'r') as f:

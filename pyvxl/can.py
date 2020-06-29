@@ -11,7 +11,7 @@ from threading import Thread, Event, RLock
 # TODO: Look into adding a condition for pausing the main thread while
 #       waiting for received messages.
 from fractions import gcd
-from pyvxl.vxl import VxlCan, VxlChannel
+from pyvxl.vxl import VxlCan
 from pyvxl.uds import UDS
 from pyvxl.can_types import Database  # Message, Signal
 
@@ -50,7 +50,7 @@ class CAN(object):
         # If the receive port has already been started, it needs to be stopped
         # before adding a new channel and restarted after or data won't be
         # received from the new channel.
-        if self.__rx_vxl.started():
+        if self.__rx_vxl.started:
             self.__rx_vxl.stop()
         self.__rx_vxl.add_channel(num, baud)
         self.__rx_vxl.start()
@@ -135,7 +135,7 @@ class CAN(object):
                 print('Currently sending: '+str(len(self.currentPeriodics)))
 
 
-class Channel(VxlChannel):
+class Channel:
     """A transmit only extension of VxlChannel."""
 
     def __init__(self, tx_thread, num, baud, db):  # noqa
@@ -143,6 +143,8 @@ class Channel(VxlChannel):
         self.__tx_thread = tx_thread
         self.__vxl = VxlCan(num, baud, rx_queue_size=16)
         self.__vxl.start()
+        self.num = list(self.__vxl.channels.keys())[0]
+        self.baud = baud
         self.db = db
         self.uds = UDS(self)
 
@@ -167,7 +169,7 @@ class Channel(VxlChannel):
         if msg.update_func is not None:
             msg.set_data(msg.update_func(msg))
         data = msg.get_data()
-        self.__vxl.send(msg.id, data)
+        self.__vxl.send(self.num, msg.id, data)
         if not send_once and msg.period:
             self.__tx_thread.add(msg, self.__vxl)
         logging.debug('TX: {: >8X} {: <16}'.format(msg.id, data))
@@ -175,7 +177,7 @@ class Channel(VxlChannel):
     def send_message(self, msg_id, data='', period=0, send_once=False,
                      in_database=True):
         """Send a message by name or id."""
-        msg = self._get_message_obj(msg_id, data, period, in_database)
+        msg = self.db._get_message_obj(msg_id, data, period, in_database)
         self._send(msg, send_once)
 
     def stop_message(self, msg_id):
@@ -184,7 +186,7 @@ class Channel(VxlChannel):
         Args:
             msg_id: message name or message id
         """
-        msg = self._get_message_obj(msg_id)
+        msg = self.db._get_message_obj(msg_id)
         self.__tx_thread.remove(msg)
 
     def stop_all_messages(self):
@@ -193,12 +195,12 @@ class Channel(VxlChannel):
 
     def send_signal(self, signal, value, send_once=False, force=False):
         """Send the message containing signal."""
-        msg = self._check_signal(signal, value, force)
+        msg = self.db._check_signal(signal, value, force)
         return self._send(msg, send_once)
 
     def stop_signal(self, signal):
         """Stop transmitting the periodic message containing signal."""
-        msg = self._check_signal(signal)
+        msg = self.db._check_signal(signal)
         self.__tx_thread.remove(msg)
 
     # TODO: Finish updating functions below
@@ -348,65 +350,6 @@ class Channel(VxlChannel):
         self.send_message(tx_id, tx_data, **kwargs)
         resp = self._block_unless_found(rx_id, timeout)
         return resp
-
-    def _check_type(self, msg_id, display=False):
-        """Check for errors in a message id."""
-        if not msg_id:
-            raise ValueError('Invalid message ID {}'.format(msg_id))
-        if isinstance(msg_id, str):
-            try:
-                # Check for a decimal string
-                msg_id = int(msg_id)
-            except ValueError:
-                # Check for a hex string
-                try:
-                    msg_id = int(msg_id, 16)
-                except ValueError:
-                    # Not a number in a string, so process as text
-                    pass
-                else:
-                    if msg_id < 0 or msg_id > 0xFFFFFFFF:
-                        raise ValueError('Invalid message id {} - negative or too large!'.format(msg_id))
-            else:
-                if msg_id < 0 or msg_id > 0xFFFFFFFF:
-                    raise ValueError('Invalid message id {} - negative or too large!'.format(msg_id))
-        elif isinstance(msg_id, int) or isinstance(msg_id, long):
-            if msg_id < 0 or msg_id > 0xFFFFFFFF:
-                raise ValueError('Invalid message id {} - negative or too large!'.format(msg_id))
-        else:
-            raise TypeError('Expected str or int but got {}'.format(type(msg_id)))
-        return msg_id
-
-    def _get_message_obj(self, msg_id, data='', period=0, in_database=True):
-        """Get the message object from the database or create one."""
-        msg = None
-        msg_id = self._check_type(msg_id)
-        # Find the message id based on the input type
-        if isinstance(msg_id, int) or isinstance(msg_id, long):
-            # number
-            if in_database:
-                self.find_message(msg_id)
-                if self.last_found_msg:
-                    msg = self.last_found_msg
-                    if data:
-                        msg.set_data(data)
-                else:
-                    raise ValueError('Message ID: 0x{:X} not found in the'
-                                     ' database!'.format(msg_id))
-            else:
-                data = data.replace(' ', '')
-                dlc = (len(data) / 2) + (len(data) % 2)
-                msg = DBCMessage(msg_id, 'Unknown', dlc)
-                msg.period = period
-        elif isinstance(msg_id, str):
-            for message in self.imported.messages.values():
-                if msg_id.lower() == message.name.lower():
-                    msg = message
-                    break
-            else:
-                raise ValueError('Message Name: {} not found in the'
-                                 ' database!'.format(msg_id))
-        return msg
 
 
 class ReceiveThread(Thread):
@@ -777,7 +720,8 @@ class TransmitThread(Thread):
                 if self.__elapsed % msg.period == 0:
                     if msg.update_func is not None:
                         msg.set_data(msg.update_func(msg))
-                    vxl.send(msg.id, msg.get_data())
+                    channel = list(vxl.channels.keys())[0]
+                    vxl.send(channel, msg.id, msg.get_data())
             if self.__elapsed >= self.__max_increment:
                 self.__elapsed = self.__sleep_time_ms
             else:
