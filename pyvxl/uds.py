@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 """Implements UDS requests based on ISO 14229-1:2013."""
 

@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 """Holds classes designed to interact specific protocols of vxlAPI."""
 
@@ -186,7 +186,7 @@ class Vxl:
         """Receive a message.
 
         vxl_receive is not reentrant. Protect calls to this function with
-        a lock if receive will be called from different tasks in the same
+        a lock if receive will be called from different threads in the same
         process.
 
         Returns:
