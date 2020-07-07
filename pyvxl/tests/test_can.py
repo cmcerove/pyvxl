@@ -117,18 +117,35 @@ def test_add_remove_channel(can):  # noqa
     dbc_path = path.join(path.dirname(path.realpath(__file__)), 'test_dbc.dbc')
     can.add_channel(db=dbc_path)
 
-def test_stop_all_messages(can):  # noqa
+
+def test_sending_and_stopping_messages(can):  # noqa
     channel = list(can.channels.values())[0]
     msg1 = channel.db.get_message('msg1')
     assert msg1.sending is False
+    assert msg1.period != 0
     msg2 = channel.db.get_message('msg2')
     assert msg2.sending is False
+    assert msg2.period != 0
+    msg3 = channel.db.get_message('msg3')
+    assert msg3.sending is False
+    assert msg3.period == 0
+
     msg1comp = channel.send_message('msg1')
     assert msg1 is msg1comp
     assert msg1.sending is True
     msg2comp = channel.send_message('msg2')
     assert msg2 is msg2comp
     assert msg2.sending is True
-    can.stop_all_messages()
+    msg3comp = channel.send_message('msg3')
+    assert msg3 is msg3comp
+    assert msg3.sending is False
+
+    channel.stop_message('msg1')
     assert msg1.sending is False
+
+    can.stop_all_messages()
     assert msg2.sending is False
+
+
+def test_sending_and_stopping_signals(can):  # noqa
+    channel = list(can.channels.values())[0]

@@ -95,15 +95,14 @@ class UDS:
                                       ''.format(check_type))
         if isinstance(data, str):
             if len(data) > expected_len:
-                raise ValueError('{} length must be less than or equal to {} '
-                                 'characters. {X} is {} characters long.'
-                                 ''.format(check_type, expected_len, data,
-                                           len(data)))
+                raise ValueError(f'{check_type} length must be less than or '
+                                 f'equal to {expected_len} characters. '
+                                 f'{data:X} is {len(data)} characters long.')
             data = data.zfill(expected_len)
-        elif isinstance(data, int) or isinstance(data, long):
+        elif isinstance(data, int):
             if data > expected_max:
-                raise ValueError('{X} not in range: 0 <= {} <= 0x{:X}'
-                                 ''.format(data, check_type, expected_max))
+                raise ValueError(f'{data:X} not in range: 0 <= {check_type} <='
+                                 f' 0x{expected_max:X}')
             data = fmt_str.format(data)
         return hex_str_to_byte_array(data)
 

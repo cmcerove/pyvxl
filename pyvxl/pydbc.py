@@ -389,22 +389,22 @@ class DBCParser:
                      | BA STRING_VAL SG INT_VAL ID attribute_value ';'
                      | BA STRING_VAL EV ID attribute_value ';' '''
         if p[2] == 'SignalLongName':
-            self.signals[p[5].lower()].full_name = p[6]
+            self.signals[p[5].lower()].long_name = p[6]
         elif p[2] == 'GenSigStartValue':
             self.signals[p[5].lower()].init_val = p[6]
-        elif p[2] == 'GenSigsend_on_init':
+        elif p[2] == 'GenSigSendOnInit':
             self.signals[p[5].lower()].send_on_init = p[6]
         elif p[2] == 'source_id':
             self.nodes[p[4].lower()].source_id = p[5]
         elif p[2] == 'GenMsgCycleTime':
-            self.messages[p[4]].period = p[5]
+            self.messages[int(p[4]) & 0x1FFFFFFF].period = p[5]
         elif p[2] == 'GenMsgDelayTime':
-            self.messages[p[4]].delay = p[5]
+            self.messages[int(p[4]) & 0x1FFFFFFF].delay = p[5]
         elif p[2] == 'GenMsgSendType':
             # print('Setting send type for {:X} to {}'.format(p[4], p[5]))
-            self.messages[p[4]].send_type_num = p[5]
+            self.messages[int(p[4]) & 0x1FFFFFFF].send_type_num = p[5]
         elif p[2] == 'GenMsgNrOfRepetitions':
-            self.messages[p[4]].repetitions = p[5]
+            self.messages[int(p[4]) & 0x1FFFFFFF].repetitions = p[5]
 
     def p_attribute_rel_list(self, p):  # noqa
         '''attribute_rel_list : empty

@@ -18,9 +18,6 @@ class Database:
         self.__nodes = {}
         self.__messages = {}
         self.__signals = {}
-        self.last_found_node = None
-        self.last_found_msg = None
-        self.last_found_sig = None
         self.path = db_path
 
     def __str__(self):
@@ -39,14 +36,17 @@ class Database:
             raise TypeError(f'Expected str but got {type(db_path)}')
         if not path.isfile(db_path):
             raise ValueError(f'Database {db_path} does not exist')
-        _, ext = path.splitext(db_path)
-        # TODO: Implement .arxml import
-        supported = ['.dbc']
-        if ext not in supported:
-            raise TypeError(f'{db_path} is not supported. Supported file '
-                            f'types: {supported}')
-        if ext == '.dbc':
-            self.__import_dbc(db_path)
+        if db_path is not None:
+            _, ext = path.splitext(db_path)
+            # TODO: Implement .arxml import
+            supported = ['.dbc']
+            if ext not in supported:
+                raise TypeError(f'{db_path} is not supported. Supported file '
+                                f'types: {supported}')
+            if ext == '.dbc':
+                self.__import_dbc(db_path)
+        else:
+            self.__path = None
 
     def __import_dbc(self, db):
         """Import a dbc."""
@@ -60,6 +60,7 @@ class Database:
         self.__messages = p.messages
         self.__signals = p.signals
 
+        # TODO: move everything below into Node, Message and Signal classes
         msb_map = {}
         for x in range(1, 9):
             little_endian = 0
@@ -103,210 +104,154 @@ class Database:
 
     @property
     def nodes(self):
-        """A dictionary of imported nodes."""
+        """A dictionary of imported nodes stored by node name."""
         return self.__nodes
 
     def get_node(self, name):
         """Get a node by name."""
-        pass
-
-    def find_node(self, name):
-        """Find nodes by name."""
+        if not isinstance(name, str):
+            raise TypeError('Expected str but got {}'.format(type(name)))
+        if name.lower() not in self.nodes:
+            raise ValueError(f'Node {name} not found in database {self.path}')
+        return self.__nodes[name.lower()]
 
     @property
     def messages(self):
-        """A dictionary of imported messages stored by message name."""
+        """A dictionary of imported messages stored by message id."""
         return self.__messages
 
-    def get_message(self, name_or_id):
-        """Get a message by name or id."""
-        ret = None
-        if self.find_message(name_or_id, exact=True) and self.last_found_msg:
-            ret = self.last_found_msg
-        return ret
+    def add_message(self, msg_id, data, period, name):
+        """Add a message to the database.
 
-    def find_message(self, name_or_id, exact=False, print_result=False):
-        """Find messages by name or id.
+        Importing a database after adding messages will delete the added
+        messages.
+        """
+        if msg_id in self.messages:
+            raise ValueError(f'{msg_id} is already in the database')
+        if not isinstance(data, str):
+            raise TypeError(f'Expected str but got {type(data)}')
+        data = data.replace(' ', '')
+        dlc = (len(data) / 2) + (len(data) % 2)
+        msg = Message(msg_id, name, dlc)
+        msg.period = period
+        msg.data = data
+        self.messages[msg.id] = msg
+        return msg
+
+    def get_message(self, name_or_id):
+        """Get a message by name or id.
+
+        Since messages are stored by message id, getting a message based on
+        the message id is much faster than by name. Names also aren't required
+        to be unique whereas message IDs are.
+        """
+        message = None
+        if isinstance(name_or_id, str):
+            for msg in self.messages.values():
+                if name_or_id.lower() == msg.name.lower():
+                    message = msg
+                    break
+            else:
+                raise ValueError(f'{name_or_id} does not match a message name '
+                                 f'or id in {self}')
+        elif isinstance(name_or_id, int):
+            # Strip the extended ID bit if it exists
+            name_or_id &= 0x1fffffff
+            if name_or_id not in self.messages:
+                raise ValueError(f'{name_or_id} does not match a message name '
+                                 f'or id in {self}')
+            message = self.messages[name_or_id]
+        else:
+            raise TypeError(f'Expected str or int but got {type(name_or_id)}')
+        return message
+
+    def find_messages(self, name, print_result=False):
+        """Find messages by name.
 
         Returns a list of message objects.
         """
+        raise NotImplementedError
+        messages = []
         num_found = 0
         msg_id = self._check_message(name_or_id)
         if isinstance(msg_id, int):
+            name &= 0x1fffffff
             try:
-                if msg_id > 0x8000:
-                    # msg_id = (msg_id&~0xF0000FFF)|0x80000000
-                    msg_id |= 0x80000000
-                    msg = self.imported.messages[msg_id]
-                else:
-                    msg = self.imported.messages[msg_id]
+                msg = self.imported.messages[msg_id]
                 num_found += 1
-                self.last_found_msg = msg
                 if print_result:
                     self._print_msg(msg)
                     for sig in msg.signals:
                         self._print_sig(sig)
             except KeyError:
                 logging.error('Message ID 0x{:X} not found!'.format(msg_id))
-                self.last_found_msg = None
                 return False
         else:
             for msg in self.messages.values():
-                if not exact:
-                    if msg_id.lower() in msg.name.lower():
-                        num_found += 1
-                        self.last_found_msg = msg
-                        if print_result:
-                            self._print_msg(msg)
-                            for sig in msg.signals:
-                                self._print_sig(sig)
-                else:
-                    if msg_id.lower() == msg.name.lower():
-                        num_found += 1
-                        self.last_found_msg = msg
-                        if print_result:
-                            self._print_msg(msg)
-                            for sig in msg.signals:
-                                self._print_sig(sig)
+                if msg_id.lower() in msg.name.lower():
+                    num_found += 1
+                    if print_result:
+                        self._print_msg(msg)
+                        for sig in msg.signals:
+                            self._print_sig(sig)
         if num_found == 0:
-            self.last_found_msg = None
             if print_result:
                 logging.info('No messages found for that input')
         elif num_found > 1:
-            self.last_found_msg = None
+            pass
         return True
-
-    def _check_message(self, msg_id):
-        """Check for errors in a message id."""
-        if not msg_id:
-            raise ValueError('Invalid message ID {}'.format(msg_id))
-        if isinstance(msg_id, str):
-            try:
-                # Check for a decimal string
-                msg_id = int(msg_id)
-            except ValueError:
-                # Check for a hex string
-                try:
-                    msg_id = int(msg_id, 16)
-                except ValueError:
-                    # Not a number in a string, so process as text
-                    pass
-                else:
-                    if msg_id < 0 or msg_id > 0xFFFFFFFF:
-                        raise ValueError('Invalid message id {} - negative or too large!'.format(msg_id))
-            else:
-                if msg_id < 0 or msg_id > 0xFFFFFFFF:
-                    raise ValueError('Invalid message id {} - negative or too large!'.format(msg_id))
-        elif isinstance(msg_id, int) or isinstance(msg_id, long):
-            if msg_id < 0 or msg_id > 0xFFFFFFFF:
-                raise ValueError('Invalid message id {} - negative or too large!'.format(msg_id))
-        else:
-            raise TypeError('Expected str or int but got {}'.format(type(msg_id)))
-        return msg_id
-
-    def _get_message_obj(self, msg_id, data='', period=0, in_database=True):
-        """Get the message object from the database or create one."""
-        msg = None
-        msg_id = self._check_message(msg_id)
-        # Find the message id based on the input type
-        if isinstance(msg_id, int):
-            # number
-            if in_database:
-                self.find_message(msg_id)
-                if self.last_found_msg:
-                    msg = self.last_found_msg
-                    if data:
-                        msg.set_data(data)
-                else:
-                    raise ValueError('Message ID: 0x{:X} not found in the'
-                                     ' database!'.format(msg_id))
-            else:
-                data = data.replace(' ', '')
-                dlc = (len(data) / 2) + (len(data) % 2)
-                msg = Message(msg_id, 'Unknown', dlc)
-                msg.period = period
-        elif isinstance(msg_id, str):
-            for message in self.messages.values():
-                if msg_id.lower() == message.name.lower():
-                    msg = message
-                    break
-            else:
-                raise ValueError('Message Name: {} not found in the'
-                                 ' database!'.format(msg_id))
-        return msg
 
     @property
     def signals(self):
-        """A dictionary of imported signals."""
+        """A dictionary of imported signals stored by signal name."""
         return self.__signals
-
-    @signals.setter
-    def signals(self, sig):
-        """Add a signal to the dictionary."""
-        if not isinstance(sig, Signal):
-            raise TypeError(f'Expected {Signal} but got {type(sig)}')
-        self.__signals[sig.name] = sig
 
     def get_signal(self, name):
         """Get a signal by name."""
-        return self.find_signal(name, exact=True)
+        signal = None
+        if not isinstance(name, str):
+            raise TypeError(f'Expected str but got {type(name)}')
 
-    def find_signal(self, name, exact=False):
-        """Find signals by name."""
+        if name.lower() in self.signals:
+            signal = self.signals[name]
+        else:
+            for sig in self.signals.values():
+                if name.lower() == sig.long_name:
+                    signal = sig
+                    break
+            else:
+                raise ValueError(f'{name} does not match a short or long '
+                                 f'signal name in {self}')
+
+        return signal
+
+    def find_signals(self, name, print_result=False):
+        """Find signals by name.
+
+        Returns a list of signals whose names contain the input name.
+        """
+        raise NotImplementedError
+        signals = []
         if not isinstance(name, str):
             raise TypeError(f'Expected str, but got {type(name)}')
         num_found = 0
         for msg in self.messages.values():
             msgPrinted = False
             for sig in msg.signals:
-                if not exact:
-                    short_name = (search_str.lower() in sig.name.lower())
-                    full_name = (search_str.lower() in sig.full_name.lower())
-                else:
-                    short_name = (search_str.lower() == sig.name.lower())
-                    full_name = (search_str.lower() == sig.full_name.lower())
+                short_name = (search_str.lower() in sig.name.lower())
+                full_name = (search_str.lower() in sig.long_name.lower())
                 if full_name or short_name:
                     num_found += 1
-                    self.last_found_sig = sig
-                    self.last_found_msg = msg
                     if display:
                         if not msgPrinted:
                             self._print_msg(msg)
                             msgPrinted = True
                         self._print_sig(sig)
         if num_found == 0:
-            self.last_found_sig = None
             logging.info('No signals found for that input')
         elif num_found > 1:
-            self.last_found_sig = None
-        return True
-
-    def _check_signal(self, signal, value=None, force=False):
-        """Check the validity of a signal and optionally it's value.
-
-        Returns the message object containing the updated signal on success.
-        """
-        if not isinstance(signal, str):
-            raise TypeError('Expected str but got {}'.format(type(signal)))
-        # Grab the signal object by full or short name
-        if signal.lower() not in self.parser.dbc.signals:
-            if signal.lower() not in self.parser.dbc.signalsByName:
-                raise ValueError('Signal {} not found in the database!'
-                                 ''.format(signal))
-            else:
-                sig = self.parser.dbc.signalsByName[signal.lower()]
-        else:
-            sig = self.parser.dbc.signals[signal.lower()]
-        logging.debug('Found signal {} - msg id {:X}'
-                      ''.format(sig.name, sig.msg_id))
-        # Grab the message this signal is transmitted from
-        if sig.msg_id not in self.parser.dbc.messages:
-            raise KeyError('Signal {} has no associated messages!'.format(signal))
-        msg = self.parser.dbc.messages[sig.msg_id]
-        if value:
-            # Update the signal value
-            sig.set_val(value, force=force)
-        return msg
+            pass
+        return signals
 
 
 class Node:
@@ -334,15 +279,14 @@ class Node:
 class Message:
     """A CAN message."""
 
-    def __init__(self, msgid, name, length, sender=None, signals=[]):  # noqa
-        self.id = int(msgid)
+    def __init__(self, msg_id, name, length, sender=None, signals=[]):  # noqa
+        self.id = msg_id
         self.name = name
         self.dlc = length
         self.sender = sender
         self.signals = signals
         for signal in signals:
-            signal.add_msg_ref(self)
-        self.__data = 0
+            signal.msg = self
         self.endianness = 0
         self.period = 0
         self.delay = None
@@ -351,9 +295,27 @@ class Message:
         self.repetitions = None
         self.sending = False
         self.update_func = None
-
         # TODO: Populate this on import
         self.transmitters = None
+        self.__init_completed = True
+
+    @property
+    def id(self):
+        """The 11 or 29 bit ID for this message."""
+        return self.__id
+
+    @id.setter
+    def id(self, msg_id):
+        """Set the ID for this message."""
+        msg_id = int(msg_id) & 0x1FFFFFFF
+        if msg_id < 0:
+            raise ValueError(f'msg_id {msg_id} must be positive!')
+        try:
+            _ = self.__id
+        except AttributeError:
+            self.__id = msg_id
+        else:
+            raise AssertionError('can\'t set attribute')
 
     @property
     def name(self):
@@ -363,114 +325,107 @@ class Message:
     @name.setter
     def name(self, name):
         """Set the name of the message."""
-        if isinstance(name, str):
+        if not isinstance(name, str):
+            raise TypeError(f'Expected str but got {type(name)}')
+        try:
+            _ = self.__name
+        except AttributeError:
             self.__name = name
         else:
-            raise TypeError(f'Expected str but got {type(name)}')
+            raise AssertionError('can\'t set attribute')
 
-    # if msg.send_type_num is not None and\
-    #    msg.send_type_num < len(p.send_types):
-    #     msg.send_type = p.send_types[msg.send_type_num]
-    # pass
+    @property
+    def dlc(self):
+        """The length of the message in bytes."""
+        return self.__dlc
+
+    @dlc.setter
+    def dlc(self, dlc):
+        """Set the length of the message in bytes."""
+        if not isinstance(dlc, int):
+            raise TypeError(f'Expected int but got {type(dlc)}')
+        if dlc < 0 or dlc > 8:
+            raise ValueError(f'{dlc} must be between 0 and 8')
+        try:
+            _ = self.__dlc
+        except AttributeError:
+            self.__dlc = dlc
+            self.__max_val = int('FF' * dlc, 16)
+        else:
+            raise AssertionError('can\'t set attribute')
 
     @property
     def data(self):
-        """A 64 bit int of all message data."""
+        """An up to 64 bit int of all signal data."""
         data = 0
-        for sig in self.signals:
-            # Clear the signal value in data
-            data &= ~sig.mask
-            # Set the value
-            data |= sig.val
-        return data
-
-    def get_data(self):
-        """Get the current message data based on each signal value.
-
-        Returns a the current message data as a hexadecimal string
-        padded with zeros to the message length.
-        """
-        return f'{self.data:0{self.dlc*2}X}'
-
-    def set_data(self, data):
-        """Update signal values based on data.
-
-        Accepts a hexadecimal string or an integer.
-        """
-        if data:
-            if isinstance(data, str):
-                data = data.replace(' ', '')
-                try:
-                    data = int(data, 16)
-                except ValueError:
-                    raise ValueError('Cannot set data to non-hexadecimal'
-                                     f' string {data}!')
-            if isinstance(data, int):
-                # Check for invalid length
-                if len('{:X}'.format(data)) > (self.dlc * 2):
-                    raise ValueError(f'{data:X} is longer than message length '
-                                     f'of {self.dlc} bytes')
-            else:
-                raise TypeError(f'Expected an int or str but got {type(data)}')
-                # Handling for messages without signals
+        if self.signals:
             for sig in self.signals:
-                sig.val = data & sig.mask
+                # Clear the signal value in data
+                data &= ~sig.mask
+                # Set the value
+                data |= sig.raw_val
         else:
-            logging.error('set_data called with no data!')
+            data = self.__data
+        return f'{data:0{self.dlc*2}X}'
 
-    def _reverse(self, num, dlc):
-        """Reverse the byte order of data."""
-        out = ''
-        if dlc > 0:
-            out = num[:2]
-        if dlc > 1:
-            out = num[2:4] + out
-        if dlc > 2:
-            out = num[4:6] + out
-        if dlc > 3:
-            out = num[6:8] + out
-        if dlc > 4:
-            out = num[8:10] + out
-        if dlc > 5:
-            out = num[10:12] + out
-        if dlc > 6:
-            out = num[12:14] + out
-        if dlc > 7:
-            out = num[14:] + out
-        return out
+    @data.setter
+    def data(self, data):
+        """Set the message data.
 
-    def _print_msg(self, msg):
-        """Print a colored CAN message."""
+        Args:
+            data: a hexadecimal string (spaces are ignored) or a int
+        """
+        if isinstance(data, str):
+            data = data.replace(' ', '')
+            try:
+                data = int(data, 16)
+            except ValueError:
+                raise ValueError(f'{data} is not a hexadecimal string')
+        elif not isinstance(data, int):
+            raise TypeError(f'Expected a hex str or int but got {type(data)}')
+        if data < 0 or data > self.__max_val:
+            raise ValueError(f'{data} must be positive and fit within the '
+                             f'maximum value of {self.__max_val}!')
+        if self.signals:
+            for sig in self.signals:
+                sig.value = data & sig.mask
+        else:
+            self.__data = data
+
+    @property
+    def period(self):
+        """The transmit period of the message in milliseconds."""
+        return self.__period
+
+    @period.setter
+    def period(self, period):
+        """Set the transmit period for the message."""
+        if not isinstance(period, int):
+            raise TypeError(f'Expected int but got {type(period)}')
+        self.__period = period
+
+    def pprint(self):
+        """Print colored info abnout the message to stdout."""
         colorama_init()
         print('')
         color = Style.BRIGHT + Fore.GREEN
-        msgid = hex(msg.id)
-        data = hex(msg.data)[2:]
-        if msgid[-1] == 'L':
-            msgid = msgid[:-1]
-        if data[-1] == 'L':
-            data = data[:-1]
-        while len(data) < (msg.dlc * 2):
-            data = '0' + data
-        if msg.endianness != 0:
-            data = self._reverse(data, msg.dlc)
-        print('{}Message: {} - ID: {} - Data: 0x{}'.format(color, msg.name,
-                                                           msgid, data))
+        data = self.data
+        if self.endianness != 0:
+            data = bytes.fromhex(data)[::-1].hex()
+        print(f'{color}Message: {self.name} - ID: 0x{self.id:X} - Data: '
+              f'0x{data}')
         reset_color = Fore.RESET + Style.RESET_ALL
         node_color = Back.RESET + Fore.MAGENTA
         cycle_status = ' - Non-periodic'
-        node = '{} - TX Node: {}{}'.format(node_color, msg.sender, reset_color)
-        if msg.period != 0:
+        node = f'{node_color} - TX Node: {self.sender}{reset_color}'
+        if self.period != 0:
             sending = 'Not Sending'
             send_color = Fore.WHITE + Back.RED
-            if msg.sending:
+            if self.sending:
                 sending = 'Sending'
                 send_color = Fore.WHITE + Back.GREEN
-            cycle = ' - Cycle time(ms): {}'.format(msg.period)
-            status = ' - Status: {}{}'.format(send_color, sending)
-            node = '{} - TX Node: {}{}'.format(node_color, msg.sender,
-                                               reset_color)
-            cycle_status = cycle + status
+            cycle_status = (f' - Cycle time(ms): {self.period}'
+                            f' - Status: {send_color}{sending}')
         print(cycle_status + node)
         colorama_deinit()
 
@@ -493,14 +448,13 @@ class Signal:
         self.max_val = max_val
         self.units = units
         self.receivers = receivers  # not implemented
-        self.full_name = ''
+        self.long_name = ''
+        self.bit_start = 0
         self.values = {}
-        self.msg_id = 0
-        self.val = 0
+        self.value = 0
         self.init_val = None
         self.send_on_init = 0
         self.mask = 0
-        self.bit_start = 0
         self.msg = None
 
     def __str__(self):
@@ -515,22 +469,64 @@ class Signal:
     @name.setter
     def name(self, name):
         """Set the name of the signal."""
-        if isinstance(name, str):
+        if not isinstance(name, str):
+            raise TypeError(f'Expected str but got {type(name)}')
+        try:
+            _ = self.__name
+        except AttributeError:
             self.__name = name
         else:
-            raise TypeError(f'Expected str but got {type(name)}')
+            raise AssertionError('can\'t set attribute')
 
-    def add_msg_ref(self, msg):
+    @property
+    def msg(self):
+        """A reference to the message containing this signal."""
+        return self.__msg
+
+    @msg.setter
+    def msg(self, msg):
         """Add a reference to message this signal is included in."""
-        self.msg = msg
+        if msg is not None and not isinstance(msg, Message):
+            raise TypeError(f'Expected {Message} but got {type(msg)}')
+        self.__msg = msg
 
-    def set_val(self, value, force=False):
-        """Set the signal's value based on the offset and scale."""
+    @property
+    def raw_val(self):
+        """Return the numeric value of this signal."""
+        raw_val = (self.__val >> self.bit_start) * self.scale + self.offset
+        # Check if raw_val should be negative
+        if raw_val > 0 and self.min_val < 0:
+            bval = '{:b}'.format(int(raw_val))
+            if bval[0] == '1' and len(bval) == self.bit_len:
+                raw_val = float(-self._twos_complement(int(raw_val)))
+        return int(raw_val)
+
+    @property
+    def value(self):
+        """Get the signal value.
+
+        Returns:
+            The named signal value if it exists, otherwise the same as raw_val.
+        """
+        curr_val = self.raw_val
+        if self.values:
+            for key, val in self.values.items():
+                if val == curr_val:
+                    curr_val = key
+                    break
+            else:
+                raise ValueError(f'{self}.raw_value is set to {self.raw_val} '
+                                 f'which is not in {self.values}')
+        return curr_val
+
+    @value.setter
+    def value(self, value):
+        """Set the signal value based on the offset and scale."""
         negative = False
 
         # self.values will only be set if the signal has a discrete set of
         # values, otherwise the signal will be defined with min_val and max_val
-        if self.values and not force:
+        if self.values:
             if isinstance(value, str):
                 if value.lower() in self.values:
                     num = self.values[value]
@@ -547,11 +543,6 @@ class Signal:
                 except ValueError:
                     raise ValueError('{} is invalid for {}; valid values = {}'
                                      ''.format(value, self.name, self.values))
-        elif force:
-            try:
-                num = float(value)
-            except ValueError:
-                logging.error('Unable to force a non numerical value!')
         elif (float(value) < self.min_val) or (float(value) > self.max_val):
             raise ValueError('Value {} out of range! Valid range is {} to {}'
                              ' for signal {}.'.format(float(value),
@@ -569,45 +560,19 @@ class Signal:
             negative = True
 
         size = len('{:b}'.format(num))
-        if not force:
-            if size > self.bit_len:
-                raise ValueError('Unable to set {} to  {}; value too large!'
-                                 ''.format(self.name, num))
-                return False
-        else:
-            logging.warning('Ignoring dbc specs for this signal value')
+        if size > self.bit_len:
+            raise ValueError('Unable to set {} to  {}; value too large!'
+                             ''.format(self.name, num))
 
         if negative:
             num = self._twos_complement(num)
 
-        self.val = num << self.bit_start
-        return True
-
-    def get_val(self, raw=False):
-        """Get the signal's value.
-
-        Args:
-            raw: If True, always returns the numeric value of the signal.
-        """
-        tmp = self.val >> self.bit_start
-        curr_val = (tmp * self.scale + self.offset)
-        # Check if curr_val should be negative
-        if curr_val > 0 and self.min_val < 0:
-            bval = '{:b}'.format(int(curr_val))
-            if bval[0] == '1' and len(bval) == self.bit_len:
-                curr_val = float(-self._twos_complement(int(curr_val)))
-
-        if self.values:
-            if not raw:
-                for key, val in self.values.items():
-                    if val == curr_val:
-                        curr_val = key
-            else:
-                curr_val = int(curr_val)
-        return curr_val
+        self.__val = num << self.bit_start
 
     def _twos_complement(self, num):
         """Return the twos complement value of a number."""
+        # TODO: Switch to something like the line below
+        # pv_val = int('{:b}'.format(abs(int(pv_val) - (1 << pv_len)))[-pv_len:], 2)
         tmp = '{:b}'.format(num)
         tmp = tmp.replace('0', '2')
         tmp = tmp.replace('1', '0')
@@ -618,7 +583,7 @@ class Signal:
         return int(tmp, 2) + 1
 
     def set_mask(self):
-        """Set the signal's mask based on bit_start and bit_len."""
+        """Set the signal mask based on bit_start and bit_len."""
         if self.bit_start < 0:
             raise ValueError(f'{self}.bit_start is negative!')
         try:
@@ -626,53 +591,25 @@ class Signal:
         except ValueError:
             print(self.bit_len, self.bit_start)
 
-    def _check_signal(self, signal, value=None, force=False):
-        """Check the validity of a signal and optionally it's value.
-
-        Returns the message object containing the updated signal on success.
-        """
-        # TODO: delete after Database._check_signal is working
-        if not isinstance(signal, str):
-            raise TypeError('Expected str but got {}'.format(type(signal)))
-        # Grab the signal object by full or short name
-        if signal.lower() not in self.imported.signals:
-            if signal.lower() not in self.imported.signals_by_name:
-                raise ValueError('Signal {} not found in the database!'
-                                 ''.format(signal))
-            else:
-                sig = self.imported.signals_by_name[signal.lower()]
-        else:
-            sig = self.imported.signals[signal.lower()]
-        logging.debug('Found signal {} - msg id {:X}'
-                      ''.format(sig.name, sig.msg_id))
-        # Grab the message this signal is transmitted from
-        if sig.msg_id not in self.imported.messages:
-            raise KeyError('Signal {} has no associated messages!'.format(signal))
-        msg = self.imported.messages[sig.msg_id]
-        if value:
-            # Update the signal value
-            sig.set_val(value, force=force)
-        return msg
-
-    def _print_sig(self, sig, short_name=False, value=False):
-        """Print a colored CAN signal."""
+    def pprint(self, short_name=False, value=False):
+        """Print colored info abnout the signal to stdout."""
         colorama_init()
         color = Fore.CYAN + Style.BRIGHT
         rst = Fore.RESET + Style.RESET_ALL
-        if not short_name and not sig.full_name:
+        if not short_name and not self.long_name:
             short_name = True
         if short_name:
-            name = sig.name
+            name = self.name
         else:
-            name = sig.full_name
+            name = self.long_name
         print('{} - Signal: {}'.format(color, name))
-        if sig.values.keys():
+        if self.values.keys():
             if value:
-                print('            ^- {}{}'.format(sig.get_val(), rst))
+                print('            ^- {}{}'.format(self.value, rst))
             else:
                 print('            ^- [')
                 multiple = False
-                for key, val in sig.values.items():
+                for key, val in self.values.items():
                     if multiple:
                         print(', ')
                     print('{}({})'.format(key, hex(val)))
@@ -680,11 +617,11 @@ class Signal:
                 print(']{}\n'.format(rst))
         else:
             if value:
-                print('            ^- {}{}{}'.format(sig.get_val(), sig.units,
+                print('            ^- {}{}{}'.format(self.value, self.units,
                                                      rst))
             else:
-                print('            ^- [{} : {}]{}'.format(sig.min_val,
-                                                          sig.max_val, rst))
+                print('            ^- [{} : {}]{}'.format(self.min_val,
+                                                          self.max_val, rst))
         colorama_deinit()
 
 

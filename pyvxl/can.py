@@ -6,7 +6,7 @@ import logging
 import re
 from os import path
 from queue import Queue
-from time import localtime, sleep
+from time import localtime, sleep, perf_counter
 from threading import Thread, Event, RLock
 # TODO: Look into adding a condition for pausing the main thread while
 #       waiting for received messages.
@@ -38,41 +38,28 @@ class CAN(object):
         # dict is called to prevent editting self.__channels externally.
         return dict(self.__channels)
 
-    def add_channel(self, num=0, baud=500000, db=''):
+    def add_channel(self, num=0, baud=500000, db=None):
         """Add a channel."""
-        channel = Channel(self.__tx_thread, num, baud, db)
+        channel = Channel(self.__tx_thread, self.__rx_thread, num, baud, db)
         if num in self.__channels:
             raise ValueError(f'Channel {num} has already been added')
+
         self.__channels[channel.num] = channel
-
-        # If the receive port has already been started, it needs to be stopped
-        # before adding a new channel and restarted after or data won't be
-        # received from the new channel.
-        if self.__rx_vxl.started:
-            self.__rx_vxl.stop()
-        self.__rx_vxl.add_channel(num, baud)
-        self.__rx_vxl.start()
-
+        self.__rx_thread.add_channel(channel.num, baud)
         logging.debug(f'Added {channel}')
         return channel
 
-    def remove_channel(self, num_or_chan):
+    def remove_channel(self, num):
         """Remove a channel."""
-        if isinstance(num_or_chan, int):
-            num = num_or_chan
-            if num not in self.__channels:
-                raise ValueError(f'Channel {num} has already been removed')
-        elif isinstance(num_or_chan, Channel):
-            num = num_or_chan.num
-        else:
-            raise TypeError(f'Expected int or Channel got {type(num_or_chan)}')
-        if self.__rx_vxl.started:
-            self.__rx_vxl.stop()
-        self.__rx_vxl.remove_channel(num)
-        removed = self.__channels.pop(num)
-        if self.__rx_vxl.channels:
-            self.__rx_vxl.start()
-        return removed
+        if not isinstance(num, int):
+            raise TypeError(f'Expected int but got {type(num)}')
+        if num not in self.__channels:
+            raise ValueError(f'Channel {num} not found')
+
+        channel = self.__channels.pop(num)
+        self.__rx_thread.remove_channel(channel.num)
+        logging.debug(f'Removed {channel}')
+        return channel
 
     def start_logging(self, *args, **kwargs):
         """Start logging."""
@@ -89,6 +76,7 @@ class CAN(object):
 
     def print_periodics(self, info=False, search_for=''):
         """Print all periodic messages currently being sent."""
+        raise NotImplementedError
         if not self.sendingPeriodics:
             logging.info('No periodics currently being sent')
         if search_for:
@@ -119,7 +107,7 @@ class CAN(object):
                         for sig in msg.signals:
                             #pylint: disable=E1103
                             short_name = (msgID.lower() in sig.name.lower())
-                            full_name = (msgID.lower() in sig.full_name.lower())
+                            full_name = (msgID.lower() in sig.long_name.lower())
                             #pylint: enable=E1103
                             if full_name or short_name:
                                 found = True
@@ -147,14 +135,15 @@ class CAN(object):
 class Channel:
     """A transmit only extension of VxlChannel."""
 
-    def __init__(self, tx_thread, num, baud, db):  # noqa
-        # Minimum queue size since we won't be receiving
+    def __init__(self, tx_thread, rx_thread, num, baud, db_path):  # noqa
         self.__tx_thread = tx_thread
+        self.__rx_thread = rx_thread
+        # Minimum queue size since we won't be receiving with this port
         self.__vxl = VxlCan(num, baud, rx_queue_size=16)
         self.__vxl.start()
-        self.num = list(self.__vxl.channels.keys())[0]
+        self.__num = list(self.__vxl.channels.keys())[0]
         self.baud = baud
-        self.db = db
+        self.db = Database(db_path)
         self.uds = UDS(self)
 
     def __str__(self):
@@ -162,32 +151,52 @@ class Channel:
         return (f'Channel(num={self.num}, baud={self.baud}, db={self.db})')
 
     @property
+    def num(self):
+        """The number of this channel."""
+        return self.__num
+
+    @property
     def db(self):
         """The database for this channel."""
         return self.__db
 
     @db.setter
-    def db(self, db_path):
+    def db(self, db):
         """Set the database for this channel."""
-        self.__db = None
-        if db_path:
-            self.__db = Database(db_path)
+        if not isinstance(db, Database):
+            raise TypeError(f'Expected {type(Database)} but got {type(db)}')
+        self.__db = db
 
-    def _send(self, msg, send_once=False):
-        """Send a message."""
+    def __send(self, msg, send_once=False):
+        """Common function for sending a message.
+
+        Protected so additional checks aren't needed on parameters.
+        """
         if msg.update_func is not None:
-            msg.set_data(msg.update_func(msg))
-        data = msg.get_data()
-        self.__vxl.send(self.num, msg.id, data)
+            msg.data = msg.update_func(msg)
+        self.__vxl.send(self.num, msg.id, msg.data)
         if not send_once and msg.period:
             self.__tx_thread.add(msg, self.__vxl)
-        logging.debug('TX: {: >8X} {: <16}'.format(msg.id, data))
+        logging.debug('TX: {: >8X} {: <16}'.format(msg.id, msg.data))
 
-    def send_message(self, msg_id, data='', period=0, send_once=False,
-                     in_database=True):
+    def send_message(self, msg_id, data=None, period=None, send_once=False):
         """Send a message by name or id."""
-        msg = self.db._get_message_obj(msg_id, data, period, in_database)
-        self._send(msg, send_once)
+        msg = self.db.get_message(msg_id)
+        if data is not None:
+            msg.data = data
+        if period is not None:
+            msg.period = period
+        self.__send(msg, send_once)
+        return msg
+
+    def send_new_message(self, msg_id, data='', period=0, name='Unknown'):
+        """Send a message that isn't in the database.
+
+        After calling this function once for a message, send_message can be
+        used since a Message will be created and added to the database.
+        """
+        msg = self.db.add_message(msg_id, data, period, name)
+        self.__send(msg)
         return msg
 
     def stop_message(self, msg_id):
@@ -196,105 +205,85 @@ class Channel:
         Args:
             msg_id: message name or message id
         """
-        msg = self.db._get_message_obj(msg_id)
+        msg = self.db.get_message(msg_id)
         self.__tx_thread.remove(msg)
+        return msg
 
     def stop_all_messages(self):
         """Stop sending all periodic messages."""
         self.__tx_thread.remove_all(self.__vxl)
 
-    def send_signal(self, signal, value, send_once=False, force=False):
+    def send_signal(self, name, value=None, send_once=False):
         """Send the message containing signal."""
-        msg = self.db._check_signal(signal, value, force)
-        return self._send(msg, send_once)
+        signal = self.db.get_signal(name)
+        if value is not None:
+            signal.value = value
+        self.__send(signal.msg, send_once)
+        return signal
 
-    def stop_signal(self, signal):
+    def stop_signal(self, name):
         """Stop transmitting the periodic message containing signal."""
-        msg = self.db._check_signal(signal)
-        self.__tx_thread.remove(msg)
-
-    # TODO: Finish updating functions below
-    def _check_node(self, node):
-        """Check if a node is valid."""
-        if self.imported is None:
-            raise AssertionError('No database imported! Call import_db first.')
-        if node.lower() not in self.imported.nodes:
-            raise ValueError('Node named: {} not found in {}'
-                             ''.format(node, self.__db_path))
-
-    def start_node(self, node):
-        """Start transmitting all periodic messages sent by node."""
-        raise NotImplementedError
-
-    def stop_node(self):
-        """Stop transmitting all periodic messages sent by node."""
-        raise NotImplementedError
+        signal = self.db.get_signal(name)
+        self.__tx_thread.remove(signal.msg)
+        return signal
 
     def wait_for_no_error(self, timeout=0):
-        """Block until the CAN bus comes out of an error state."""
-        errors_found = True
-        if not self.receiving:
-            self.receiving = True
-            self.stopRxThread = Event()
-            self.rxthread = ReceiveThread(self.stopRxThread, self.portHandle,
-                                          self.locks[0])
-            self.rxthread.start()
-
+        """Block until a non error frame is received."""
+        no_error = False
+        # Set errors_found so this function doesn't return immediately based
+        # on a previously received non error frame.
+        self.__rx_thread.errors_found = True
         if not timeout:
             # Wait as long as necessary if there isn't a timeout set
-            while self.rxthread.errors_found:
-                time.sleep(0.001)
-            errors_found = False
+            while self.__rx_thread.errors_found:
+                sleep(0.001)
+            no_error = True
         else:
-            startTime = time.clock()
+            start = perf_counter()
             timeout = float(timeout) / 1000.0
-            while (time.clock() - startTime) < timeout:
-                if not self.rxthread.errors_found:
-                    errors_found = False
+            while (perf_counter() - start) < timeout:
+                if not self.__rx_thread.errors_found:
+                    no_error = True
                     break
-                time.sleep(0.001)
+                sleep(0.001)
 
-        # If we started the rx thread, stop it now that we're done
-        if not self.rxthread.busy():
-            self.stopRxThread.set()
-            self.receiving = False
-        return errors_found
+        return no_error
 
     def wait_for_error(self, timeout=0, flush=False):
-        """ Blocks until the CAN bus goes into an error state """
-        errors_found = False
-        self.rxthread.errors_found = False
+        """Block until an error frame is received."""
+        error = False
+        # Clear errors_found so this function doesn't return immediately based
+        # on a previously received error frame.
+        self.__rx_thread.errors_found = False
 
         if flush:
-            flushRxQueue(self.portHandle)
+            self.__rx_thread.flush_queues()
 
         if not timeout:
             # Wait as long as necessary if there isn't a timeout set
             while not self.rxthread.errors_found:
-                time.sleep(0.001)
-            errors_found = True
+                sleep(0.001)
+            error = True
         else:
-            startTime = time.clock()
+            start = perf_counter()
             timeout = float(timeout) / 1000.0
-            while (time.clock() - startTime) < timeout:
-                if self.rxthread.errors_found:
-                    errors_found = True
+            while (perf_counter() - start) < timeout:
+                if self.__rx_thread.errors_found:
+                    error = True
                     break
-                time.sleep(0.001)
+                sleep(0.001)
 
         # If there are errors, reconnect to the CAN case to clear the error queue
-        if errors_found:
-            log_path = ''
-            if self.receiving and self.rxthread.logging:
-                log_path = self.rxthread.stopLogging()
+        if error:
+            # log_path = ''
+            # if self.rxthread.logging:
+            #     log_path = self.rxthread.stopLogging()
+            self.__rx_thread.clear_errors(self.num)
 
-            self.stop()
-            self.start()
-
-            if log_path:
-                self.start_logging(log_path, add_date=False)
-            self.rxthread.errors_found = False
-        return errors_found
+            # if log_path:
+            #     self.start_logging(log_path, add_date=False)
+            # self.rxthread.errors_found = False
+        return error
 
     def _block_unless_found(self, msgID, timeout):
         foundData = ''
@@ -331,9 +320,9 @@ class Channel:
         """Start queuing all data received with msg_id."""
         return self.__rx_thread.start_queuing(msg_id, **kwargs)
 
-    def clear_msg_queues(self):
-        """Clear all receive filters."""
-        self.__rx_thread.clear_filters()
+    def stop_queuing(self):
+        """Stop any message queues that were started for this channel."""
+        self.__rx_thread.stop_channel_queues(self.num)
 
     def remove_msg_filter(self, msg_id):
         """Stop queuing received messages for a specific msg_id."""
@@ -355,7 +344,6 @@ class Channel:
     def send_recv(self, tx_id, tx_data, rx_id, timeout=150, **kwargs):
         """Send a message and wait for a response."""
         resp = False
-        # TODO: Finish
         self.start_queueing(rx_id, **kwargs)
         self.send_message(tx_id, tx_data, **kwargs)
         resp = self._block_unless_found(rx_id, timeout)
@@ -363,7 +351,9 @@ class Channel:
 
 
 class ReceiveThread(Thread):
-    """Thread for receiving CAN messages."""
+    """Thread for receiving CAN messages.
+
+    """
 
     def __init__(self, vxl, lock):
         """."""
@@ -383,7 +373,7 @@ class ReceiveThread(Thread):
         self.__log_file = None
         self.__log_errors = False
         self.__log_request = Queue()
-        self.__errors_found = False
+        self.errors_found = False
         self.__msg_queues = {}
         self.__sleep_time = 0.1
         self.__bus_status = ''
@@ -457,7 +447,7 @@ class ReceiveThread(Thread):
                 self.__vxl.request_chip_state()
 
             data = None
-            if self.__vxl.started and self.__vxl.channels:
+            if self.__vxl.started:
                 data = self.__receive()
             while data is not None:
                 match = msg_start_pat.search(data)
@@ -485,7 +475,7 @@ class ReceiveThread(Thread):
                 elif msg_type == 'RX_MSG':
                     error = error_pat.match(data)
                     if error:
-                        self.__errors_found = True
+                        self.errors_found = True
                         if not self.__log_errors:
                             data = self.__receive()
                             continue
@@ -494,7 +484,7 @@ class ReceiveThread(Thread):
                             # TODO: implement logging error frames
                             # data = self.__receive()
                             # continue
-                    self.__errors_found = False
+                    self.errors_found = False
                     rx_tx = rx_tx_pat.match(data)
                     if not rx_tx:
                         # id=81234567 l=0,  tid=00
@@ -532,10 +522,12 @@ class ReceiveThread(Thread):
                                                                        2)])
                         else:
                             data = ''
-                        self.__enqueue_msg(time, msg_id, data)
+                        # Strip the extended message ID bit
+                        msg_id &= 0x1FFFFFFF
+                        self.__enqueue_msg(time, channel, msg_id, data)
                         if self.__log_file:
                             if msg_id > 0x7FF:
-                                msg_id = '{:X}x'.format(msg_id & 0x1FFFFFFF)
+                                msg_id = '{:X}x'.format(msg_id)
                             else:
                                 msg_id = '{:X}'.format(msg_id)
                             log_msgs.append('{: >11.6f} {}  {: <16}Rx   d {} '
@@ -595,6 +587,16 @@ class ReceiveThread(Thread):
         self.__log_file.write('base hex  timestamps absolute\n')
         self.__log_file.write('no internal events logged\n')
         self.__sleep_time = 0.01
+
+    @property
+    def log_path(self):
+        """The current log path or None if not logging."""
+        return self.__log_path
+
+    @property
+    def logging(self):
+        """Return True if logging else False."""
+        return bool(self.__log_path)
 
     def start_logging(self, log_path, add_date=True, log_errors=False):
         """Request the thread start logging."""
@@ -661,54 +663,83 @@ class ReceiveThread(Thread):
         """
         return self.__time
 
-    def start_queue(self, msg_id, max_size=1000):
+    def start_queue(self, channel, msg_id, max_size=1000):
         """Start queuing all data received for msg_id."""
-        self.__msg_queues[msg_id] = Queue(max_size)
-        self.__sleep_time = 0.01
+        self.__queue_lock.acquire()
+        if channel in self.__msg_queues:
+            self.__msg_queues[channel][msg_id] = Queue(max_size)
+            self.__sleep_time = 0.01
+        else:
+            logging.error(f'Channel {channel} not found in the rx thread.')
+        self.__queue_lock.release()
 
-    def stop_queue(self, msg_id):
+    def stop_queue(self, channel, msg_id):
         """Stop queuing received data for msg_id."""
         self.__queue_lock.acquire()
-        if msg_id in self.__msg_queues:
-            self.__msg_queues.pop(msg_id)
-            if (not self.__msg_queues and not self.__log_request and
-               not self.__log_path):
+        if channel in self.__msg_queues:
+            msg_queues = self.__msg_queues[channel]
+            msg_queues.pop(msg_id)
+            for channel in self.__msg_queues:
+                if not self.__msg_queues[channel]:
+                    queueing = True
+                    break
+            else:
+                queueing = False
+            if not queueing and not self.__log_request and not self.__log_path:
                 self.__sleep_time = 0.1
+        else:
+            logging.error(f'Channel {channel} not found in the rx thread.')
         self.__queue_lock.release()
+
+    def stop_channel_queues(self, channel):
+        """Stop all queues for a channel."""
+        if channel in self.__msg_queues:
+            self.__msg_queues[channel] = {}
+        else:
+            logging.error(f'Channel {channel} not found in the rx thread.')
 
     def stop_all_queues(self):
         """Stop all queues."""
         self.__queue_lock.acquire()
-        self.errors_found = False
-        self.__msg_queues = {}
+        for channel in self.__msg_queues:
+            self.__msg_queues[channel] = {}
         if not self.__log_request and not self.__log_path:
             self.__sleep_time = 0.1
         self.__queue_lock.release()
 
-    def __enqueue_msg(self, rx_time, msg_id, data):
+    def __enqueue_msg(self, rx_time, channel, msg_id, data):
         """Put a received message in the queue."""
         self.__queue_lock.acquire()
-        if msg_id in self.__msg_queues:
+        if channel in self.__msg_queues:
+            msg_queues = self.__msg_queues[channel]
+        else:
+            msg_queues = []
+        if msg_id in msg_queues:
             logging.debug('RX: {: >8X} {: <16}'.format(msg_id, data))
-            if not self.__msg_queues[msg_id].full():
-                self.__msg_queues[msg_id].put((rx_time, data))
+            if not msg_queues[msg_id].full():
+                msg_queues[msg_id].put((rx_time, data))
             else:
-                max_size = self.__msg_queues[msg_id].maxsize
+                max_size = msg_queues[msg_id].maxsize
                 logging.error('Queue for 0x{:X} is full. {} wasn\'t added. The'
                               ' size is set to {}. Increase the size with the '
                               'max_size kwarg or remove messages more quickly.'
                               ''.format(msg_id, data, max_size))
         self.__queue_lock.release()
 
-    def dequeue_msg(self, msg_id):
+    def dequeue_msg(self, channel, msg_id):
         """Get queued message data in the order it was received."""
-        if msg_id in self.__msg_queues:
-            if self.__msg_queues[msg_id].qsize():
-                return self.__msg_queues[msg_id].get()
+        msg = None
+        if channel in self.__msg_queues:
+            msg_queues = self.__msg_queues[channel]
+        else:
+            msg_queues = []
+        if msg_id in msg_queues:
+            if msg_queues[msg_id].qsize():
+                msg = self.__msg_queues[msg_id].get()
         else:
             logging.error('Queue for 0x{:X} hasn\'t been started! Call '
                           'start_queuing first.'.format(msg_id))
-        return None
+        return msg
 
 
 class TransmitThread(Thread):
@@ -731,9 +762,9 @@ class TransmitThread(Thread):
             for msg, vxl in self.__messages.values():
                 if self.__elapsed % msg.period == 0:
                     if msg.update_func is not None:
-                        msg.set_data(msg.update_func(msg))
+                        msg.data = msg.update_func(msg)
                     channel = list(vxl.channels.keys())[0]
-                    vxl.send(channel, msg.id, msg.get_data())
+                    vxl.send(channel, msg.id, msg.data)
             if self.__elapsed >= self.__max_increment:
                 self.__elapsed = self.__sleep_time_ms
             else:
@@ -777,7 +808,7 @@ class TransmitThread(Thread):
         self.__messages[msg.id] = (msg, vxl)
         self.__update_times()
         logging.debug('TX: {: >8X} {: <16} period={}ms'
-                      ''.format(msg.id, msg.get_data(), msg.period))
+                      ''.format(msg.id, msg.data, msg.period))
 
     def remove(self, msg):
         """Remove a periodic message from the thread."""
@@ -786,7 +817,7 @@ class TransmitThread(Thread):
             msg.sending = False
             self.__update_times()
             logging.debug(f'Removed periodic message: 0x{msg.id:03X} '
-                          f'{msg.get_data(): <16} period={msg.period}ms')
+                          f'{msg.data: <16} period={msg.period}ms')
         else:
             logging.error(f'{msg.name} (0x{msg.id:X}) is not being sent!')
 

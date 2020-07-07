@@ -123,6 +123,33 @@ def test_receive(vxl):  # noqa
     assert matched.group(4) == 'TX'
 
 
+def test_send_recv_extended(vxl):  # noqa
+    channel = list(vxl.channels.keys())[0]
+    assert vxl.receive() is None
+    assert vxl.send(channel, 0x12345678, '1122334455667788')
+    msg_start_pat = re.compile(r'^(\w+)\sc=(\d+),\st=(\d+),\s')
+    rx_tx_pat = re.compile(r'id=(\w+)\sl=(\d),\s(\w+)?\s(TX)?\s*tid=(\w+)')
+    data = vxl.receive()
+    print(data)
+    matched = msg_start_pat.match(data)
+    assert matched
+    assert matched.group(1) == 'RX_MSG'
+    # Channel might change, just check that it exists
+    channel = matched.group(2)
+    assert channel
+    assert int(channel)
+    # Timestamp will change, check that it exists
+    time = matched.group(3)
+    assert time
+    assert int(time)
+    data = data.replace(matched.group(0), '')
+    matched = rx_tx_pat.match(data)
+    assert matched.group(1) == '92345678'
+    assert matched.group(2) == '8'
+    assert matched.group(3) == '1122334455667788'
+    assert matched.group(4) == 'TX'
+
+
 def test_get_dll_version(vxl):  # noqa
     ver = vxl.config.dllVersion
     major = ((ver & 0xFF000000) >> 24)

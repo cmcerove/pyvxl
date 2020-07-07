@@ -135,7 +135,7 @@ class Vxl:
         if self.port is not None:
             raise AssertionError('Port must be closed to change queue size.')
         if not isinstance(size, int):
-            raise TypeError(f'Expected int, but got {type(size)}')
+            raise TypeError(f'Expected int but got {type(size)}')
         elif size < 16 or size > 32768:
             raise ValueError(f'{size} must be >= 16 and <= 32768')
         elif size & (size - 1):
@@ -262,7 +262,7 @@ class VxlChannel:
 
     def __init__(self, vxl, num=0, baud=500000):  # noqa
         if not isinstance(vxl, Vxl):
-            raise TypeError(f'Expected Vxl, but got {type(vxl)}')
+            raise TypeError(f'Expected Vxl but got {type(vxl)}')
         self.__vxl = vxl
         self.__activated = False
         self.num = num
@@ -287,7 +287,7 @@ class VxlChannel:
     def num(self, num):
         """Set the number for the channel."""
         if not isinstance(num, int):
-            raise TypeError(f'Expected int, but got {type(num)}')
+            raise TypeError(f'Expected int but got {type(num)}')
         elif num < 0:
             raise ValueError(f'{num} must be a postive number')
         if num == 0:
@@ -320,7 +320,7 @@ class VxlChannel:
     def baud(self, baud):
         """Set the baud rate for the channel."""
         if not isinstance(baud, int):
-            raise TypeError(f'Expected int, but got {type(baud)}')
+            raise TypeError(f'Expected int but got {type(baud)}')
         # TODO: Add checking for valid baud rates
         self.__baud = baud
 
@@ -333,7 +333,7 @@ class VxlChannel:
     def init_access(self, value):
         """Set init access for this channel."""
         if not isinstance(value, bool):
-            raise TypeError(f'Expected bool, but got {type(value)}')
+            raise TypeError(f'Expected bool but got {type(value)}')
         self.__init = value
 
     @property
@@ -372,19 +372,6 @@ class VxlChannel:
         if not vxl_deactivate_channel(self.vxl.port, self.mask):
             raise AssertionError(f'Failed deactivating {self}')
         self.__activated = False
-
-    def request_chip_state(self):
-        """Request the chip state for this channel."""
-        if not self.activated:
-            raise AssertionError(f'{self} is not activated')
-        if self.vxl.port is None:
-            raise AssertionError('Port not opened! Call open_port first.')
-        # TODO: Add this after implementing LIN. Right now it is unreachable.
-        # if self.vxl.bus_type != BUS_TYPE_CAN:
-        #     raise NotImplementedError('Requesting the chip state is only '
-        #                               'supported for CAN bus types.')
-        if not vxl_request_chip_state(self.vxl.port, self.mask):
-            raise AssertionError(f'Failed requesting chip state for {self}')
 
 
 class VxlCan(Vxl):
@@ -488,3 +475,14 @@ class VxlCan(Vxl):
                 if include_virtual or not virtual_channel:
                     can_channels.append(int(channel.channelIndex) + 1)
         return can_channels
+
+    def request_chip_state(self):
+        """Request the chip state for this channel."""
+        if self.port is None:
+            raise AssertionError('Port not opened! Call open_port first.')
+        # TODO: Add this after implementing LIN. Right now it is unreachable.
+        # if self.vxl.bus_type != BUS_TYPE_CAN:
+        #     raise NotImplementedError('Requesting the chip state is only '
+        #                               'supported for CAN bus types.')
+        if not vxl_request_chip_state(self.port, self.access_mask):
+            raise AssertionError(f'Failed requesting chip state for {self}')
