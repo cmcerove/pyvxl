@@ -22,7 +22,10 @@ class Database:
 
     def __str__(self):
         """Return a string representation of this database."""
-        return (f'Database({path.basename(self.path)})')
+        string = 'Database(None)'
+        if self.path is not None:
+            string = f'Database({path.basename(self.path)})'
+        return string
 
     @property
     def path(self):
@@ -32,11 +35,11 @@ class Database:
     @path.setter
     def path(self, db_path):
         """Set the database path and import it."""
-        if not isinstance(db_path, str):
-            raise TypeError(f'Expected str but got {type(db_path)}')
-        if not path.isfile(db_path):
-            raise ValueError(f'Database {db_path} does not exist')
         if db_path is not None:
+            if not isinstance(db_path, str):
+                raise TypeError(f'Expected str but got {type(db_path)}')
+            if not path.isfile(db_path):
+                raise ValueError(f'Database {db_path} does not exist')
             _, ext = path.splitext(db_path)
             # TODO: Implement .arxml import
             supported = ['.dbc']
@@ -131,7 +134,7 @@ class Database:
         if not isinstance(data, str):
             raise TypeError(f'Expected str but got {type(data)}')
         data = data.replace(' ', '')
-        dlc = (len(data) / 2) + (len(data) % 2)
+        dlc = sum(divmod(len(data), 2))
         msg = Message(msg_id, name, dlc)
         msg.period = period
         msg.data = data
@@ -384,8 +387,8 @@ class Message:
         elif not isinstance(data, int):
             raise TypeError(f'Expected a hex str or int but got {type(data)}')
         if data < 0 or data > self.__max_val:
-            raise ValueError(f'{data} must be positive and fit within the '
-                             f'maximum value of {self.__max_val}!')
+            raise ValueError(f'{data:X} must be positive and less than the '
+                             f'maximum value of {self.__max_val:X}!')
         if self.signals:
             for sig in self.signals:
                 sig.value = data & sig.mask

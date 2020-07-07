@@ -13,7 +13,7 @@ from threading import Thread, Event, RLock
 from math import gcd
 from pyvxl.vxl import VxlCan
 from pyvxl.uds import UDS
-from pyvxl.can_types import Database  # Message, Signal
+from pyvxl.can_types import Database
 
 
 class CAN(object):
@@ -26,10 +26,9 @@ class CAN(object):
         if CAN.__rx_lock is None:
             CAN.__rx_lock = RLock()
         self.__channels = {}
-        self.__rx_vxl = VxlCan(channel=None)
         self.__tx_thread = TransmitThread()
         self.__tx_thread.start()
-        self.__rx_thread = ReceiveThread(self.__rx_vxl, CAN.__rx_lock)
+        self.__rx_thread = ReceiveThread(CAN.__rx_lock)
         self.__rx_thread.start()
 
     @property
@@ -261,7 +260,7 @@ class Channel:
 
         if not timeout:
             # Wait as long as necessary if there isn't a timeout set
-            while not self.rxthread.errors_found:
+            while not self.__rx_thread.errors_found:
                 sleep(0.001)
             error = True
         else:
@@ -273,12 +272,18 @@ class Channel:
                     break
                 sleep(0.001)
 
-        # If there are errors, reconnect to the CAN case to clear the error queue
         if error:
+            # TODO: remove comments if restarting logging isn't necessary
             # log_path = ''
             # if self.rxthread.logging:
             #     log_path = self.rxthread.stopLogging()
-            self.__rx_thread.clear_errors(self.num)
+
+            # As long as there are no other connections (e.g. CANoe) to this
+            # channel of the vector hardware, this will clear the error
+            # frame from the hardware retransmit buffer.
+            self.__vxl.stop()
+            self.__rx_thread.flush_queues()
+            self.__vxl.start()
 
             # if log_path:
             #     self.start_logging(log_path, add_date=False)
@@ -351,16 +356,13 @@ class Channel:
 
 
 class ReceiveThread(Thread):
-    """Thread for receiving CAN messages.
+    """Thread for receiving CAN messages."""
 
-    """
-
-    def __init__(self, vxl, lock):
+    def __init__(self, lock):
         """."""
         super().__init__()
         self.daemon = True
-        # Protect all variables so locks can be used where needed
-        self.__vxl = vxl
+        self.__vxl = VxlCan(channel=None)
         self.__rx_lock = lock
         # This lock prevents queues from being removed from self.__msg_queues
         # between the check 'msg_id in self.__msg_queues' and getting
@@ -588,6 +590,47 @@ class ReceiveThread(Thread):
         self.__log_file.write('no internal events logged\n')
         self.__sleep_time = 0.01
 
+    def add_channel(self, channel, baud):
+        """Start receiving on a channel."""
+        # If the receive port has already been started, it needs to be stopped
+        # before adding a new channel and restarted after or data won't be
+        # received from the new channel.
+        if self.__vxl.started:
+            self.__vxl.stop()
+        self.__vxl.add_channel(channel, baud)
+        self.__vxl.start()
+        self.__queue_lock.acquire()
+        self.__msg_queues[channel] = {}
+        self.__queue_lock.release()
+
+    def remove_channel(self, channel):
+        """Remove a channel; stop receiving on it."""
+        if self.__vxl.started:
+            self.__vxl.stop()
+        self.__vxl.remove_channel(channel)
+        if self.__vxl.channels:
+            self.__vxl.start()
+        self.__queue_lock.acquire()
+        self.__msg_queues.pop(channel)
+        self.__queue_lock.release()
+
+    def get_time(self):
+        """Get the time of the last received CAN message.
+
+        When messages are being queued, this time will be updated every 50ms
+        even when no CAN messages are received.
+        """
+        return self.__time
+
+    def flush_queues(self):
+        """Flush the rx and tx queues.
+
+        If a channel is stuck transmitting error frames, disconnecting all
+        ports from that channel and then calling this function should clear
+        the error frame from the hardware retransmit buffer.
+        """
+        self.__vxl.flush_queues()
+
     @property
     def log_path(self):
         """The current log path or None if not logging."""
@@ -654,14 +697,6 @@ class ReceiveThread(Thread):
             old_path = ''
             logging.error('Logging already stopped!')
         return old_path
-
-    def get_time(self):
-        """Get the time of the last received CAN message.
-
-        When messages are being queued, this time will be updated every 50ms
-        even when no CAN messages are received.
-        """
-        return self.__time
 
     def start_queue(self, channel, msg_id, max_size=1000):
         """Start queuing all data received for msg_id."""

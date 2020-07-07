@@ -107,15 +107,20 @@ def test_add_remove_channel(can):  # noqa
             with pytest.raises(ValueError):
                 can.remove_channel(channel)
             added_channel = can.add_channel(channel)
-            removed_channel = can.remove_channel(added_channel)
+            removed_channel = can.remove_channel(added_channel.num)
             assert added_channel == removed_channel
         else:
             can.remove_channel(channel)
     assert can.channels == {}
     with pytest.raises(TypeError):
         can.remove_channel('fake_channel')
+    # Add the original channel back to prevent breaking other tests that use
+    # can and expect at least one channel
     dbc_path = path.join(path.dirname(path.realpath(__file__)), 'test_dbc.dbc')
-    can.add_channel(db=dbc_path)
+    orig_channel = can.add_channel(db=dbc_path)
+
+    with pytest.raises(TypeError):
+        orig_channel.db = 'one'
 
 
 def test_sending_and_stopping_messages(can):  # noqa

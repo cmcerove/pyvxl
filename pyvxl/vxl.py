@@ -296,8 +296,9 @@ class VxlChannel:
         if self.vxl.bus_type is None:
             raise AssertionError('Vxl.bus_type must be set before channels '
                                  'can be created.')
-        if num >= len(self.vxl.config.channel):
-            raise AssertionError(f'{num}, {self.vxl.config.channelCount}, {len(self.vxl.config.channel)}')
+        if num > self.vxl.config.channelCount:
+            raise AssertionError(f'{num} must be less than '
+                                 f'{self.vxl.config.channelCount}')
         channel_config = self.vxl.config.channel[num - 1]
         bus_type_selected = self.vxl.bus_type << 16
         if not channel_config.channelBusCapabilities & bus_type_selected:

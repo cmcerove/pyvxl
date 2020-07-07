@@ -181,6 +181,17 @@ def test_channel_init_fail():  # noqa
         VxlChannel('')
 
 
+def test_channel_num_fail(vxl):  # noqa
+    channel = vxl.channels[list(vxl.channels.keys())[0]]
+    with pytest.raises(AssertionError):
+        channel.num = vxl.config.channelCount + 1
+
+    with pytest.raises(AssertionError):
+        channel_cfg = vxl.config.channel[vxl.config.channelCount - 1]
+        channel_cfg.channelBusCapabilities = 0
+        channel.num = 0
+
+
 def test_channel_fails(vxl):  # noqa
     channel = vxl.channels[list(vxl.channels.keys())[0]]
     with pytest.raises(TypeError):
@@ -278,8 +289,7 @@ def test_deactivate_fails(vxl, monkeypatch):  # noqa
 
 
 def test_request_chip_state(vxl):  # noqa
-    channel = vxl.channels[list(vxl.channels.keys())[0]]
-    channel.request_chip_state()
+    vxl.request_chip_state()
 
 
 def test_request_chip_state_fails(vxl, monkeypatch):  # noqa
@@ -289,14 +299,14 @@ def test_request_chip_state_fails(vxl, monkeypatch):  # noqa
     monkeypatch.setattr(vxl_file, 'vxl_request_chip_state',
                         vxl_request_chip_state_fail)
     with pytest.raises(AssertionError):
-        channel.request_chip_state()
+        vxl.request_chip_state()
     channel.deactivate()
     with pytest.raises(AssertionError):
-        channel.request_chip_state()
+        vxl.request_chip_state()
     channel.activate()
     vxl.close_port()
     with pytest.raises(AssertionError):
-        channel.request_chip_state()
+        vxl.request_chip_state()
 
 
 def test_start():  # noqa
