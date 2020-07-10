@@ -11,6 +11,20 @@ from time import sleep
 from glob import glob
 
 
+def pytest_sessionstart(session):
+    """Called before any tests are executed."""
+    # Remove old log files so tests can't reference them accidentally
+    tests_dir = path.dirname(path.realpath(__file__))
+    for log_file in glob(path.join(tests_dir, '*.asc')):
+        for tries in range(5):
+            try:
+                remove(log_file)
+            except PermissionError:
+                sleep(1)
+            else:
+                break
+
+
 def pytest_sessionfinish(session, exitstatus):
     """Called after all tests have finished executing."""
     # Remove log files if all tests pass

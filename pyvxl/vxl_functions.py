@@ -133,6 +133,13 @@ def vxl_set_channel_output(*args):
     return True if status == b'XL_SUCCESS' else False
 
 
+def vxl_set_channel_mode(*args):
+    """Set whether tx/txrq receipts for tx messages are enabled."""
+    status = getError(vxDLL.xlCanSetChannelMode(*args))
+    logging.debug('{0}: {1}'.format('xlCanSetChannelMode', status))
+    return True if status == b'XL_SUCCESS' else False
+
+
 def vxl_request_chip_state(*args):
     """Request the CAN chip state be put in the receive queue."""
     status = getError(vxDLL.xlCanRequestChipState(*args))

@@ -33,7 +33,7 @@ Other pytest notes:
     def test_func(tmpdir) will create a temporary directory
 """
 import pytest
-import logging
+import re
 from time import sleep
 from os import path
 from pyvxl import CAN, VxlCan
@@ -71,31 +71,77 @@ def can():
     """Test fixture for pyvxl.vector.CAN."""
     dbc_path = path.join(path.dirname(path.realpath(__file__)), 'test_dbc.dbc')
     can = CAN()
+    # The default is to connect to the last channel which is virtual
+    # and always present.
     can.add_channel(db=dbc_path)
     return can
 
 
 def test_logging(can):
     """."""
+    msg_pat = re.compile(r'^\s*(\d+\.\d+)\s+(\d+)\s+([\dA-F]+)\s+([RT]x)'
+                         r'\s+d\s*(\d+)((\s+[\dA-F][\dA-F])+).*')
     can1 = list(can.channels.values())[0]
-    name = 'test_log'
+    # The last 2 channels are virtual and can1.channel is set to the default
+    # which is the last virtual channel
+    can.add_channel(can1.channel - 1)
+    # The second to last channel which is virtual
+    name = 'test_can_log'
     opened = can.start_logging(name, False)
     # Give the receive thread time to start logging
     sleep(0.1)
     assert (name + '.asc') == path.basename(opened)
     assert opened.endswith('.asc')
     assert path.isfile(opened)
-    can1.send_message('msg3')
+    msg3_sig1 = can1.db.get_signal('msg3_sig1')
+    msg3_sig1.val = 1
+    msg3_data = msg3_sig1.msg.data
+    msg3 = can1.send_message('msg3')
+    assert msg3 is msg3_sig1.msg
+    assert msg3.id == 0x456
+    assert msg3.dlc == 8
+    assert msg3.data == msg3_data
+    assert msg3.name == 'msg3'
     # Give the receive thread time to receive it
     sleep(0.3)
     closed = can.stop_logging()
     sleep(0.3)
     assert opened == closed
-    msg = can1.db.get_message('msg3')
-    assert msg is not None
-    # Send a message and check that it's in the file
+    # Check that both messages are in the file
+    rx_found = False
+    tx_found = False
     with open(opened, 'r') as f:
-        assert ' {:X} '.format(msg.id) in f.read()
+        for line in f:
+            match = msg_pat.match(line)
+            if match is not None:
+                match = match.groups()
+                channel = int(match[1])
+                msg_id = int(match[2], 16)
+                txrx = match[3]
+                dlc = int(match[4])
+                data = ''.join(match[5]).replace(' ', '')
+                if msg_id == msg3.id:
+                    if channel == can1.channel:
+                        assert txrx == 'Tx'
+                        tx_found = True
+                        assert can1.channel == channel
+                    else:
+                        assert txrx == 'Rx'
+                        rx_found = True
+                        assert (can1.channel - 1) == channel
+                    assert msg3.data == data
+                    assert msg3.dlc == dlc
+
+                if rx_found and tx_found:
+                    break
+        else:
+            if rx_found:
+                raise AssertionError(f'Tx for {msg3.id:X} not in the log')
+            elif tx_found:
+                raise AssertionError(f'Rx for {msg3.id:X} not in the log')
+            else:
+                raise AssertionError(f'Tx and Rx for {msg3.id:X} were not '
+                                     'found in the log')
 
 def test_add_remove_channel(can):  # noqa
     current_channel = list(can.channels.keys())[0]
@@ -107,7 +153,7 @@ def test_add_remove_channel(can):  # noqa
             with pytest.raises(ValueError):
                 can.remove_channel(channel)
             added_channel = can.add_channel(channel)
-            removed_channel = can.remove_channel(added_channel.num)
+            removed_channel = can.remove_channel(added_channel.channel)
             assert added_channel == removed_channel
         else:
             can.remove_channel(channel)

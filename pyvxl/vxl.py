@@ -88,6 +88,8 @@ class Vxl:
         for channel in self.__channels.values():
             if perm_mask.value & channel.mask.value:
                 channel.init_access = True
+            else:
+                channel.init_access = False
         self.__port = port
 
     def close_port(self):
@@ -349,11 +351,10 @@ class VxlChannel:
         if self.vxl.port is None:
             raise AssertionError('Port not opened! Call open_port first.')
         if self.init_access:
-            if not vxl_set_baudrate(self.vxl.port, self.vxl.access_mask,
-                                    self.baud):
+            if not vxl_set_baudrate(self.vxl.port, self.mask, self.baud):
                 raise AssertionError('Failed setting the baud rate for '
                                      f'{self}')
-            if not vxl_flush_tx_queue(self.vxl.port, self.vxl.access_mask):
+            if not vxl_flush_tx_queue(self.vxl.port, self.mask):
                 raise AssertionError('Failed flushing the tx queue for '
                                      f'{self}')
             if not vxl_flush_rx_queue(self.vxl.port):
@@ -438,7 +439,6 @@ class VxlCan(Vxl):
             raise ValueError(f'{channel} has not been added through '
                              'add_channel.')
         dlc = int(len(msg_data) / 2)
-        # msg_data = msg_data.decode('hex')
         msg_data = bytes.fromhex(msg_data)
         xl_event = vxl_event_type()
         data = create_string_buffer(msg_data, 8)

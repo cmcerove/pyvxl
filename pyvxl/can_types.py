@@ -130,7 +130,8 @@ class Database:
         messages.
         """
         if msg_id in self.messages:
-            raise ValueError(f'{msg_id} is already in the database')
+            raise ValueError(f'Message ID 0x{msg_id:X} is already in the '
+                             'database')
         if not isinstance(data, str):
             raise TypeError(f'Expected str but got {type(data)}')
         data = data.replace(' ', '')

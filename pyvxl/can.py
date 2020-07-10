@@ -7,7 +7,7 @@ import re
 from os import path
 from queue import Queue
 from time import localtime, sleep, perf_counter
-from threading import Thread, Event, RLock
+from threading import Thread, Event, RLock, BoundedSemaphore
 # TODO: Look into adding a condition for pausing the main thread while
 #       waiting for received messages.
 from math import gcd
@@ -26,9 +26,10 @@ class CAN(object):
         if CAN.__rx_lock is None:
             CAN.__rx_lock = RLock()
         self.__channels = {}
-        self.__tx_thread = TransmitThread()
+        self.__vxl = VxlCan(channel=None)
+        self.__tx_thread = TransmitThread(self.__vxl)
         self.__tx_thread.start()
-        self.__rx_thread = ReceiveThread(CAN.__rx_lock)
+        self.__rx_thread = ReceiveThread(self.__vxl, CAN.__rx_lock)
         self.__rx_thread.start()
 
     @property
@@ -39,12 +40,22 @@ class CAN(object):
 
     def add_channel(self, num=0, baud=500000, db=None):
         """Add a channel."""
-        channel = Channel(self.__tx_thread, self.__rx_thread, num, baud, db)
+        # Default to the a virtual channel
+        if num == 0:
+            num = self.__vxl.config.channelCount
+        channel = Channel(self.__vxl, self.__tx_thread, self.__rx_thread, num,
+                          baud, db)
         if num in self.__channels:
             raise ValueError(f'Channel {num} has already been added')
-
-        self.__channels[channel.num] = channel
-        self.__rx_thread.add_channel(channel.num, baud)
+        self.__channels[num] = channel
+        # If the receive port has already been started, it needs to be stopped
+        # before adding a new channel and restarted after or data won't be
+        # received from the new channel.
+        if self.__vxl.started:
+            self.__vxl.stop()
+        self.__vxl.add_channel(num, baud)
+        self.__vxl.start()
+        self.__rx_thread.add_channel(num, baud)
         logging.debug(f'Added {channel}')
         return channel
 
@@ -54,9 +65,13 @@ class CAN(object):
             raise TypeError(f'Expected int but got {type(num)}')
         if num not in self.__channels:
             raise ValueError(f'Channel {num} not found')
-
         channel = self.__channels.pop(num)
-        self.__rx_thread.remove_channel(channel.num)
+        if self.__vxl.started:
+            self.__vxl.stop()
+        self.__vxl.remove_channel(num)
+        if self.__vxl.channels:
+            self.__vxl.start()
+        self.__rx_thread.remove_channel(num)
         logging.debug(f'Removed {channel}')
         return channel
 
@@ -134,25 +149,24 @@ class CAN(object):
 class Channel:
     """A transmit only extension of VxlChannel."""
 
-    def __init__(self, tx_thread, rx_thread, num, baud, db_path):  # noqa
+    def __init__(self, vxl, tx_thread, rx_thread, num, baud, db_path):  # noqa
+        self.__vxl = vxl
         self.__tx_thread = tx_thread
         self.__rx_thread = rx_thread
         # Minimum queue size since we won't be receiving with this port
-        self.__vxl = VxlCan(num, baud, rx_queue_size=16)
-        self.__vxl.start()
-        self.__num = list(self.__vxl.channels.keys())[0]
+        self.__channel = num
         self.baud = baud
         self.db = Database(db_path)
         self.uds = UDS(self)
 
     def __str__(self):
         """Return a string representation of this channel."""
-        return (f'Channel(num={self.num}, baud={self.baud}, db={self.db})')
+        return (f'Channel(num={self.channel}, baud={self.baud}, db={self.db})')
 
     @property
-    def num(self):
+    def channel(self):
         """The number of this channel."""
-        return self.__num
+        return self.__channel
 
     @property
     def db(self):
@@ -173,9 +187,9 @@ class Channel:
         """
         if msg.update_func is not None:
             msg.data = msg.update_func(msg)
-        self.__vxl.send(self.num, msg.id, msg.data)
+        self.__vxl.send(self.channel, msg.id, msg.data)
         if not send_once and msg.period:
-            self.__tx_thread.add(msg, self.__vxl)
+            self.__tx_thread.add(msg, self.channel)
         logging.debug('TX: {: >8X} {: <16}'.format(msg.id, msg.data))
 
     def send_message(self, msg_id, data=None, period=None, send_once=False):
@@ -210,7 +224,7 @@ class Channel:
 
     def stop_all_messages(self):
         """Stop sending all periodic messages."""
-        self.__tx_thread.remove_all(self.__vxl)
+        self.__tx_thread.remove_all(self.channel)
 
     def send_signal(self, name, value=None, send_once=False):
         """Send the message containing signal."""
@@ -273,38 +287,11 @@ class Channel:
                 sleep(0.001)
 
         if error:
-            # TODO: remove comments if restarting logging isn't necessary
-            # log_path = ''
-            # if self.rxthread.logging:
-            #     log_path = self.rxthread.stopLogging()
-
             # As long as there are no other connections (e.g. CANoe) to this
             # channel of the vector hardware, this will clear the error
             # frame from the hardware retransmit buffer.
-            self.__vxl.stop()
-            self.__rx_thread.flush_queues()
-            self.__vxl.start()
-
-            # if log_path:
-            #     self.start_logging(log_path, add_date=False)
-            # self.rxthread.errors_found = False
+            self.__vxl.flush_queues()
         return error
-
-    def _block_unless_found(self, msgID, timeout):
-        foundData = ''
-        startTime = time.clock()
-        timeout = timeout / 1000.0
-
-        while (time.clock() - startTime) < timeout:
-            time.sleep(0.01)
-            foundData = self.rxthread.getFirstRxMessage(msgID)
-            if foundData:
-                break
-
-        if foundData:
-            return foundData
-        else:
-            return False
 
     def wait_for(self, msgID, data, timeout, alreadySearching=False,
                  in_database=True):
@@ -327,7 +314,7 @@ class Channel:
 
     def stop_queuing(self):
         """Stop any message queues that were started for this channel."""
-        self.__rx_thread.stop_channel_queues(self.num)
+        self.__rx_thread.stop_channel_queues(self.channel)
 
     def remove_msg_filter(self, msg_id):
         """Stop queuing received messages for a specific msg_id."""
@@ -358,12 +345,25 @@ class Channel:
 class ReceiveThread(Thread):
     """Thread for receiving CAN messages."""
 
-    def __init__(self, lock):
+    def __init__(self, vxl, lock):
         """."""
         super().__init__()
         self.daemon = True
-        self.__vxl = VxlCan(channel=None)
+        self.__vxl = vxl
         self.__rx_lock = lock
+        # Format (channel, msg_id, end_time). These are used to tell the
+        # receive thread which message the main thread is looking for. If
+        # msg_id is not received on channel by end_time, the receive thread
+        # will notify the main thread.
+        self.__wait_args = None
+        # Used for blocking the main thread while waiting for a received
+        # message. A BoundedSemaphore was chosen since it will raise a
+        # ValueError if there is an error in the receive thread where it
+        # releases the semaphore too frequently.
+        self.__wait_sem = BoundedSemaphore(1)
+        # Decrement the semaphore by 1 so the next call to acquire will
+        # block until the receive thread releases it.
+        self.__wait_sem.acquire()
         # This lock prevents queues from being removed from self.__msg_queues
         # between the check 'msg_id in self.__msg_queues' and getting
         # the item with self.__msg_queues[msg_id] which usually follows.
@@ -417,10 +417,6 @@ class ReceiveThread(Thread):
         log_msgs = []
         elapsed = 0
         while not self.__stopped.wait(self.__sleep_time):
-            # TODO: look into why setNotification wasn't working and either
-            #       remove or fix this.
-            # WaitForSingleObject(self.msgEvent, 1)
-
             # Check for changes in CAN hardware once per second
             elapsed += self.__sleep_time
             if elapsed >= 1:
@@ -463,6 +459,13 @@ class ReceiveThread(Thread):
                 # Convert from nanoseconds to seconds
                 time = int(match.group(3)) / 1000000000.0
                 self.__time = time
+                # Check if the main thread is waiting on a received message
+                if self.__wait_args is not None:
+                    _, _, end_time = self.__wait_args
+                    if time > end_time:
+                        # The timeout has expired; wake up the main thread
+                        self.__wait_args = None
+                        self.__wait_sem.release()
                 full_data = data
                 data = data.replace(match.group(0), '')
                 if msg_type == 'CHIP_STATE':
@@ -475,6 +478,7 @@ class ReceiveThread(Thread):
                         logging.error('Received an unhandled format for '
                                       'CHIP_STATE: {}'.format(data))
                 elif msg_type == 'RX_MSG':
+                    # log_msgs.append(full_data + '\n')
                     error = error_pat.match(data)
                     if error:
                         self.errors_found = True
@@ -592,44 +596,15 @@ class ReceiveThread(Thread):
 
     def add_channel(self, channel, baud):
         """Start receiving on a channel."""
-        # If the receive port has already been started, it needs to be stopped
-        # before adding a new channel and restarted after or data won't be
-        # received from the new channel.
-        if self.__vxl.started:
-            self.__vxl.stop()
-        self.__vxl.add_channel(channel, baud)
-        self.__vxl.start()
         self.__queue_lock.acquire()
         self.__msg_queues[channel] = {}
         self.__queue_lock.release()
 
     def remove_channel(self, channel):
         """Remove a channel; stop receiving on it."""
-        if self.__vxl.started:
-            self.__vxl.stop()
-        self.__vxl.remove_channel(channel)
-        if self.__vxl.channels:
-            self.__vxl.start()
         self.__queue_lock.acquire()
         self.__msg_queues.pop(channel)
         self.__queue_lock.release()
-
-    def get_time(self):
-        """Get the time of the last received CAN message.
-
-        When messages are being queued, this time will be updated every 50ms
-        even when no CAN messages are received.
-        """
-        return self.__time
-
-    def flush_queues(self):
-        """Flush the rx and tx queues.
-
-        If a channel is stuck transmitting error frames, disconnecting all
-        ports from that channel and then calling this function should clear
-        the error frame from the hardware retransmit buffer.
-        """
-        self.__vxl.flush_queues()
 
     @property
     def log_path(self):
@@ -759,16 +734,33 @@ class ReceiveThread(Thread):
                               ' size is set to {}. Increase the size with the '
                               'max_size kwarg or remove messages more quickly.'
                               ''.format(msg_id, data, max_size))
+            # Check if the main thread is waiting on a received message
+            if self.__wait_args is not None:
+                wait_channel, wait_id, _ = self.__wait_args
+                # The message was received; wake up the main thread
+                if channel == wait_channel and msg_id == wait_id:
+                    self.__wait_args = None
+                    self.__wait_sem.release()
         self.__queue_lock.release()
 
-    def dequeue_msg(self, channel, msg_id):
-        """Get queued message data in the order it was received."""
+    def dequeue_msg(self, channel, msg_id, timeout=None):
+        """Get queued message data in the order it was received.
+
+        Args:
+            channel the
+            msg_id is received on.
+            timeout in ms
+        """
         msg = None
         if channel in self.__msg_queues:
             msg_queues = self.__msg_queues[channel]
         else:
             msg_queues = []
         if msg_id in msg_queues:
+            if timeout is not None:
+                end_time = int(self.__time + (timeout / 1000))
+                self.__wait_args = (channel, msg_id, end_time)
+                self.__wait_sem.acquire()
             if msg_queues[msg_id].qsize():
                 msg = self.__msg_queues[msg_id].get()
         else:
@@ -780,10 +772,11 @@ class ReceiveThread(Thread):
 class TransmitThread(Thread):
     """Thread for transmitting CAN messages."""
 
-    def __init__(self):
+    def __init__(self, vxl):
         """."""
         super().__init__()
         self.daemon = True
+        self.__vxl = vxl
         self.__stopped = Event()
         self.__messages = {}
         self.__elapsed = 0
@@ -794,12 +787,11 @@ class TransmitThread(Thread):
     def run(self):
         """The main loop for the thread."""
         while not self.__stopped.wait(self.__sleep_time_s):
-            for msg, vxl in self.__messages.values():
+            for msg, channel in self.__messages.values():
                 if self.__elapsed % msg.period == 0:
                     if msg.update_func is not None:
                         msg.data = msg.update_func(msg)
-                    channel = list(vxl.channels.keys())[0]
-                    vxl.send(channel, msg.id, msg.data)
+                    self.__vxl.send(channel, msg.id, msg.data)
             if self.__elapsed >= self.__max_increment:
                 self.__elapsed = self.__sleep_time_ms
             else:
@@ -837,10 +829,10 @@ class TransmitThread(Thread):
         if self.__elapsed >= self.__max_increment:
             self.__elapsed = self.__sleep_time_ms
 
-    def add(self, msg, vxl):
+    def add(self, msg, channel):
         """Add a periodic message to the thread."""
         msg.sending = True
-        self.__messages[msg.id] = (msg, vxl)
+        self.__messages[msg.id] = (msg, channel)
         self.__update_times()
         logging.debug('TX: {: >8X} {: <16} period={}ms'
                       ''.format(msg.id, msg.data, msg.period))
@@ -848,7 +840,7 @@ class TransmitThread(Thread):
     def remove(self, msg):
         """Remove a periodic message from the thread."""
         if msg.id in self.__messages:
-            msg, vxl = self.__messages.pop(msg.id)
+            msg, _ = self.__messages.pop(msg.id)
             msg.sending = False
             self.__update_times()
             logging.debug(f'Removed periodic message: 0x{msg.id:03X} '
@@ -858,6 +850,6 @@ class TransmitThread(Thread):
 
     def remove_all(self, channel):
         """Remove all periodic messages for a specific channel."""
-        for msg, vxl in list(self.__messages.values()):
-            if vxl is channel:
+        for msg, chan in list(self.__messages.values()):
+            if chan is channel:
                 self.remove(msg)
