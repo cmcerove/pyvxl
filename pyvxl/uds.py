@@ -26,11 +26,37 @@ class UDS:
     def __init__(self, can):  # noqa
         self.sending_tester_present = 0
         self.last_nrc = 0
-        self.set_tester(0xF1)
+        self.tester = 0xF1
         self.can = can
 
-    def set_tester(self, tester):
-        """Change the diagnostic tester."""
+    @property
+    def func_id(self):
+        """The functional msg ID used with send_service when phys_id=False."""
+        return self.__func_id
+
+    @func_id.setter
+    def func_id(self, func_id):
+        """The functional msg ID used with send_service when phys_id=False."""
+        raise NotImplementedError
+
+    @property
+    def phys_id(self):
+        """The physical msg ID used with send_service when phys_id=True."""
+        return self.__phys_id
+
+    @phys_id.setter
+    def phys_id(self, func_id):
+        """The physical msg ID used with send_service when phys_id=True."""
+        raise NotImplementedError
+
+    @property
+    def tester(self):
+        """The tester ID used for sending and receiving mesages."""
+        return self.__tester
+
+    @tester.setter
+    def tester(self, tester):
+        """The tester ID used for sending and receiving mesages."""
         if not isinstance(tester, int):
             raise TypeError('Expected an int but got {}'.format(type(tester)))
         self.func_id = 0x10dbfe00 + tester
@@ -227,15 +253,15 @@ class UDS:
         # Send out the first frame
         if fc_id and len(frames) > 1:
             # Sending multi frame and looking for a specific flow control message ID
-            resp = self.send_diag(send_id, frames[0], fc_id, timeout=timeout,
+            resp = self.send_recv(send_id, frames[0], fc_id, timeout=timeout,
                                   inDatabase=in_database)
         else:
-            resp = self.send_diag(send_id, frames[0], self.recv_id, timeout=timeout,
+            resp = self.send_recv(send_id, frames[0], self.recv_id, timeout=timeout,
                                   inDatabase=in_database)
         while resp and resp[2:8] == pending_resp:
             resp = self.wait_for(self.recv_id, '', 5000, inDatabase=in_database,
                                  alreadySearching=True)
-        self.clear_search_queue()
+        self.stop_queue()
 
         if resp and len(frames) > 1:
             # Sending multiframe, expecting to receive a flow control frame
@@ -248,13 +274,11 @@ class UDS:
                         self._send(msgObj, msg, display=True)
                 else:
                     print('Unable to find message for send_id {}'.format(send_id))
-                resp = self.send_diag(send_id, frames[-1], self.recv_id, timeout=timeout,
-                                      inDatabase=in_database)
+                resp = self.send_recv(send_id, frames[-1], self.recv_id, timeout=timeout)
 
                 while resp and resp[2:8] == pending_resp:
-                    resp = self.wait_for(self.recv_id, '', 5000, inDatabase=in_database,
-                                         alreadySearching=True)
-                self.clear_search_queue()
+                    resp = self.dequeue_msg(self.recv_id, 5000)
+                self.stop_queue()
 
         if resp:
             if resp[0] == '1':    # multi-frame
@@ -299,10 +323,10 @@ class UDS:
                 # TODO: Fix this frame
 
                 if fc_id:
-                    resp = self.send_diag(fc_id, '3000000000000000', self.recv_id,
+                    resp = self.send_recv(fc_id, '3000000000000000', self.recv_id,
                                           timeout=timeout, inDatabase=in_database)
                 else:
-                    resp = self.send_diag(send_id, '3000000000000000', self.recv_id,
+                    resp = self.send_recv(send_id, '3000000000000000', self.recv_id,
                                           inDatabase=in_database, timeout=timeout)
                 if resp:
                     rxMsgs = []
@@ -311,7 +335,7 @@ class UDS:
                         if not resp:
                             break
                         elif resp[2:8] == pending_resp:
-                            resp = self.wait_for(self.recv_id, '', 5000, inDatabase=in_database,
+                            resp = self.dequeue_msg(self.recv_id, '', 5000, inDatabase=in_database,
                                                  alreadySearching=True)
                         else:
                             messagesToReceive -= 1
@@ -320,7 +344,7 @@ class UDS:
                                                  alreadySearching=True)
                     resp = rxMsgs
 
-                self.clear_search_queue()
+                self.stop_queue()
 
                 if resp:
                     if len(resp) == num:

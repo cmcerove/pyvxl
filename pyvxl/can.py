@@ -192,9 +192,9 @@ class Channel:
             self.__tx_thread.add(msg, self.channel)
         logging.debug('TX: {: >8X} {: <16}'.format(msg.id, msg.data))
 
-    def send_message(self, msg_id, data=None, period=None, send_once=False):
+    def send_message(self, name_or_id, data=None, period=None, send_once=False):
         """Send a message by name or id."""
-        msg = self.db.get_message(msg_id)
+        msg = self.db.get_message(name_or_id)
         if data is not None:
             msg.data = data
         if period is not None:
@@ -293,53 +293,47 @@ class Channel:
             self.__vxl.flush_queues()
         return error
 
-    def wait_for(self, msgID, data, timeout, alreadySearching=False,
-                 in_database=True):
-        """Compares all received messages until message with value
-           data is received or the timeout is reached"""
-        resp = False
-        if not alreadySearching:
-            msg = self.search_for(msgID, data, in_database=in_database)
-            if msg:
-                resp = self._block_unless_found(msg.id, timeout)
-            self.stopSearchingFor(msgID)
-        else:
-            resp = self._block_unless_found(msgID, timeout)
+    def wait_for_msg(self, msg_id, timeout=None):
+        """Wait for a message to be received.
 
-        return resp
+        Args
+            timeout(ms):  If None, block until a message is received.
+        """
+        self.start_queue(msg_id)
+        _, msg_data = self.dequeue_msg(msg_id, timeout)
+        self.stop_queue(msg_id)
+        return msg_data
 
-    def search_for(self, msg_id, **kwargs):
-        """Start queuing all data received with msg_id."""
-        return self.__rx_thread.start_queuing(msg_id, **kwargs)
+    def start_queue(self, msg_id, queue_size=1000):
+        """Start queuing all received messages with msg_id.
 
-    def stop_queuing(self):
-        """Stop any message queues that were started for this channel."""
-        self.__rx_thread.stop_channel_queues(self.channel)
+        If a queue is already started, it will be replaced with this new one.
+        """
+        self.__rx_thread.start_queue(self.channel, msg_id, queue_size)
 
-    def remove_msg_filter(self, msg_id):
-        """Stop queuing received messages for a specific msg_id."""
-        return self.__rx_thread.remove_filter(msg_id)
+    def stop_queue(self, msg_id):
+        """Stop queuing received messages with msg_id."""
+        self.__rx_thread.stop_queue(self.channel, msg_id)
 
-    def get_queued_data(self, msg_id):
-        """Get data queued for msg_id."""
-        resp = None
-        resp = self.rxthread.getFirstRxMessage(msg_id)
-        return resp
+    def dequeue_msg(self, msg_id, timeout=None):
+        """Dequeue a received message with msg_id.
 
-    def get_all_rx_messages(self, msgID=False):
-        """ Returns all received messages """
-        resp = None
-        if self.receiving:
-            resp = self.rxthread.getAllRxMessages(msgID)
-        return resp
+        Args
+            timeout(ms):  If None, block until a message is received.
 
-    def send_recv(self, tx_id, tx_data, rx_id, timeout=150, **kwargs):
+        Returns
+            A tuple in the format:
+            ((float)received_time_seconds, (str)received_data)
+            If there aren't any queued messages, (None, None) will be returned.
+        """
+        return self.__rx_thread.dequeue_msg(self.channel, msg_id, timeout)
+
+    def send_recv(self, tx_id, tx_data, rx_id, timeout=150, queue_size=1000):
         """Send a message and wait for a response."""
-        resp = False
-        self.start_queueing(rx_id, **kwargs)
-        self.send_message(tx_id, tx_data, **kwargs)
-        resp = self._block_unless_found(rx_id, timeout)
-        return resp
+        self.start_queue(rx_id, queue_size)
+        self.send_message(tx_id, tx_data)
+        _, msg_data = self.dequeue_msg(rx_id, timeout)
+        return msg_data
 
 
 class ReceiveThread(Thread):
@@ -673,11 +667,11 @@ class ReceiveThread(Thread):
             logging.error('Logging already stopped!')
         return old_path
 
-    def start_queue(self, channel, msg_id, max_size=1000):
+    def start_queue(self, channel, msg_id, queue_size):
         """Start queuing all data received for msg_id."""
         self.__queue_lock.acquire()
         if channel in self.__msg_queues:
-            self.__msg_queues[channel][msg_id] = Queue(max_size)
+            self.__msg_queues[channel][msg_id] = Queue(queue_size)
             self.__sleep_time = 0.01
         else:
             logging.error(f'Channel {channel} not found in the rx thread.')
@@ -743,7 +737,7 @@ class ReceiveThread(Thread):
                     self.__wait_sem.release()
         self.__queue_lock.release()
 
-    def dequeue_msg(self, channel, msg_id, timeout=None):
+    def dequeue_msg(self, channel, msg_id, timeout):
         """Get queued message data in the order it was received.
 
         Args:
@@ -751,7 +745,7 @@ class ReceiveThread(Thread):
             msg_id is received on.
             timeout in ms
         """
-        msg = None
+        rx_time = msg_data = None
         if channel in self.__msg_queues:
             msg_queues = self.__msg_queues[channel]
         else:
@@ -762,11 +756,11 @@ class ReceiveThread(Thread):
                 self.__wait_args = (channel, msg_id, end_time)
                 self.__wait_sem.acquire()
             if msg_queues[msg_id].qsize():
-                msg = self.__msg_queues[msg_id].get()
+                rx_time, msg_data = self.__msg_queues[msg_id].get()
         else:
             logging.error('Queue for 0x{:X} hasn\'t been started! Call '
                           'start_queuing first.'.format(msg_id))
-        return msg
+        return rx_time, msg_data
 
 
 class TransmitThread(Thread):
