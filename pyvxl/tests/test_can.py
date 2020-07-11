@@ -223,7 +223,7 @@ def test_queuing(can):  # noqa
     start = perf_counter()
     # Make sure it doesn't pick up the message we just transmitted
     time, msg_data = can2.dequeue_msg('msg3', timeout=200)
-    # assert 0.145 < (perf_counter() - start) < 0.355
+    assert 0.145 < (perf_counter() - start) < 0.355
     assert time is None
     assert msg_data is None
     can2.stop_queue('msg3')
@@ -241,7 +241,7 @@ def test_queuing(can):  # noqa
     start = perf_counter()
     # Make sure it doesn't pick up the message we just transmitted
     time, msg_data = can2.dequeue_msg('msg3', timeout=200)
-    # assert (perf_counter() - start) < 0.100
+    assert (perf_counter() - start) < 0.100
     assert time > 0
     assert isinstance(time, float)
     assert msg_data == msg3_data

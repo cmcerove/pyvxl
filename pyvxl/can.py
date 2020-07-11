@@ -19,7 +19,7 @@ from pyvxl.can_types import Database
 class CAN(object):
     """."""
 
-    # Synchronizes calls to pyvxl.Vxl.receive since it's not reentrant
+    # Synchronizes calls to vxl functions between threads
     __rx_lock = None
     __tx_lock = None
 
