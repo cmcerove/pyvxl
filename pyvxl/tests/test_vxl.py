@@ -2,7 +2,7 @@
 
 """Unit tests for pyvxl.vxl."""
 import pytest
-import logging
+from time import sleep
 import re
 from pyvxl import VxlCan
 from pyvxl.vxl import Vxl, VxlChannel, BUS_TYPE_CAN, BUS_TYPE_LIN
@@ -102,8 +102,8 @@ def test_receive(vxl):  # noqa
     assert vxl.send(channel, 0x123, '1234')
     msg_start_pat = re.compile(r'^(\w+)\sc=(\d+),\st=(\d+),\s')
     rx_tx_pat = re.compile(r'id=(\w+)\sl=(\d),\s(\w+)?\s(TX)?\s*tid=(\w+)')
+    sleep(0.01)
     data = vxl.receive()
-    print(data)
     matched = msg_start_pat.match(data)
     assert matched
     assert matched.group(1) == 'RX_MSG'
@@ -129,8 +129,8 @@ def test_send_recv_extended(vxl):  # noqa
     assert vxl.send(channel, 0x12345678, '1122334455667788')
     msg_start_pat = re.compile(r'^(\w+)\sc=(\d+),\st=(\d+),\s')
     rx_tx_pat = re.compile(r'id=(\w+)\sl=(\d),\s(\w+)?\s(TX)?\s*tid=(\w+)')
+    sleep(0.01)
     data = vxl.receive()
-    print(data)
     matched = msg_start_pat.match(data)
     assert matched
     assert matched.group(1) == 'RX_MSG'

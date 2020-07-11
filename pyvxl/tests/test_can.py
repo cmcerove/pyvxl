@@ -34,7 +34,7 @@ Other pytest notes:
 """
 import pytest
 import re
-from time import sleep
+from time import sleep, perf_counter
 from os import path
 from pyvxl import CAN, VxlCan
 
@@ -89,7 +89,7 @@ def test_logging(can):
     name = 'test_can_log'
     opened = can.start_logging(name, False)
     # Give the receive thread time to start logging
-    sleep(0.1)
+    sleep(0.3)
     assert (name + '.asc') == path.basename(opened)
     assert opened.endswith('.asc')
     assert path.isfile(opened)
@@ -191,6 +191,19 @@ def test_sending_and_stopping_messages(can):  # noqa
     assert msg3 is msg3comp
     assert msg3.sending is False
 
+    msg4 = channel.send_new_message(0xABC, '12345', 200, 'msg4')
+    assert msg4.id == 0xABC
+    assert msg4.data == '012345'
+    assert msg4.period == 200
+    assert msg4.name == 'msg4'
+    assert msg4.sending is True
+
+    with pytest.raises(ValueError):
+        channel.send_new_message(msg4.id)
+
+    with pytest.raises(TypeError):
+        channel.send_new_message(0x55555, None)
+
     channel.stop_message('msg1')
     assert msg1.sending is False
 
@@ -200,3 +213,36 @@ def test_sending_and_stopping_messages(can):  # noqa
 
 def test_sending_and_stopping_signals(can):  # noqa
     channel = list(can.channels.values())[0]
+
+
+def test_queuing(can):  # noqa
+    can2 = list(can.channels.values())[0]
+    can.start_logging('queue_test')
+    can2.start_queue('msg3')
+    can2.send_message('msg3')
+    start = perf_counter()
+    # Make sure it doesn't pick up the message we just transmitted
+    time, msg_data = can2.dequeue_msg('msg3', timeout=200)
+    # assert 0.145 < (perf_counter() - start) < 0.355
+    assert time is None
+    assert msg_data is None
+    can2.stop_queue('msg3')
+    # The last 2 channels are virtual and can2.channel is set to the default
+    # which is the last virtual channel
+    can1 = can.add_channel(can2.channel - 1, db='test_dbc.dbc')
+    # msg3 is not periodic. Test that exactly one message is received
+    msg3_sig1 = can1.db.get_signal('msg3_sig1')
+    msg3_sig1.value = 1
+    assert msg3_sig1.value == 1
+    msg3_data = msg3_sig1.msg.data
+    assert msg3_data == '0000000000000001'
+    can2.start_queue('msg3')
+    can1.send_message('msg3')
+    start = perf_counter()
+    # Make sure it doesn't pick up the message we just transmitted
+    time, msg_data = can2.dequeue_msg('msg3', timeout=200)
+    # assert (perf_counter() - start) < 0.100
+    assert time > 0
+    assert isinstance(time, float)
+    assert msg_data == msg3_data
+    can.stop_logging()

@@ -6,6 +6,7 @@ pytest API reference: https://docs.pytest.org/en/latest/reference.html
     hooks: https://docs.pytest.org/en/latest/reference.html#hooks
 """
 
+import logging
 from os import path, remove
 from time import sleep
 from glob import glob
@@ -38,6 +39,8 @@ def pytest_sessionfinish(session, exitstatus):
                     sleep(1)
                 else:
                     break
+            else:
+                logging.error('Failed deleteing logs after 5s')
     # with open('session_finish', 'w') as f:
     #     f.write('{} - {}'.format(time(), dir(session), exitstatus))
 

@@ -222,7 +222,7 @@ class Vxl:
         return size.value
 
     def get_time(self):
-        """."""
+        """Get the time from the dll."""
         time = c_ulonglong(0)
         time_ptr = pointer(time)
         logging.debug(vxl_get_sync_time(self.port, time_ptr))

@@ -7,21 +7,17 @@ from os import system as run
 
 
 def main():  # noqa
-    run_str = 'python3 -m coverage run --include={} --omit=./* -m pytest {}'
+    run_str = 'python3 -m coverage run --include={} --omit=./* -m pytest {} {}'
     arg = ''
     # All source files included in coverage
     includes = '../*'
-    if len(argv) == 1:
-        pass
-    elif len(argv) == 2:
+    if len(argv) >= 2:
         arg = argv[1]
         if ':' in argv[1]:
             includes = argv[1].split('::')[0]
-    else:
-        raise NotImplementedError('More than one argument hasn\'t been '
-                                  'implemented')
+    other_args = ' '.join(argv[2:])
 
-    run(run_str.format(includes, arg))
+    run(run_str.format(includes, arg, other_args))
 
     # Generate the html coverage report and ignore errors
     run('python3 -m coverage html -i')

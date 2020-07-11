@@ -59,9 +59,9 @@ class UDS:
         """The tester ID used for sending and receiving mesages."""
         if not isinstance(tester, int):
             raise TypeError('Expected an int but got {}'.format(type(tester)))
-        self.func_id = 0x10dbfe00 + tester
-        self.phys_id = 0x14da4600 + tester
-        self.recv_id = 0x14da0046 + (tester << 8)
+        # self.func_id = 0x10dbfe00 + tester
+        # self.phys_id = 0x14da4600 + tester
+        # self.recv_id = 0x14da0046 + (tester << 8)
 
     def send_tester_present(self, func_id=True, once=False):
         """Send tester present."""
