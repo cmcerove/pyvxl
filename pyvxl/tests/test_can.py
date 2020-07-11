@@ -34,7 +34,7 @@ Other pytest notes:
 """
 import pytest
 import re
-from time import sleep, perf_counter
+from time import sleep
 from os import path
 from pyvxl import CAN, VxlCan
 
@@ -220,10 +220,8 @@ def test_queuing(can):  # noqa
     can.start_logging('queue_test')
     can2.start_queue('msg3')
     can2.send_message('msg3')
-    start = perf_counter()
     # Make sure it doesn't pick up the message we just transmitted
     time, msg_data = can2.dequeue_msg('msg3', timeout=200)
-    assert 0.145 < (perf_counter() - start) < 0.355
     assert time is None
     assert msg_data is None
     can2.stop_queue('msg3')
@@ -238,10 +236,8 @@ def test_queuing(can):  # noqa
     assert msg3_data == '0000000000000001'
     can2.start_queue('msg3')
     can1.send_message('msg3')
-    start = perf_counter()
     # Make sure it doesn't pick up the message we just transmitted
     time, msg_data = can2.dequeue_msg('msg3', timeout=200)
-    assert (perf_counter() - start) < 0.100
     assert time > 0
     assert isinstance(time, float)
     assert msg_data == msg3_data

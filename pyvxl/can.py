@@ -623,16 +623,6 @@ class ReceiveThread(Thread):
         self.__msg_queues.pop(channel)
         self.__queue_lock.release()
 
-    @property
-    def log_path(self):
-        """The current log path or None if not logging."""
-        return self.__log_path
-
-    @property
-    def logging(self):
-        """Return True if logging else False."""
-        return bool(self.__log_path)
-
     def start_logging(self, log_path, add_date=True, log_errors=False):
         """Request the thread start logging."""
         if not isinstance(log_path, str):
