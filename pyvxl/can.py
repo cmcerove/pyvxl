@@ -558,7 +558,6 @@ class ReceiveThread(Thread):
 
     def __del__(self):
         """Close open log file."""
-        logging.debug('***********  __del__ for the rx thread  ***********')
         self.__stopped.set()
 
     def __receive(self, request_chip_state=False):
@@ -573,7 +572,11 @@ class ReceiveThread(Thread):
                 # message has a timestamp, this will give a worst case
                 # resolution for self.get_time() of 50ms when no other CAN
                 # traffic is being received.
-                self.__vxl.request_chip_state()
+                try:
+                    self.__vxl.request_chip_state()
+                except AssertionError:
+                    # This sometimes fails while the thread is shutting down
+                    pass
             data = self.__vxl.receive()
         else:
             data = None
@@ -583,14 +586,13 @@ class ReceiveThread(Thread):
 
     def __start_logging(self):
         """Start logging all traffic."""
-        logging.info('__start_logging enter')
         self.__log_request = None
         file_opts = 'w+'
         # Append to the file if it already exists
         if path.isfile(self.__log_path):
             file_opts = 'a'
         self.__log_file = open(self.__log_path, file_opts)
-        logging.info('Logging to: {}'.format(self.__log_path))
+        logging.debug('Logging to: {}'.format(self.__log_path))
         data_str = 'date {} {} {} {}:{}:{} {}\n'
         days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
         months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug',
@@ -609,7 +611,7 @@ class ReceiveThread(Thread):
         self.__log_file.write('base hex  timestamps absolute\n')
         self.__log_file.write('no internal events logged\n')
         self.__sleep_time = 0.01
-        logging.info('__start_logging exit')
+        logging.debug('__start_logging exit')
 
     def add_channel(self, channel, baud):
         """Start receiving on a channel."""
@@ -651,7 +653,6 @@ class ReceiveThread(Thread):
 
     def __stop_logging(self):
         """Stop logging. Only called from the run loop of the thread."""
-        logging.info('__stop_logging enter')
         self.__log_request = None
         old_path = self.__log_path
         self.__log_path = ''
@@ -664,7 +665,6 @@ class ReceiveThread(Thread):
             if not self.__msg_queues:
                 self.__sleep_time = 0.1
                 self.__logging = False
-        logging.info('__stop_logging exit')
         return old_path
 
     def stop_logging(self):
@@ -684,33 +684,30 @@ class ReceiveThread(Thread):
 
     def start_queue(self, channel, msg_id, queue_size):
         """Start queuing all data received for msg_id."""
-        logging.info('main thread queue_lock.acquire()')
+        logging.debug('main thread queue_lock.acquire()')
         self.__queue_lock.acquire()
         if channel in self.__msg_queues:
             if msg_id in self.__msg_queues[channel]:
-                queue = self.__msg_queues[channel][msg_id].pop(msg_id)
-                del queue
+                self.__msg_queues[channel][msg_id].pop(msg_id)
             self.__msg_queues[channel][msg_id] = Queue(queue_size)
             self.__sleep_time = 0.01
         else:
             logging.error(f'Channel {channel} not found in the rx thread.')
-        logging.info('main thread queue_lock.release()')
+        logging.debug('main thread queue_lock.release()')
         self.__queue_lock.release()
 
     def stop_queue(self, channel, msg_id):
         """Stop queuing received data for msg_id."""
         self.__queue_lock.acquire()
         if channel in self.__msg_queues:
-            msg_queues = self.__msg_queues[channel]
-            queue = msg_queues.pop(msg_id)
-            del queue
+            self.__msg_queues[channel].pop(msg_id)
             for channel in self.__msg_queues:
                 if not self.__msg_queues[channel]:
-                    queueing = True
+                    queuing = True
                     break
             else:
-                queueing = False
-            if not queueing and not self.__log_request and not self.__log_path:
+                queuing = False
+            if not queuing and not self.__log_request and not self.__log_path:
                 self.__sleep_time = 0.1
         else:
             logging.error(f'Channel {channel} not found in the rx thread.')
@@ -734,7 +731,7 @@ class ReceiveThread(Thread):
 
     def __enqueue_msg(self, rx_time, channel, msg_id, data):
         """Put a received message in the queue."""
-        logging.info('rx thread queue_lock.acquire()')
+        logging.debug('rx thread queue_lock.acquire()')
         self.__queue_lock.acquire()
         if channel in self.__msg_queues:
             msg_queues = self.__msg_queues[channel]
@@ -742,11 +739,10 @@ class ReceiveThread(Thread):
             msg_queues = []
         if msg_id in msg_queues:
             logging.debug('RX: {: >8X} {: <16}'.format(msg_id, data))
-            logging.info('queue.full()')
             if not msg_queues[msg_id].full():
-                logging.info('queue.put()')
+                logging.debug('queue.put()')
                 msg_queues[msg_id].put((rx_time, data.replace(' ', '')))
-                logging.info('queue.put() - returned')
+                logging.debug('queue.put() - returned')
             else:
                 max_size = msg_queues[msg_id].maxsize
                 logging.error('Queue for 0x{:X} is full. {} wasn\'t added. The'
@@ -758,10 +754,10 @@ class ReceiveThread(Thread):
                 wait_channel, wait_id, _ = self.__wait_args
                 # The message was received; wake up the main thread
                 if channel == wait_channel and msg_id == wait_id:
-                    logging.info('__enqueue clearing wait args')
+                    logging.debug('__enqueue clearing wait args')
                     self.__wait_args = None
                     self.__wait_sem.release()
-        logging.info('rx thread queue_lock.release()')
+        logging.debug('rx thread queue_lock.release()')
         self.__queue_lock.release()
 
     def dequeue_msg(self, channel, msg_id, timeout):
@@ -782,18 +778,14 @@ class ReceiveThread(Thread):
                 while self.__time is None:
                     sleep(0.01)
                 end_time = self.__time + (timeout / 1000)
-                logging.info(f'{self.__time}, {timeout / 1000}, {end_time}')
-                logging.info(f'{self.__stopped.is_set()}')
-                logging.info('wait_sem.acquire()')
+                logging.debug('wait_sem.acquire()')
                 self.__wait_args = (channel, msg_id, end_time)
                 self.__wait_sem.acquire()
-                logging.info('wait_sem.acquire() - returned')
-                logging.info(f'{self.__time}')
-            logging.info('queue.size()')
+                logging.debug('wait_sem.acquire() - returned')
             if timeout is None or msg_queues[msg_id].qsize():
-                logging.info('queue.get()')
+                logging.debug('queue.get()')
                 rx_time, msg_data = msg_queues[msg_id].get()
-                logging.info('queue.get() - returned')
+                logging.debug('queue.get() - returned')
         else:
             logging.error('Queue for 0x{:X} hasn\'t been started! Call '
                           'start_queuing first.'.format(msg_id))
