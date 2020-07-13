@@ -30,38 +30,24 @@ class UDS:
         self.can = can
 
     @property
-    def func_id(self):
-        """The functional msg ID used with send_service when phys_id=False."""
-        return self.__func_id
+    def tx_id(self):
+        """The message id used to transmit requests."""
+        return self.__tx_id
 
-    @func_id.setter
-    def func_id(self, func_id):
-        """The functional msg ID used with send_service when phys_id=False."""
-        raise NotImplementedError
+    @tx_id.setter
+    def tx_id(self, tx_id):
+        """Set she message id used to transmit requests."""
 
-    @property
-    def phys_id(self):
-        """The physical msg ID used with send_service when phys_id=True."""
-        return self.__phys_id
-
-    @phys_id.setter
-    def phys_id(self, func_id):
-        """The physical msg ID used with send_service when phys_id=True."""
-        raise NotImplementedError
 
     @property
-    def tester(self):
-        """The tester ID used for sending and receiving mesages."""
-        return self.__tester
+    def rx_id(self):
+        """The message id expected for responses."""
+        return self.__rx_id
 
-    @tester.setter
-    def tester(self, tester):
-        """The tester ID used for sending and receiving mesages."""
-        if not isinstance(tester, int):
-            raise TypeError('Expected an int but got {}'.format(type(tester)))
-        # self.func_id = 0x10dbfe00 + tester
-        # self.phys_id = 0x14da4600 + tester
-        # self.recv_id = 0x14da0046 + (tester << 8)
+    @tx_id.setter
+    def rx_id(self, rx_id):
+        """Set the message id expected for responses."""
+        raise NotImplementedError
 
     def send_tester_present(self, func_id=True, once=False):
         """Send tester present."""

@@ -164,7 +164,6 @@ class Channel:
         self.__vxl = vxl
         self.__tx_thread = tx_thread
         self.__rx_thread = rx_thread
-        # Minimum queue size since we won't be receiving with this port
         self.__channel = num
         self.baud = baud
         self.db = Database(db_path)
@@ -241,7 +240,7 @@ class Channel:
         """Send the message containing signal."""
         signal = self.db.get_signal(name)
         if value is not None:
-            signal.value = value
+            signal.val = value
         self.__send(signal.msg, send_once)
         return signal
 

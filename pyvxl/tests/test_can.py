@@ -213,6 +213,12 @@ def test_sending_and_stopping_messages(can):  # noqa
 
 def test_sending_and_stopping_signals(can):  # noqa
     channel = list(can.channels.values())[0]
+    sig = channel.send_signal('msg2_sig3', 1)
+    assert sig.val == 1
+    assert sig.msg.sending is True
+    stopped_sig = channel.stop_signal('msg2_sig3')
+    assert stopped_sig is sig
+    assert sig.msg.sending is False
 
 
 def test_queuing(can):  # noqa
@@ -230,10 +236,10 @@ def test_queuing(can):  # noqa
     can1 = can.add_channel(can2.channel - 1, db='test_dbc.dbc')
     # msg3 is not periodic. Test that exactly one message is received
     msg3_sig1 = can1.db.get_signal('msg3_sig1')
-    msg3_sig1.value = 1
-    assert msg3_sig1.value == 1
+    msg3_sig1.val = 1
+    assert msg3_sig1.val == 0.9986
     msg3_data = msg3_sig1.msg.data
-    assert msg3_data == '0000000000000001'
+    assert msg3_data == '0000828E00000000'
     can2.start_queue('msg3')
     can1.send_message('msg3')
     # Make sure it doesn't pick up the message we just transmitted

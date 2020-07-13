@@ -339,7 +339,7 @@ class DBCParser:
             p[0] = []
 
     def p_signal(self, p):  # noqa
-        '''signal : SG signal_name mux_info ':' bit_start '|' bit_len '@' endianness signedness '(' scale ',' offset ')' '[' min '|' max ']' STRING_VAL comma_identifier_list'''
+        '''signal : SG signal_name mux_info ':' bit_msb '|' bit_len '@' endianness signedness '(' scale ',' offset ')' '[' min '|' max ']' STRING_VAL comma_identifier_list'''
         p[0] = self.signal_type(p[2], p[3], p[5], p[7], p[9], p[10], p[12],
                                 p[14], p[17], p[19], p[21], p[22])
         self.signals[p[2].lower()] = p[0]
@@ -361,7 +361,11 @@ class DBCParser:
     def p_envvar_data_list(self, p):  # noqa
         '''envvar_data_list : empty
                             | envvar_data envvar_data_list'''
-        pass
+        if p[1]:
+            p[0] = p[2]
+            p[0].append(p[1])
+        else:
+            p[0] = []
 
     def p_envvar_data(self, p):  # noqa
         '''envvar_data : ENVVAR_DATA ID ':' INT_VAL ';' '''
@@ -519,12 +523,20 @@ class DBCParser:
     def p_space_identifier_list(self, p):  # noqa
         '''space_identifier_list : ID
                                  | ID space_identifier_list'''
-        pass
+        if len(p) == 3:
+            p[0] = p[2]
+            p[0].append(p[1])
+        else:
+            p[0] = [p[1]]
 
     def p_comma_identifier_list(self, p):  # noqa
         '''comma_identifier_list : ID
                                  | ID ',' comma_identifier_list'''
-        pass
+        if len(p) == 4:
+            p[0] = p[2]
+            p[0].append(p[1])
+        else:
+            p[0] = [p[1]]
 
     def p_comma_string_list(self, p):  # noqa
         '''comma_string_list : STRING_VAL
@@ -544,8 +556,8 @@ class DBCParser:
         else:
             p[0] = None
 
-    def p_bit_start(self, p):  # noqa
-        '''bit_start : INT_VAL'''
+    def p_bit_msb(self, p):  # noqa
+        '''bit_msb : INT_VAL'''
         p[0] = p[1]
 
     def p_bit_len(self, p):  # noqa

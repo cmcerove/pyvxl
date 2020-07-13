@@ -3,6 +3,7 @@
 """CAN types used by pyvxl.CAN."""
 
 import logging
+from math import ceil
 from os import path
 from sys import exit, argv
 from pyvxl.pydbc import DBCParser
@@ -63,47 +64,10 @@ class Database:
         self.__messages = p.messages
         self.__signals = p.signals
 
-        # TODO: move everything below into Node, Message and Signal classes
-        msb_map = {}
-        for x in range(1, 9):
-            little_endian = 0
-            big_endian = (x - 1) * 8
-            ret = {}
-            for i in range(int(x / 2) * 8):
-                ret[big_endian] = little_endian
-                ret[little_endian] = big_endian
-                little_endian += 1
-                big_endian += 1
-                if big_endian % 8 == 0:
-                    big_endian -= 16
-            msb_map[x] = ret
-
         for msg in p.messages.values():
             if msg.send_type_num is not None and\
                msg.send_type_num < len(p.send_types):
                 msg.send_type = p.send_types[msg.send_type_num]
-
-            setendianness = False
-            for sig in msg.signals:
-                if not setendianness:
-                    if msg.id > 0xFFFF:
-                        if msg.sender.lower() in p.nodes:
-                            sender = p.nodes[msg.sender.lower()].source_id
-                            if (sender & 0xF00) > 0:
-                                print(msg.name)
-                            msg.id = (msg.id & 0xFFFF000) | 0x10000000 | sender
-                        else:
-                            print(msg.sender, msg.name)
-                    msg.endianness = sig.endianness
-                    setendianness = True
-                if msg.dlc > 0:
-                    if sig.bit_msb in msb_map[msg.dlc]:
-                        sig.bit_start = msb_map[msg.dlc][sig.bit_msb] - (sig.bit_len-1)
-                    else:
-                        sig.bit_start = sig.bit_msb - (sig.bit_len - 1)
-                    sig.set_mask()
-                    if sig.init_val is not None:
-                        sig.set_val(sig.init_val * sig.scale + sig.offset)
 
     @property
     def nodes(self):
@@ -135,7 +99,7 @@ class Database:
         if not isinstance(data, str):
             raise TypeError(f'Expected str but got {type(data)}')
         data = data.replace(' ', '')
-        dlc = sum(divmod(len(data), 2))
+        dlc = ceil(len(data) / 2)
         msg = Message(msg_id, name, dlc)
         msg.period = period
         msg.data = data
@@ -289,9 +253,6 @@ class Message:
         self.dlc = length
         self.sender = sender
         self.signals = signals
-        for signal in signals:
-            signal.msg = self
-        self.endianness = 0
         self.period = 0
         self.delay = None
         self.send_type_num = None
@@ -359,13 +320,49 @@ class Message:
             raise AssertionError('can\'t set attribute')
 
     @property
+    def signals(self):
+        """The signals within this message."""
+        return self.__signals
+
+    @signals.setter
+    def signals(self, signals):
+        """Add all signals to this message."""
+        if not isinstance(signals, list):
+            raise TypeError(f'Expected list but got {type(signals)}')
+        try:
+            _ = self.__signals
+        except AttributeError:
+            pass
+        else:
+            raise AssertionError('can\'t set attribute')
+
+        mask_check = 0
+        added_signals = []
+        for sig in signals:
+            if not isinstance(sig, Signal):
+                raise TypeError(f'Expected Signal but got {type(sig)}')
+            sig.msg = self
+            # Make sure no signals overlap
+            if mask_check & sig.mask == 0:
+                mask_check |= sig.mask
+                added_signals.append(sig)
+            else:
+                for added_sig in added_signals:
+                    if added_sig.mask & sig.mask != 0:
+                        raise AssertionError(f'{added_sig} and {sig} overlap')
+
+        self.__signals = signals
+
+    @property
     def data(self):
-        """An up to 64 bit int of all signal data."""
+        """An up to 64 bit int of all signal data.
+
+        This value is always returned in big endian format since that's how
+        it will be transmitted on the bus.
+        """
         data = 0
         if self.signals:
             for sig in self.signals:
-                # Clear the signal value in data
-                data &= ~sig.mask
                 # Set the value
                 data |= sig.raw_val
         else:
@@ -392,7 +389,10 @@ class Message:
                              f'maximum value of {self.__max_val:X}!')
         if self.signals:
             for sig in self.signals:
-                sig.value = data & sig.mask
+                sig.raw_val = data
+            if int(self.data, 16) != int(data, 16):
+                raise ValueError(f'One or more values in {data} do not map '
+                                 f'to valid signal values for {self}')
         else:
             self.__data = data
 
@@ -434,31 +434,50 @@ class Message:
         colorama_deinit()
 
 
+def gen_msb_map():
+    """Generate dictionary to look up the start bit for each signal."""
+    msb_map = {}
+    for x in range(1, 9):
+        little_endian = 0
+        big_endian = (x - 1) * 8
+        ret = {}
+        for i in range(int(x / 2) * 8):
+            ret[big_endian] = little_endian
+            ret[little_endian] = big_endian
+            little_endian += 1
+            big_endian += 1
+            if big_endian % 8 == 0:
+                big_endian -= 16
+        msb_map[x] = ret
+    return msb_map
+
+
 class Signal:
     """A CAN signal."""
+
+    __msb_map = gen_msb_map()
 
     def __init__(self, name, mux, bit_msb, bit_len, endianness, signedness,
                  scale, offset, min_val, max_val, units, receivers):  # noqa
         """."""
         self.name = name
         self.mux = mux  # not implemented
-        self.bit_msb = bit_msb
-        self.bit_len = bit_len
         self.endianness = endianness
-        self.signedness = signedness  # not implemented
+        self.__bit_msb = bit_msb if self.endianness == 'big' else bit_msb + 7
+        self.__bit_start = None
+        self.bit_len = bit_len
+        self.__signed = bool(signedness == '-')
         self.scale = scale
         self.offset = offset
         self.min_val = min_val
         self.max_val = max_val
         self.units = units
-        self.receivers = receivers  # not implemented
+        self.receivers = receivers
         self.long_name = ''
-        self.bit_start = 0
         self.values = {}
-        self.value = 0
+        self.__val = 0
         self.init_val = None
         self.send_on_init = 0
-        self.mask = 0
         self.msg = None
 
     def __str__(self):
@@ -483,6 +502,30 @@ class Signal:
             raise AssertionError('can\'t set attribute')
 
     @property
+    def endianness(self):
+        """The endianness of the signal."""
+        return self.__endianness
+
+    @endianness.setter
+    def endianness(self, endianness):
+        """The endianness of the signal."""
+        if not isinstance(endianness, int):
+            raise TypeError(f'Expected int but got {type(endianness)}')
+        if endianness not in [0, 1]:
+            raise ValueError(f'{endianness} must be 0 or 1')
+        try:
+            _ = self.__endianness
+        except AttributeError:
+            self.__endianness = 'big' if endianness == 0 else 'little'
+        else:
+            raise AssertionError('can\'t set attribute')
+
+    @property
+    def signed(self):
+        """Return true if this signal is signed instead of unsigned."""
+        return self.__signed
+
+    @property
     def msg(self):
         """A reference to the message containing this signal."""
         return self.__msg
@@ -490,41 +533,79 @@ class Signal:
     @msg.setter
     def msg(self, msg):
         """Add a reference to message this signal is included in."""
-        if msg is not None and not isinstance(msg, Message):
-            raise TypeError(f'Expected {Message} but got {type(msg)}')
+        if msg is not None:
+            if not isinstance(msg, Message):
+                raise TypeError(f'Expected {Message} but got {type(msg)}')
+            self.__bit_start = Signal.__msb_map[msg.dlc][self.__bit_msb]
+            self.__bit_start -= self.bit_len - 1
+            self.__mask = 2 ** self.bit_len - 1 << self.__bit_start
         self.__msg = msg
 
     @property
-    def raw_val(self):
-        """Return the numeric value of this signal."""
-        raw_val = (self.__val >> self.bit_start) * self.scale + self.offset
-        # Check if raw_val should be negative
-        if raw_val > 0 and self.min_val < 0:
-            bval = '{:b}'.format(int(raw_val))
-            if bval[0] == '1' and len(bval) == self.bit_len:
-                raw_val = float(-self._twos_complement(int(raw_val)))
-        return int(raw_val)
+    def bit_start(self):
+        """The start bit of the signal within the full message."""
+        if self.__msg is None:
+            raise AssertionError('bit_start is not valid since there is no '
+                                 'message associated with this signal')
+        return self.__bit_start
 
     @property
-    def value(self):
+    def mask(self):
+        """The bit mask for this signal relative to the complete message."""
+        if self.__msg is None:
+            raise AssertionError('mask is not valid since there is no '
+                                 'message associated with this signal')
+        return self.__mask
+
+    @property
+    def raw_val(self):
+        """The signal value as it would look within the full message data."""
+        return self.__val
+
+    @raw_val.setter
+    def raw_val(self, msg_data):
+        """Set the raw_value based on the full message data."""
+        if not isinstance(msg_data, int):
+            raise TypeError(f'Expected int but got {type(msg_data)}')
+        self.__val = msg_data & self.mask
+
+    @property
+    def num_val(self):
+        """Return the numeric value of this signal."""
+        num_val = self.__val >> self.bit_start
+        if self.endianness == 'little':
+            num_bytes = ceil(self.bit_len / 8)
+            tmp = num_val.to_bytes(num_bytes, 'little', signed=self.signed)
+            num_val = int.from_bytes(tmp, 'big', signed=self.signed)
+        num_val = num_val * self.scale + self.offset
+        # Check if num_val should be negative
+        if num_val > 0 and self.min_val < 0:
+            bval = '{:b}'.format(int(num_val))
+            if bval[0] == '1' and len(bval) == self.bit_len:
+                num_val = float(-self._twos_complement(int(num_val)))
+        return round(num_val, 4)
+
+    @property
+    def val(self):
         """Get the signal value.
 
         Returns:
-            The named signal value if it exists, otherwise the same as raw_val.
+            The named signal value if it exists, otherwise same as num_val.
         """
-        curr_val = self.raw_val
+        curr_val = self.num_val
         if self.values:
+            curr_val = int(curr_val)
             for key, val in self.values.items():
                 if val == curr_val:
                     curr_val = key
                     break
             else:
-                raise ValueError(f'{self}.raw_value is set to {self.raw_val} '
+                raise ValueError(f'{self}.num_val is set to {self.num_val} '
                                  f'which is not in {self.values}')
         return curr_val
 
-    @value.setter
-    def value(self, value):
+    @val.setter
+    def val(self, value):
         """Set the signal value based on the offset and scale."""
         negative = False
 
@@ -556,7 +637,6 @@ class Signal:
         else:
             num = value
 
-        # Convert the number based on it's location
         num = int((float(num) - float(self.offset)) / float(self.scale))
 
         if num < 0:
@@ -571,6 +651,11 @@ class Signal:
         if negative:
             num = self._twos_complement(num)
 
+        # Swap the byte order if necessary
+        if self.endianness == 'little':
+            num_bytes = ceil(self.bit_len / 8)
+            tmp = num.to_bytes(num_bytes, 'little', signed=self.signed)
+            num = int.from_bytes(tmp, 'big', signed=self.signed)
         self.__val = num << self.bit_start
 
     def _twos_complement(self, num):
@@ -585,15 +670,6 @@ class Signal:
         while len(tmp) < self.bit_len:
             tmp = '1' + tmp
         return int(tmp, 2) + 1
-
-    def set_mask(self):
-        """Set the signal mask based on bit_start and bit_len."""
-        if self.bit_start < 0:
-            raise ValueError(f'{self}.bit_start is negative!')
-        try:
-            self.mask = 2 ** self.bit_len - 1 << self.bit_start
-        except ValueError:
-            print(self.bit_len, self.bit_start)
 
     def pprint(self, short_name=False, value=False):
         """Print colored info abnout the signal to stdout."""

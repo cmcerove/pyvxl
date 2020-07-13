@@ -36,6 +36,9 @@ BS_:
 BU_: NODE1
 
 
+BO_ 1365 msg6: 8 Vector__XXX
+ SG_ msg6_sig1 : 0|64@1+ (1,0) [0|1.84467440737096E+019] "" Vector__XXX
+
 BO_ 291 msg1: 6 Vector__XXX
  SG_ msg1_sig1 : 7|27@0+ (1,0) [0|134217727] ""  NODE1
  SG_ msg1_sig2 : 28|5@0+ (1,0) [0|31] ""  NODE1
@@ -50,7 +53,7 @@ BO_ 291 msg1: 6 Vector__XXX
  SG_ msg1_sig6 : 47|1@0+ (1,0) [0|1] ""  NODE1
 
 BO_ 1110 msg3: 8 Vector__XXX
- SG_ msg3_sig1 : 23|48@0+ (1,0) [0|1] ""  NODE1
+ SG_ msg3_sig1 : 23|16@0+ (0.0015259,-50) [-50|49.9998565] "%"  NODE1
 
 BO_ 171 msg2: 8 NODE1
  SG_ msg2_sig1 : 7|27@0+ (1,0) [0|134217727] "" Vector__XXX
@@ -95,6 +98,7 @@ BA_ "GenMsgSendType" BO_ 2452903544 1;
 BA_ "GenMsgStartValue" BO_ 2452903544 "0000000000000000";
 BA_ "GenMsgSendType" BO_ 2452903545 1;
 BA_ "GenMsgStartValue" BO_ 2452903545 "0000000000000000";
+BA_ "GenSigStartValue" SG_ 1110 msg3_sig1 32767.5470214301;
 VAL_ 291 msg1_sig4 0 "FALSE" 1 "TRUE" ;
 VAL_ 291 msg1_sig3 0 "Off" 1 "Accessory" 2 "Run" 3 "Start Request" 4 "Propulsion" ;
 VAL_ 291 msg1_sig10 0 "FALSE" 1 "TRUE" ;
