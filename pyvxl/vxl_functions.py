@@ -74,8 +74,10 @@ def vxl_transmit(*args):
 def vxl_receive(*args):
     """Receive a message."""
     status = getError(vxDLL.xlReceive(*args))
-    if status != 'XL_ERR_QUEUE_IS_EMPTY':
-        logging.debug('{0}: {1}'.format('xlReceive', status))
+    # Since this causes so much spam during debugging, it should be uncommented
+    # only if you suspect this is the issue.
+    # if status != 'XL_ERR_QUEUE_IS_EMPTY':
+    #     logging.debug('{0}: {1}'.format('xlReceive', status))
     return True if status != b'XL_ERR_QUEUE_IS_EMPTY' else False
 
 
@@ -143,6 +145,8 @@ def vxl_set_channel_mode(*args):
 def vxl_request_chip_state(*args):
     """Request the CAN chip state be put in the receive queue."""
     status = getError(vxDLL.xlCanRequestChipState(*args))
+    # Since this causes so much spam during debugging, it should be uncommented
+    # only if you suspect this is the issue.
     logging.debug('{0}: {1}'.format('xlCanRequestChipState', status))
     return True if status == b'XL_SUCCESS' else False
 

@@ -5,6 +5,8 @@
 from sys import argv
 from os import system as run
 
+# To run a specific file with debug logging prints:
+# py -3 -m pytest test_can.py --log-cli-format="%(asctime)s.%(msecs)d %(levelname)s: %(message)s (%(filename)s:%(lineno)d)" --log-cli-level=debug
 
 def main():  # noqa
     run_str = 'python3 -m coverage run --include={} --omit=./* -m pytest {} {}'

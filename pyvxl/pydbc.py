@@ -400,6 +400,8 @@ class DBCParser:
             self.signals[p[5].lower()].send_on_init = p[6]
         elif p[2] == 'source_id':
             self.nodes[p[4].lower()].source_id = p[5]
+        elif p[2] == 'SystemMessageLongSymbol':
+            self.messages[int(p[4]) & 0x1FFFFFFF].long_name = p[5]
         elif p[2] == 'GenMsgCycleTime':
             self.messages[int(p[4]) & 0x1FFFFFFF].period = p[5]
         elif p[2] == 'GenMsgDelayTime':

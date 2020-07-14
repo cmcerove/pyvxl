@@ -19,20 +19,20 @@ from pyvxl.can_types import Database
 class CAN(object):
     """."""
 
-    # Synchronizes calls to vxl functions between threads
-    __rx_lock = None
-    __tx_lock = None
+    __instance_created = False
 
     def __init__(self):  # noqa
-        if CAN.__rx_lock is None:
-            CAN.__rx_lock = Lock()
-        if CAN.__tx_lock is None:
-            CAN.__tx_lock = Lock()
+        if CAN.__instance_created:
+            raise AssertionError('Due to limitations of the vxlAPI, only '
+                                 'one instance of CAN is allowed at a time')
+        CAN.__instance_created = True
         self.__channels = {}
         self.__vxl = VxlCan(channel=None)
-        self.__tx_thread = TransmitThread(self.__vxl, CAN.__tx_lock)
+        self.__tx_lock = Lock()
+        self.__tx_thread = TransmitThread(self.__vxl, self.__tx_lock)
         self.__tx_thread.start()
-        self.__rx_thread = ReceiveThread(self.__vxl, CAN.__rx_lock)
+        self.__rx_lock = Lock()
+        self.__rx_thread = ReceiveThread(self.__vxl, self.__rx_lock)
         self.__rx_thread.start()
 
     @property
@@ -54,15 +54,15 @@ class CAN(object):
         # If the receive port has already been started, it needs to be stopped
         # before adding a new channel and restarted after or data won't be
         # received from the new channel.
-        CAN.__tx_lock.acquire()
-        CAN.__rx_lock.acquire()
+        self.__tx_lock.acquire()
+        self.__rx_lock.acquire()
         if self.__vxl.started:
             self.__vxl.stop()
         self.__vxl.add_channel(num, baud)
         self.__vxl.start()
         self.__rx_thread.add_channel(num, baud)
-        CAN.__rx_lock.release()
-        CAN.__tx_lock.release()
+        self.__rx_lock.release()
+        self.__tx_lock.release()
         logging.debug(f'Added {channel}')
         return channel
 
@@ -73,16 +73,16 @@ class CAN(object):
         if num not in self.__channels:
             raise ValueError(f'Channel {num} not found')
         channel = self.__channels.pop(num)
-        CAN.__tx_lock.acquire()
-        CAN.__rx_lock.acquire()
+        self.__tx_lock.acquire()
+        self.__rx_lock.acquire()
         if self.__vxl.started:
             self.__vxl.stop()
         self.__vxl.remove_channel(num)
         if self.__vxl.channels:
             self.__vxl.start()
         self.__rx_thread.remove_channel(num)
-        CAN.__rx_lock.release()
-        CAN.__tx_lock.release()
+        self.__rx_lock.release()
+        self.__tx_lock.release()
         logging.debug(f'Removed {channel}')
         return channel
 
@@ -102,59 +102,54 @@ class CAN(object):
     def print_periodics(self, info=False, search_for=''):
         """Print all periodic messages currently being sent."""
         raise NotImplementedError
-        if not self.sendingPeriodics:
-            logging.info('No periodics currently being sent')
-        if search_for:
-            # pylint: disable=W0612
-            (status, msgID) = self._checkMsgID(search_for)
-            if not status:
-                return False
-            elif status == 1:  # searching periodics by id
-                for periodic in self.currentPeriodics:
-                    if periodic.id == msgID:
-                        self.last_found_msg = periodic
-                        self._print_msg(periodic)
-                        for sig in periodic.signals:
-                            self.last_found_sig = sig
-                            self._print_sig(sig, value=True)
-            else:  # searching by string or printing all
-                found = False
-                for msg in self.currentPeriodics:
-                    if search_for.lower() in msg.name.lower():
-                        found = True
-                        self.last_found_msg = msg
-                        self._print_msg(msg)
-                        for sig in msg.signals:
-                            self.last_found_sig = sig
-                            self._print_sig(sig, value=True)
-                    else:
-                        msgPrinted = False
-                        for sig in msg.signals:
-                            #pylint: disable=E1103
-                            short_name = (msgID.lower() in sig.name.lower())
-                            full_name = (msgID.lower() in sig.long_name.lower())
-                            #pylint: enable=E1103
-                            if full_name or short_name:
-                                found = True
-                                if not msgPrinted:
-                                    self.last_found_msg = msg
-                                    self._print_msg(msg)
-                                    msgPrinted = True
-                                self.last_found_sig = sig
-                                self._print_sig(sig, value=True)
-                if not found:
-                    logging.error(
-                        'Unable to find a periodic message with that string!')
-        else:
-            for msg in self.currentPeriodics:
-                self.last_found_msg = msg
-                self._print_msg(msg)
-                if info:
-                    for sig in msg.signals:
-                        self.last_found_sig = sig
-                        self._print_sig(sig, value=True)
-            if self.sendingPeriodics:
-                print('Currently sending: '+str(len(self.currentPeriodics)))
+        # if search_for:
+        #     # pylint: disable=W0612
+        #     (status, msgID) = self._checkMsgID(search_for)
+        #     if not status:
+        #         return False
+        #     elif status == 1:  # searching periodics by id
+        #         for periodic in self.currentPeriodics:
+        #             if periodic.id == msgID:
+        #                 self.last_found_msg = periodic
+        #                 self._print_msg(periodic)
+        #                 for sig in periodic.signals:
+        #                     self.last_found_sig = sig
+        #                     self._print_sig(sig, value=True)
+        #     else:  # searching by string or printing all
+        #         found = False
+        #         msgID = msgID.lower()
+        #         for msg in self.currentPeriodics:
+        #             if search_for.lower() in msg.name.lower():
+        #                 found = True
+        #                 self.last_found_msg = msg
+        #                 self._print_msg(msg)
+        #                 for sig in msg.signals:
+        #                     self.last_found_sig = sig
+        #                     self._print_sig(sig, value=True)
+        #             else:
+        #                 msgPrinted = False
+        #                 for sig in msg.signals:
+        #                     short_name = (msgID in sig.name.lower())
+        #                     full_name = (msgID in sig.long_name.lower())
+        #                     if full_name or short_name:
+        #                         found = True
+        #                         if not msgPrinted:
+        #                             self.last_found_msg = msg
+        #                             self._print_msg(msg)
+        #                             msgPrinted = True
+        #                         self.last_found_sig = sig
+        #                         self._print_sig(sig, value=True)
+        #         if not found:
+        #             logging.error(
+        #                 'Unable to find a periodic message with that string!')
+        # else:
+        #     for msg in self.currentPeriodics:
+        #         self.last_found_msg = msg
+        #         self._print_msg(msg)
+        #         if info:
+        #             for sig in msg.signals:
+        #                 self.last_found_sig = sig
+        #                 self._print_sig(sig, value=True)
 
 
 class Channel:
@@ -190,7 +185,7 @@ class Channel:
             raise TypeError(f'Expected {type(Database)} but got {type(db)}')
         self.__db = db
 
-    def __send(self, msg, send_once=False):
+    def _send(self, msg, send_once=False):
         """Common function for sending a message.
 
         Protected so additional checks aren't needed on parameters.
@@ -199,7 +194,7 @@ class Channel:
             msg.data = msg.update_func(msg)
         self.__vxl.send(self.channel, msg.id, msg.data)
         if not send_once and msg.period:
-            self.__tx_thread.add(msg, self.channel)
+            self.__tx_thread.add(self.channel, msg)
         logging.debug('TX: {: >8X} {: <16}'.format(msg.id, msg.data))
 
     def send_message(self, name_or_id, data=None, period=None, send_once=False):
@@ -208,8 +203,10 @@ class Channel:
         if data is not None:
             msg.data = data
         if period is not None:
+            if msg.sending and period == 0:
+                self.stop_message(msg.id)
             msg.period = period
-        self.__send(msg, send_once)
+        self._send(msg, send_once)
         return msg
 
     def send_new_message(self, msg_id, data='', period=0, name='Unknown'):
@@ -219,17 +216,13 @@ class Channel:
         used since a Message will be created and added to the database.
         """
         msg = self.db.add_message(msg_id, data, period, name)
-        self.__send(msg)
+        self._send(msg)
         return msg
 
-    def stop_message(self, msg_id):
-        """Stop sending a periodic message.
-
-        Args:
-            msg_id: message name or message id
-        """
-        msg = self.db.get_message(msg_id)
-        self.__tx_thread.remove(msg)
+    def stop_message(self, name_or_id):
+        """Stop sending a periodic message."""
+        msg = self.db.get_message(name_or_id)
+        self.__tx_thread.remove(self.channel, msg)
         return msg
 
     def stop_all_messages(self):
@@ -241,13 +234,13 @@ class Channel:
         signal = self.db.get_signal(name)
         if value is not None:
             signal.val = value
-        self.__send(signal.msg, send_once)
+        self._send(signal.msg, send_once)
         return signal
 
     def stop_signal(self, name):
         """Stop transmitting the periodic message containing signal."""
         signal = self.db.get_signal(name)
-        self.__tx_thread.remove(signal.msg)
+        self.__tx_thread.remove(self.channel, signal.msg)
         return signal
 
     def wait_for_no_error(self, timeout=0):
@@ -303,15 +296,15 @@ class Channel:
             self.__vxl.flush_queues()
         return error
 
-    def wait_for_msg(self, msg_id, timeout=None):
+    def wait_for_msg(self, name_or_id, timeout=None):
         """Wait for a message to be received.
 
         Args
             timeout(ms):  If None, block until a message is received.
         """
-        self.start_queue(msg_id)
-        _, msg_data = self.dequeue_msg(msg_id, timeout)
-        self.stop_queue(msg_id)
+        self.start_queue(name_or_id)
+        _, msg_data = self.dequeue_msg(name_or_id, timeout)
+        self.stop_queue(name_or_id)
         return msg_data
 
     def start_queue(self, name_or_msg_id, queue_size=1000):
@@ -341,7 +334,7 @@ class Channel:
         msg = self.db.get_message(name_or_msg_id)
         return self.__rx_thread.dequeue_msg(self.channel, msg.id, timeout)
 
-    def send_recv(self, tx_id, tx_data, rx_id, timeout=150, queue_size=1000):
+    def send_recv(self, tx_id, tx_data, rx_id, timeout=1000, queue_size=1000):
         """Send a message and wait for a response."""
         self.start_queue(rx_id, queue_size)
         self.send_message(tx_id, tx_data)
@@ -561,26 +554,23 @@ class ReceiveThread(Thread):
 
     def __receive(self, request_chip_state=False):
         """Receive incoming can frames."""
-        logging.debug('rx_lock.acquire()')
-        self.__rx_lock.acquire()
-        if self.__vxl.started:
-            if self.__msg_queues and request_chip_state:
-                # Requesting the chip state adds a message to the receive
-                # queue. If the chip state is requested as fast as possible,
-                # it will only add a message every 50ms. Since each received
-                # message has a timestamp, this will give a worst case
-                # resolution for self.get_time() of 50ms when no other CAN
-                # traffic is being received.
-                try:
-                    self.__vxl.request_chip_state()
-                except AssertionError:
-                    # This sometimes fails while the thread is shutting down
-                    pass
-            data = self.__vxl.receive()
-        else:
-            data = None
-        self.__rx_lock.release()
-        logging.debug('rx_lock.released()')
+        with self.__rx_lock:
+            if self.__vxl.started:
+                if self.__msg_queues and request_chip_state:
+                    # Requesting the chip state adds a message to the receive
+                    # queue. If the chip state is requested as fast as possible,
+                    # it will only add a message every 50ms. Since each received
+                    # message has a timestamp, this will give a worst case
+                    # resolution for self.get_time() of 50ms when no other CAN
+                    # traffic is being received.
+                    try:
+                        self.__vxl.request_chip_state()
+                    except AssertionError:
+                        # This sometimes fails while the thread is shutting down
+                        pass
+                data = self.__vxl.receive()
+            else:
+                data = None
         return data
 
     def __start_logging(self):
@@ -614,15 +604,13 @@ class ReceiveThread(Thread):
 
     def add_channel(self, channel, baud):
         """Start receiving on a channel."""
-        self.__queue_lock.acquire()
-        self.__msg_queues[channel] = {}
-        self.__queue_lock.release()
+        with self.__queue_lock:
+            self.__msg_queues[channel] = {}
 
     def remove_channel(self, channel):
         """Remove a channel; stop receiving on it."""
-        self.__queue_lock.acquire()
-        self.__msg_queues.pop(channel)
-        self.__queue_lock.release()
+        with self.__queue_lock:
+            self.__msg_queues.pop(channel)
 
     def start_logging(self, log_path, add_date=True, log_errors=False):
         """Request the thread start logging."""
@@ -683,34 +671,30 @@ class ReceiveThread(Thread):
 
     def start_queue(self, channel, msg_id, queue_size):
         """Start queuing all data received for msg_id."""
-        logging.debug('main thread queue_lock.acquire()')
-        self.__queue_lock.acquire()
-        if channel in self.__msg_queues:
-            if msg_id in self.__msg_queues[channel]:
-                self.__msg_queues[channel][msg_id].pop(msg_id)
-            self.__msg_queues[channel][msg_id] = Queue(queue_size)
-            self.__sleep_time = 0.01
-        else:
-            logging.error(f'Channel {channel} not found in the rx thread.')
-        logging.debug('main thread queue_lock.release()')
-        self.__queue_lock.release()
+        with self.__queue_lock:
+            if channel in self.__msg_queues:
+                if msg_id in self.__msg_queues[channel]:
+                    self.__msg_queues[channel][msg_id].pop(msg_id)
+                self.__msg_queues[channel][msg_id] = Queue(queue_size)
+                self.__sleep_time = 0.01
+            else:
+                logging.error(f'Channel {channel} not found in the rx thread.')
 
     def stop_queue(self, channel, msg_id):
         """Stop queuing received data for msg_id."""
-        self.__queue_lock.acquire()
-        if channel in self.__msg_queues:
-            self.__msg_queues[channel].pop(msg_id)
-            for channel in self.__msg_queues:
-                if not self.__msg_queues[channel]:
-                    queuing = True
-                    break
+        with self.__queue_lock:
+            if channel in self.__msg_queues:
+                self.__msg_queues[channel].pop(msg_id)
+                for channel in self.__msg_queues:
+                    if not self.__msg_queues[channel]:
+                        queuing = True
+                        break
+                else:
+                    queuing = False
+                if not queuing and not self.__log_request and not self.__log_path:
+                    self.__sleep_time = 0.1
             else:
-                queuing = False
-            if not queuing and not self.__log_request and not self.__log_path:
-                self.__sleep_time = 0.1
-        else:
-            logging.error(f'Channel {channel} not found in the rx thread.')
-        self.__queue_lock.release()
+                logging.error(f'Channel {channel} not found in the rx thread.')
 
     def stop_channel_queues(self, channel):
         """Stop all queues for a channel."""
@@ -721,43 +705,39 @@ class ReceiveThread(Thread):
 
     def stop_all_queues(self):
         """Stop all queues."""
-        self.__queue_lock.acquire()
-        for channel in self.__msg_queues:
-            self.__msg_queues[channel] = {}
-        if not self.__log_request and not self.__log_path:
-            self.__sleep_time = 0.1
-        self.__queue_lock.release()
+        with self.__queue_lock:
+            for channel in self.__msg_queues:
+                self.__msg_queues[channel] = {}
+            if not self.__log_request and not self.__log_path:
+                self.__sleep_time = 0.1
 
     def __enqueue_msg(self, rx_time, channel, msg_id, data):
         """Put a received message in the queue."""
-        logging.debug('rx thread queue_lock.acquire()')
-        self.__queue_lock.acquire()
-        if channel in self.__msg_queues:
-            msg_queues = self.__msg_queues[channel]
-        else:
-            msg_queues = []
-        if msg_id in msg_queues:
-            logging.debug('RX: {: >8X} {: <16}'.format(msg_id, data))
-            if not msg_queues[msg_id].full():
-                logging.debug('queue.put()')
-                msg_queues[msg_id].put((rx_time, data.replace(' ', '')))
-                logging.debug('queue.put() - returned')
+        with self.__queue_lock:
+            if channel in self.__msg_queues:
+                msg_queues = self.__msg_queues[channel]
             else:
-                max_size = msg_queues[msg_id].maxsize
-                logging.error('Queue for 0x{:X} is full. {} wasn\'t added. The'
-                              ' size is set to {}. Increase the size with the '
-                              'max_size kwarg or remove messages more quickly.'
-                              ''.format(msg_id, data, max_size))
-            # Check if the main thread is waiting on a received message
-            if self.__wait_args is not None:
-                wait_channel, wait_id, _ = self.__wait_args
-                # The message was received; wake up the main thread
-                if channel == wait_channel and msg_id == wait_id:
-                    logging.debug('__enqueue clearing wait args')
-                    self.__wait_args = None
-                    self.__wait_sem.release()
-        logging.debug('rx thread queue_lock.release()')
-        self.__queue_lock.release()
+                msg_queues = []
+            if msg_id in msg_queues:
+                # logging.debug('RX: {: >8X} {: <16}'.format(msg_id, data))
+                if not msg_queues[msg_id].full():
+                    # logging.debug('queue.put()')
+                    msg_queues[msg_id].put((rx_time, data.replace(' ', '')))
+                    # logging.debug('queue.put() - returned')
+                else:
+                    max_size = msg_queues[msg_id].maxsize
+                    logging.error('Queue for 0x{:X} is full. {} wasn\'t added. The'
+                                  ' size is set to {}. Increase the size with the '
+                                  'max_size kwarg or remove messages more quickly.'
+                                  ''.format(msg_id, data, max_size))
+                # Check if the main thread is waiting on a received message
+                if self.__wait_args is not None:
+                    wait_channel, wait_id, _ = self.__wait_args
+                    # The message was received; wake up the main thread
+                    if channel == wait_channel and msg_id == wait_id:
+                        # logging.debug('__enqueue clearing wait args')
+                        self.__wait_args = None
+                        self.__wait_sem.release()
 
     def dequeue_msg(self, channel, msg_id, timeout):
         """Get queued message data in the order it was received.
@@ -802,79 +782,105 @@ class TransmitThread(Thread):
         self.__lock = lock
         self.__stopped = Event()
         self.__messages = {}
-        self.__elapsed = 0
-        self.__sleep_time_ms = 1
-        self.__sleep_time_s = 1
-        self.__max_increment = 0
+        self.__num_msgs = 0
+        self.__set_defaults()
 
     def run(self):
         """The main loop for the thread."""
         while not self.__stopped.wait(self.__sleep_time_s):
-            for msg, channel in self.__messages.values():
-                if self.__elapsed % msg.period == 0:
-                    if msg.update_func is not None:
-                        msg.data = msg.update_func(msg)
-                    self.__lock.acquire()
-                    self.__vxl.send(channel, msg.id, msg.data)
-                    self.__lock.release()
-            if self.__elapsed >= self.__max_increment:
-                self.__elapsed = self.__sleep_time_ms
-            else:
-                self.__elapsed += self.__sleep_time_ms
+            # sleep(1)
+            with self.__lock:
+                for channel, msgs in self.__messages.items():
+                    for msg in msgs.values():
+                        if self.__elapsed % msg.period == 0:
+                            if msg.update_func is not None:
+                                msg.data = msg.update_func(msg)
+                            self.__vxl.send(channel, msg.id, msg.data)
+                if self.__elapsed >= self.__max_increment:
+                    self.__elapsed = self.__sleep_time_ms
+                else:
+                    self.__elapsed += self.__sleep_time_ms
 
     def stop(self):
         """Stop the thread."""
         self.__stopped.set()
 
+    def __set_defaults(self):
+        """Set values to defaults when no messages have been added."""
+        self.__sleep_time_ms = 1
+        self.__sleep_time_s = 1
+        self.__max_increment = 0
+        self.__elapsed = 0
+
     def __update_times(self):
         """Update times for the transmit loop."""
-        if len(self.__messages) == 1:
-            msg, _ = list(self.__messages.values())[0]
+        if self.__num_msgs == 0:
+            self.__set_defaults()
+        else:
+            # Grab any message to use as starting values
+            for msgs in self.__messages.values():
+                if msgs:
+                    msg = list(msgs.values())[0]
+                    break
+            else:
+                raise AssertionError('__num_msgs is out of sync')
+            self.__sleep_time_ms = msg.period
             self.__sleep_time_s = msg.period / 1000.0
             self.__max_increment = msg.period
-            self.__sleep_time_ms = msg.period
-        else:
-            curr_gcd = self.__sleep_time_ms
-            curr_lcm = self.__max_increment
-            msgs = list(self.__messages.values())
-            for i in range(1, len(msgs)):
-                prev, _ = msgs[i - 1]
-                prev = prev.period
-                curr, _ = msgs[i]
-                curr = curr.period
-                tmp_gcd = gcd(prev, curr)
-                tmp_lcm = prev * curr / tmp_gcd
-                if curr_gcd is None or tmp_gcd < curr_gcd:
-                    curr_gcd = tmp_gcd
-                if tmp_lcm > curr_lcm:
-                    curr_lcm = tmp_lcm
-            self.__sleep_time_ms = curr_gcd
-            self.__sleep_time_s = curr_gcd / 1000.0
-            self.__max_increment = curr_lcm
-        if self.__elapsed >= self.__max_increment:
-            self.__elapsed = self.__sleep_time_ms
+            if self.__num_msgs > 1:
+                curr_gcd = self.__sleep_time_ms
+                curr_lcm = self.__max_increment
+                prev = msg.period
+                for msgs in self.__messages.values():
+                    for msg in msgs.values():
+                        curr = msg.period
+                        tmp_gcd = gcd(prev, curr)
+                        tmp_lcm = prev * curr / tmp_gcd
+                        if curr_gcd is None or tmp_gcd < curr_gcd:
+                            curr_gcd = tmp_gcd
+                        if tmp_lcm > curr_lcm:
+                            curr_lcm = tmp_lcm
+                        prev = curr
+                self.__sleep_time_ms = curr_gcd
+                self.__sleep_time_s = curr_gcd / 1000.0
+                self.__max_increment = curr_lcm
+            if self.__elapsed >= self.__max_increment:
+                self.__elapsed = self.__sleep_time_ms
+        # print(f'sleep time ms: {self.__sleep_time_ms}')
+        # print(f'sleep time s:  {self.__sleep_time_s}')
+        # print(f'max increment: {self.__max_increment}')
 
-    def add(self, msg, channel):
+    def add(self, channel, msg):
         """Add a periodic message to the thread."""
-        msg.sending = True
-        self.__messages[msg.id] = (msg, channel)
-        self.__update_times()
+        if channel not in self.__messages:
+            self.__messages[channel] = {}
+        with self.__lock:
+            self.__messages[channel][msg.id] = msg
+            self.__num_msgs += 1
+            self.__update_times()
+            msg._set_sending(True)
         logging.debug('TX: {: >8X} {: <16} period={}ms'
                       ''.format(msg.id, msg.data, msg.period))
 
-    def remove(self, msg):
+    def remove(self, channel, msg):
         """Remove a periodic message from the thread."""
-        if msg.id in self.__messages:
-            msg, _ = self.__messages.pop(msg.id)
-            msg.sending = False
-            self.__update_times()
+        if channel in self.__messages and msg.id in self.__messages[channel]:
+            with self.__lock:
+                msg = self.__messages[channel].pop(msg.id)
+                self.__num_msgs -= 1
+                self.__update_times()
+                msg._set_sending(False)
             logging.debug(f'Removed periodic message: 0x{msg.id:03X} '
                           f'{msg.data: <16} period={msg.period}ms')
         else:
-            logging.error(f'{msg.name} (0x{msg.id:X}) is not being sent!')
+            logging.debug(f'{msg.name} (0x{msg.id:X}) is not being sent!')
 
     def remove_all(self, channel):
         """Remove all periodic messages for a specific channel."""
-        for msg, chan in list(self.__messages.values()):
-            if chan is channel:
-                self.remove(msg)
+        if channel in self.__messages:
+            with self.__lock:
+                for msg in self.__messages[channel].values():
+                    self.__num_msgs -= 1
+                    msg._set_sending(False)
+                self.__messages[channel] = {}
+                self.__update_times()

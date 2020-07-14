@@ -3,61 +3,83 @@
 """Implements UDS requests based on ISO 14229-1:2013."""
 
 import logging
-
-
-def hex_str_to_byte_array(hex_str):
-    """Convert a string of hex bytes to a list of integers."""
-    return [ord(x) for x in hex_str.decode('hex')]
-
-
-def byte_array_to_ascii_str(byte_array):
-    """Convert a list of integers to a string of hex bytes."""
-    return ''.join([chr(x) for x in byte_array])
-
-
-def byte_array_to_hex_str(byte_array):
-    """Convert a list of integers to a string of hex bytes."""
-    return ''.join(['{:02X}'.format(x) for x in byte_array])
+from copy import deepcopy
 
 
 class UDS:
     """Sends/receives UDS requests compliant with ISO 14229-1:2013."""
 
     def __init__(self, can):  # noqa
-        self.sending_tester_present = 0
         self.last_nrc = 0
-        self.tester = 0xF1
         self.can = can
+        self.__tx_msg = None
+        self.__rx_msg = None
+        self.__p2_server = None
+        self.__p2_star_server = None
 
     @property
-    def tx_id(self):
+    def tx_msg(self):
         """The message id used to transmit requests."""
-        return self.__tx_id
+        if self.__tx_msg is None:
+            raise AssertionError('tx_msg not set')
+        return self.__tx_msg
 
-    @tx_id.setter
-    def tx_id(self, tx_id):
+    @tx_msg.setter
+    def tx_msg(self, tx_name_or_id):
         """Set she message id used to transmit requests."""
-
+        # pyvxl.CAN is meant to keep a single instance of a message. When
+        # tester present is being sent, that instance of the tx_msg will
+        # have data for requesting tester present. This copy prevents
+        # overwriting the data in tester present with other non-periodic
+        # requests.
+        self.__tx_msg = deepcopy(self.can.db.get_message(tx_name_or_id))
 
     @property
-    def rx_id(self):
+    def rx_msg(self):
         """The message id expected for responses."""
-        return self.__rx_id
+        if self.__rx_msg is None:
+            raise AssertionError('rx_msg not set')
+        return self.__rx_msg
 
-    @tx_id.setter
-    def rx_id(self, rx_id):
+    @rx_msg.setter
+    def rx_msg(self, tx_name_or_id):
         """Set the message id expected for responses."""
-        raise NotImplementedError
+        self.__rx_msg = self.can.db.get_message(tx_name_or_id)
 
-    def send_tester_present(self, func_id=True, once=False):
+    @property
+    def p2_server(self):
+        """The timeout used for the first response in a multi-frame request."""
+        if self.__p2_server is None:
+            raise AssertionError('p2_server not set')
+        return self.__p2_server
+
+    @p2_server.setter
+    def p2_server(self, timeout):
+        """Set the p2_server timeout in milliseconds."""
+        if not isinstance(timeout, int):
+            raise TypeError(f'Expected int but got {type(timeout)}')
+        self.__p2_server = timeout
+
+    @property
+    def p2_star_server(self):
+        """The timeout used for additional responses after p2_server."""
+        if self.__p2_star_server is None:
+            raise AssertionError('p2_star_server not set')
+        return self.__p2_star_server
+
+    @p2_star_server.setter
+    def p2_star_server(self, timeout):
+        """Set the p2_star_server timeout in milliseconds."""
+        if not isinstance(timeout, int):
+            raise TypeError(f'Expected int but got {type(timeout)}')
+        self.__p2_star_server = timeout
+
+    def send_tester_present(self, once=False):
         """Send tester present."""
-        send_id = self.func_id if func_id else self.phys_id
-        if not self.sending_tester_present:
-            if once:
-                assert self.can.send_message(send_id, '023E800000000000', inDatabase=False, cycleTime=0)
-            else:
-                assert self.can.send_message(send_id, '023E800000000000', inDatabase=False, cycleTime=2000)
-                self.sending_tester_present = send_id
+        if once:
+            self.can.send_message(self.tx_msg.id, '023E800000000000', 0)
+        else:
+            self.can.send_message(self.tx_msg.id, '023E800000000000', 2000)
 
     def stop_tester_present(self):
         """Stop sending tester present.
@@ -65,22 +87,15 @@ class UDS:
         This function will only work if tester present was started by calling
         send_tester_present without once=True.
         """
-        if self.sending_tester_present:
-            self.stop_periodic(self.sending_tester_present)
-            self.sending_tester_present = 0
-
-    def stop_periodics(self):
-        """An extention of pyvxl.CAN.stop_periodics to clear sending_tester_present."""
-        super(UDS, self).stop_periodics()
-        self.sending_tester_present = 0
+        self.can.stop_message(self.tx_msg)
 
     def ecu_reset(self, reset_type, raise_error=True, **kwargs):
         """ECU Reset - service 0x11."""
         result = None
         reset_types = {'hard_reset': 0x01}
         if reset_type not in reset_types:
-            raise NotImplementedError('Reset type {} is not implemented for '
-                                      'service 0x11'.format(reset_type))
+            raise NotImplementedError(f'Reset type {reset_type} is not '
+                                      'implemented for service 0x11')
         successful, data = self.send_service(0x11, [reset_types[reset_type]],
                                              **kwargs)
         if not successful:
@@ -103,8 +118,7 @@ class UDS:
             expected_max = 0xFFFF
             fmt_str = '{:04X}'
         else:
-            raise NotImplementedError('check_type == {} is not implemented'
-                                      ''.format(check_type))
+            raise NotImplementedError(f'{check_type} is not implemented')
         if isinstance(data, str):
             if len(data) > expected_len:
                 raise ValueError(f'{check_type} length must be less than or '
@@ -116,7 +130,7 @@ class UDS:
                 raise ValueError(f'{data:X} not in range: 0 <= {check_type} <='
                                  f' 0x{expected_max:X}')
             data = fmt_str.format(data)
-        return hex_str_to_byte_array(data)
+        return list(bytes.fromhex(data))
 
     def _check_data(self, data):
         """Check that data is either a hex string or list of bytes.
@@ -126,13 +140,13 @@ class UDS:
         """
         if isinstance(data, str):
             try:
-                data = hex_str_to_byte_array(data)
+                data = list(bytes.fromhex(data))
             except TypeError:
                 # Odd length string can't be converted to hex
                 raise
         elif not isinstance(data, list):
             raise TypeError('Expected a hex string or list of bytes but got '
-                            '{}'.format(type(data)))
+                            f'{type(data)}')
         return data
 
     def start_rid(self, rid, data=[], raise_error=True, **kwargs):
@@ -145,7 +159,8 @@ class UDS:
         successful, data = self.send_service(0x31, request, **kwargs)
         if not successful:
             if raise_error:
-                raise AssertionError('Failed to start RID 0x{:02x}{:02x}'.format(request[1], request[2]))
+                raise AssertionError('Failed to start RID '
+                                     f'0x{request[1]:02X}{request[2]:02X}')
         else:
             # TODO: Fix send_service so rid_len can be set to 2
             result = data[3:]  # Remove the DID from the response
@@ -158,7 +173,8 @@ class UDS:
         successful, data = self.send_service(0x22, request, **kwargs)
         if not successful:
             if raise_error:
-                raise AssertionError('Failed to read DID 0x{:02x}{:02x}'.format(request[0], request[1]))
+                raise AssertionError('Failed to read DID '
+                                     f'0x{request[0]:02X}{request[1]:02X}')
         else:
             result = data[2:]  # Remove the DID from the response
         return result
@@ -170,14 +186,15 @@ class UDS:
         successful, data = self.send_service(0x2E, request, **kwargs)
         if not successful:
             if raise_error:
-                raise AssertionError('Failed to write DID 0x{:02x}{:02x}'.format(request[0], request[1]))
+                raise AssertionError('Failed to write DID '
+                                     f'0x{request[0]:02X}{request[1]:02X}')
         else:
             result = data[2:]  # Remove the DID from the response
         return result
 
     def decode_nrc(self, nrc):
         """Convert the negative response code to text."""
-        nrc_text = 'Negative response code {} not found'.format(nrc)
+        nrc_text = f'Negative response code {nrc} not found'
         nrc_dict = {'10': 'General reject',
                     '11': 'Service not supported',
                     '12': 'Sub-function not supported',
@@ -205,70 +222,70 @@ class UDS:
             nrc_text = nrc_dict[nrc]
         return nrc_text
 
-    def send_service(self, service, values, eleven_bit=False, phys_id=True,
-                     fc_id=None, timeout=150, in_database=False, log_error=True):
+    def _send_recv(self, tx_data, timeout, tx_id=None, queue_size=10000):
+        """Similar to can.send_recv without changing any db Message data."""
+        tx_msg = self.tx_msg if tx_id is None else self.can.get_message(tx_id)
+        self.can.start_queue(self.rx_msg.id, queue_size)
+        tx_msg.data = tx_data
+        self.can._send(self.tx_msg, send_once=True)
+        _, msg_data = self.can.dequeue_msg(self.rx_msg.id, timeout)
+        return msg_data
+
+    def send_service(self, service, values, fc_id=None, timeout=None):
         """Send a diagnostic serivce."""
-        send_id = self.phys_id if phys_id else self.func_id
-        send_id = 0x646 if eleven_bit else send_id
+        p2 = self.p2_server if timeout is None else timeout
+        p2_star = self.p2_star_server
         num_bytes = 4
         num = 0
         valid_resp = False
         data = False
         frames = []
-        positive_resp = '{:02X}'.format(service | 0x40)
-        pending_resp = '7F{:02X}78'.format(service)
+        positive_resp = f'{service | 0x40:02X}'
+        pending_resp = f'7F{service:02X}78'
         length = len(values) + 1
 
         if len(values) > 6:
-            first = '1{:03X}{:02X}'.format(length, service)
-            first += ''.join(['{:02X}'.format(x) for x in values[:5]])
+            first = f'1{length:03X}{service:02X}'
+            first += ''.join([f'{x:02X}' for x in values[:5]])
             frames.append(first)
             values = values[5:]
-            num_frames = len(values) / 7 + (1 if len(values) % 7 else 0)
-            for x in xrange(0, num_frames):
-                tmp = ''.join(['{:02X}'.format(y) for y in values[x * 7:x * 7 + 7]])
-                frames.append('2{:01X}{}'.format((x + 1) % 0x10, tmp))
+            num_frames = int(len(values) / 7) + (1 if len(values) % 7 else 0)
+            for x in range(0, num_frames):
+                tmp = ''.join(['{y:02X}' for y in values[x * 7:x * 7 + 7]])
+                frames.append(f'2{(x + 1) % 0x10:01X}{tmp}')
                 if x == num_frames - 1 and len(frames[-1]) < 16:
                     frames[-1] += '5' * (16 - len(frames[-1]))
         else:
             values += (6 - len(values)) * [0x55]
-            values = ''.join(['{:02X}'.format(val) for val in values])
-            msg = '{:02X}{:02X}{}'.format(length, service, values)
-            frames.append(msg)
+            values = ''.join([f'{val:02X}' for val in values])
+            data = f'{length:02X}{service:02X}{values}'
+            frames.append(data)
 
         # Send out the first frame
         if fc_id and len(frames) > 1:
-            # Sending multi frame and looking for a specific flow control message ID
-            resp = self.send_recv(send_id, frames[0], fc_id, timeout=timeout,
-                                  inDatabase=in_database)
+            resp = self._send_recv(frames[0], fc_id, timeout=p2)
         else:
-            resp = self.send_recv(send_id, frames[0], self.recv_id, timeout=timeout,
-                                  inDatabase=in_database)
+            resp = self._send_recv(frames[0], timeout=p2)
+        frames = frames[1:]
         while resp and resp[2:8] == pending_resp:
-            resp = self.wait_for(self.recv_id, '', 5000, inDatabase=in_database,
-                                 alreadySearching=True)
-        self.stop_queue()
+            _, resp = self.can.dequeue(self.rx_msg.id, p2_star)
+        self.can.stop_queue(self.rx_msg.id)
 
         if resp and len(frames) > 1:
             # Sending multiframe, expecting to receive a flow control frame
-            resp = resp.replace(' ', '')
             if resp[0] == '3':    # Clear to send
-                frames = frames[1:]
-                msgObj = self.get_message(send_id)
-                if msgObj:
-                    for msg in frames[:-1]:
-                        self._send(msgObj, msg, display=True)
-                else:
-                    print('Unable to find message for send_id {}'.format(send_id))
-                resp = self.send_recv(send_id, frames[-1], self.recv_id, timeout=timeout)
+                for data in frames[:-1]:
+                    self.can._send(self.tx_msg, send_once=True)
+                resp = self._send_recv(frames[-1], timeout=p2)
 
                 while resp and resp[2:8] == pending_resp:
-                    resp = self.dequeue_msg(self.recv_id, 5000)
-                self.stop_queue()
+                    _, resp = self.can.dequeue_msg(self.rx_msg.id, p2_star)
+                self.can.stop_queue(self.rx_msg.id)
 
         if resp:
             if resp[0] == '1':    # multi-frame
-                # A maximum of 6 bytes in the first frame and 7 in all following frames
+                # A maximum of 6 bytes in the first frame and 7 in all
+                # additional frames.
                 # Remove the multi-frame nibble
                 resp = resp[1:]
                 num_bytes = int(resp[:3], 16)
@@ -285,11 +302,11 @@ class UDS:
                 # Remove the positive response byte
                 resp = resp[2:]
                 num_bytes -= 1
-                bytes_in_resp = len(resp) / 2
+                bytes_in_resp = int(len(resp) / 2)
                 if num_bytes >= bytes_in_resp:
                     data = resp
                     bytes_left = num_bytes - bytes_in_resp
-                    num = bytes_left / 7
+                    num = int(bytes_left / 7)
                     # Add an extra frame if num_bytes isn't evenly divisble by 7
                     if bytes_left % 7 != 0:
                         num += 1
@@ -297,23 +314,20 @@ class UDS:
                     data = resp[:2 * num_bytes]
                     num = 0
             else:
-                if log_error:
-                    nrc = resp[4:6]
-                    self.last_nrc = int(nrc, 16)
-                    logging.error('Negative Response: {}'.format(self.decode_nrc(nrc)))
+                nrc = resp[4:6]
+                self.last_nrc = int(nrc, 16)
+                logging.info(f'Negative Response: {self.decode_nrc(nrc)}')
                 data = 0
                 num = 0
 
             if num > 0:
+                # TODO: Implement other parameters for the flow control msg
                 # Multi frame response, send the flow control frame
-                # TODO: Fix this frame
-
                 if fc_id:
-                    resp = self.send_recv(fc_id, '3000000000000000', self.recv_id,
-                                          timeout=timeout, inDatabase=in_database)
+                    resp = self._send_recv('3000000000000000', fc_id,
+                                           timeout=p2)
                 else:
-                    resp = self.send_recv(send_id, '3000000000000000', self.recv_id,
-                                          inDatabase=in_database, timeout=timeout)
+                    resp = self._send_recv('3000000000000000', timeout=p2)
                 if resp:
                     rxMsgs = []
                     messagesToReceive = num
@@ -321,16 +335,15 @@ class UDS:
                         if not resp:
                             break
                         elif resp[2:8] == pending_resp:
-                            resp = self.dequeue_msg(self.recv_id, '', 5000, inDatabase=in_database,
-                                                 alreadySearching=True)
+                            _, resp = self.can.dequeue_msg(self.rx_msg.id,
+                                                           p2_star)
                         else:
                             messagesToReceive -= 1
                             rxMsgs.append(resp)
-                            resp = self.wait_for(self.recv_id, '', 150, inDatabase=in_database,
-                                                 alreadySearching=True)
+                            resp = self.can.dequeue_msg(self.rx_msg.id, p2)
                     resp = rxMsgs
 
-                self.stop_queue()
+                self.can.stop_queue(self.rx_msg.id)
 
                 if resp:
                     if len(resp) == num:
@@ -338,7 +351,7 @@ class UDS:
                         tmp = ''
                         # Only return values in a valid sequence
                         for x in range(len(resp)):
-                            if resp[x][:2] == '2{:01X}'.format(seqnr):
+                            if resp[x][:2] == f'2{seqnr:01X}':
                                 tmp += resp[x][2:]
                                 seqnr = (seqnr + 1) % 16
                             else:

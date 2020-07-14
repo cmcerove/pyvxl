@@ -219,6 +219,7 @@ def test_sending_and_stopping_signals(can):  # noqa
     stopped_sig = channel.stop_signal('msg2_sig3')
     assert stopped_sig is sig
     assert sig.msg.sending is False
+    can.stop_all_messages()
 
 
 def test_queuing(can):  # noqa

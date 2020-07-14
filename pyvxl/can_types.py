@@ -181,7 +181,7 @@ class Database:
             raise TypeError(f'Expected str but got {type(name)}')
 
         if name.lower() in self.signals:
-            signal = self.signals[name]
+            signal = self.signals[name.lower()]
         else:
             for sig in self.signals.values():
                 if name.lower() == sig.long_name:
@@ -250,19 +250,28 @@ class Message:
     def __init__(self, msg_id, name, length, sender=None, signals=[]):  # noqa
         self.id = msg_id
         self.name = name
+        self.long_name = None
         self.dlc = length
         self.sender = sender
         self.signals = signals
+        self.__sending = False
         self.period = 0
         self.delay = None
         self.send_type_num = None
         self.send_type = None
         self.repetitions = None
-        self.sending = False
         self.update_func = None
         # TODO: Populate this on import
         self.transmitters = None
         self.__init_completed = True
+
+    def __str__(self):
+        """Return a string representation of this message."""
+        string = f'Message(0x{self.id:X}, {self.name}) - 0x{self.data}'
+        if self.signals:
+            sig_strs = [str(sig) for sig in self.signals]
+            string += '\n - {}'.format('\n - '.join(sig_strs))
+        return string
 
     @property
     def id(self):
@@ -352,6 +361,8 @@ class Message:
                         raise AssertionError(f'{added_sig} and {sig} overlap')
 
         self.__signals = signals
+        if not self.__signals:
+            self.data = 0
 
     @property
     def data(self):
@@ -390,7 +401,7 @@ class Message:
         if self.signals:
             for sig in self.signals:
                 sig.raw_val = data
-            if int(self.data, 16) != int(data, 16):
+            if int(self.data, 16) != data:
                 raise ValueError(f'One or more values in {data} do not map '
                                  f'to valid signal values for {self}')
         else:
@@ -406,7 +417,26 @@ class Message:
         """Set the transmit period for the message."""
         if not isinstance(period, int):
             raise TypeError(f'Expected int but got {type(period)}')
+        if self.sending:
+            raise AssertionError(f'Stop sending {self} before changing the '
+                                 'period')
         self.__period = period
+
+    @property
+    def sending(self):
+        """True if the message is currently being sent by the tx thread."""
+        return self.__sending
+
+    def _set_sending(self, value):
+        """True if the message is currently being sent by the tx thread.
+
+        This is meant to be an internal function for pyvxl only. If you
+        call this function externally, make sure you are aware of the problems
+        you can create.
+        """
+        if not isinstance(value, bool):
+            raise TypeError(f'Expected bool but got {type(value)}')
+        self.__sending = value
 
     def pprint(self):
         """Print colored info abnout the message to stdout."""
@@ -414,8 +444,6 @@ class Message:
         print('')
         color = Style.BRIGHT + Fore.GREEN
         data = self.data
-        if self.endianness != 0:
-            data = bytes.fromhex(data)[::-1].hex()
         print(f'{color}Message: {self.name} - ID: 0x{self.id:X} - Data: '
               f'0x{data}')
         reset_color = Fore.RESET + Style.RESET_ALL
@@ -478,11 +506,11 @@ class Signal:
         self.__val = 0
         self.init_val = None
         self.send_on_init = 0
-        self.msg = None
+        self.__msg = None
 
     def __str__(self):
         """Return a string representation of this database."""
-        return f'Signal({self.name})'
+        return f'Signal({self.name}) = {self.val}'
 
     @property
     def name(self):
@@ -533,12 +561,13 @@ class Signal:
     @msg.setter
     def msg(self, msg):
         """Add a reference to message this signal is included in."""
-        if msg is not None:
-            if not isinstance(msg, Message):
-                raise TypeError(f'Expected {Message} but got {type(msg)}')
-            self.__bit_start = Signal.__msb_map[msg.dlc][self.__bit_msb]
-            self.__bit_start -= self.bit_len - 1
-            self.__mask = 2 ** self.bit_len - 1 << self.__bit_start
+        if self.__msg is not None:
+            raise AttributeError('can\'t set attribute')
+        if not isinstance(msg, Message):
+            raise TypeError(f'Expected {Message} but got {type(msg)}')
+        self.__bit_start = Signal.__msb_map[msg.dlc][self.__bit_msb]
+        self.__bit_start -= self.bit_len - 1
+        self.__mask = 2 ** self.bit_len - 1 << self.__bit_start
         self.__msg = msg
 
     @property

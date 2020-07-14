@@ -98,6 +98,7 @@ def test_receive_fail(vxl):  # noqa
 
 def test_receive(vxl):  # noqa
     channel = list(vxl.channels.keys())[0]
+    vxl.flush_queues()
     assert vxl.receive() is None
     assert vxl.send(channel, 0x123, '1234')
     msg_start_pat = re.compile(r'^(\w+)\sc=(\d+),\st=(\d+),\s')
