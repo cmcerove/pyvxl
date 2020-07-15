@@ -16,6 +16,7 @@ class UDS:
         self.__rx_msg = None
         self.__p2_server = None
         self.__p2_star_server = None
+        self.__tester_present_id = None
 
     @property
     def tx_msg(self):
@@ -248,12 +249,16 @@ class UDS:
         """Write Memory by Address - Service 0x3D."""
         raise NotImplementedError
 
-    def send_tester_present(self, once=False):
-        """Send tester present - Service 0x3E."""
-        if once:
-            self.can.send_message(self.tx_msg.id, '023E800000000000', 0)
-        else:
-            self.can.send_message(self.tx_msg.id, '023E800000000000', 2000)
+    def send_tester_present(self, tx_id=None, period=2000):
+        """Send tester present - Service 0x3E.
+
+        Data is fixed with supressing the positive response since handling
+        these responses asynchronously with other diagnostic requests isn't
+        implemented.
+        """
+        self.__tester_present_id = self.tx_msg.id if tx_id is None else tx_id
+        self.can.send_message(self.__tester_present_id, '023E800000000000',
+                              period=period)
 
     def stop_tester_present(self):
         """Stop sending tester present. - Service 0x3E.
@@ -261,7 +266,7 @@ class UDS:
         This function will only work if tester present was started by calling
         send_tester_present without once=True.
         """
-        self.can.stop_message(self.tx_msg)
+        self.can.stop_message(self.__tester_present_id)
 
     def access_timing_param(self, *args, **kwargs):
         """Access Timing Parameter- Service 0x83.."""
