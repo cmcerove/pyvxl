@@ -147,7 +147,7 @@ def vxl_request_chip_state(*args):
     status = getError(vxDLL.xlCanRequestChipState(*args))
     # Since this causes so much spam during debugging, it should be uncommented
     # only if you suspect this is the issue.
-    logging.debug('{0}: {1}'.format('xlCanRequestChipState', status))
+    # logging.debug('{0}: {1}'.format('xlCanRequestChipState', status))
     return True if status == b'XL_SUCCESS' else False
 
 

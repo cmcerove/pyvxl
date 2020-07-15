@@ -121,13 +121,13 @@ class Database:
                     break
             else:
                 raise ValueError(f'{name_or_id} does not match a message name '
-                                 f'or id in {self}')
+                                 f'in {self}')
         elif isinstance(name_or_id, int):
             # Strip the extended ID bit if it exists
             name_or_id &= 0x1fffffff
             if name_or_id not in self.messages:
-                raise ValueError(f'{name_or_id} does not match a message name '
-                                 f'or id in {self}')
+                raise ValueError(f'0x{name_or_id:X} does not match a message '
+                                 f'id in {self}')
             message = self.messages[name_or_id]
         else:
             raise TypeError(f'Expected str or int but got {type(name_or_id)}')
@@ -492,7 +492,7 @@ class Signal:
         self.mux = mux  # not implemented
         self.endianness = endianness
         self.__bit_msb = bit_msb if self.endianness == 'big' else bit_msb + 7
-        self.__bit_start = None
+        self.__bit_start = bit_msb
         self.bit_len = bit_len
         self.__signed = bool(signedness == '-')
         self.scale = scale
@@ -565,7 +565,9 @@ class Signal:
             raise AttributeError('can\'t set attribute')
         if not isinstance(msg, Message):
             raise TypeError(f'Expected {Message} but got {type(msg)}')
-        self.__bit_start = Signal.__msb_map[msg.dlc][self.__bit_msb]
+        msb_map = Signal.__msb_map
+        if msg.dlc in msb_map and self.__bit_msb in msb_map[msg.dlc]:
+            self.__bit_start = Signal.__msb_map[msg.dlc][self.__bit_msb]
         self.__bit_start -= self.bit_len - 1
         self.__mask = 2 ** self.bit_len - 1 << self.__bit_start
         self.__msg = msg

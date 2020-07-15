@@ -4,7 +4,7 @@
 
 import logging
 import re
-from os import path
+from os import path, remove
 from queue import Queue
 from time import localtime, sleep, perf_counter
 from threading import Thread, Event, Lock, BoundedSemaphore
@@ -90,9 +90,9 @@ class CAN(object):
         """Start logging."""
         return self.__rx_thread.start_logging(*args, **kwargs)
 
-    def stop_logging(self):
+    def stop_logging(self, delete_log=False):
         """Stop logging."""
-        return self.__rx_thread.stop_logging()
+        return self.__rx_thread.stop_logging(delete_log)
 
     def stop_all_messages(self):
         """Stop transmitting periodic messages on all channels."""
@@ -273,7 +273,7 @@ class Channel:
         self.__rx_thread.errors_found = False
 
         if flush:
-            self.__rx_thread.flush_queues()
+            self.__vxl.flush_queues()
 
         if not timeout:
             # Wait as long as necessary if there isn't a timeout set
@@ -375,6 +375,7 @@ class ReceiveThread(Thread):
         self.__log_path = ''
         self.__log_file = None
         self.__log_errors = False
+        self.__delete_log = False
         self.__log_request = Queue()
         self.errors_found = False
         self.__msg_queues = {}
@@ -616,45 +617,50 @@ class ReceiveThread(Thread):
         """Request the thread start logging."""
         if not isinstance(log_path, str):
             raise TypeError('Expected str but got {}'.format(type(log_path)))
-        if self.__log_path:
-            raise AssertionError('Already logging. Call stop_logging first.')
-        directory, _ = path.split(log_path)
-        if directory and not path.isdir(directory):
-            raise ValueError('{} is not a valid directory!'.format(directory))
-        if self.__log_request == 'start' or self.__log_path:
-            raise AssertionError('Logging already started. Call stop_logging.')
+        if self.__log_request == 'start':
+            raise AssertionError('start_logging called twice.')
         elif self.__log_request == 'stop':
             while self.__log_request == 'stop':
                 # Wait for the thread to stop the previous log
                 sleep(0.1)
+        directory, _ = path.split(log_path)
+        if directory and not path.isdir(directory):
+            raise ValueError('{} is not a valid directory!'.format(directory))
         tmstr = localtime()
         hr = tmstr.tm_hour % 12
         mn = tmstr.tm_min
         sc = tmstr.tm_sec
         if add_date:
-            log_path = '{}[{}-{}-{}]'.format(log_path, hr, mn, sc)
-        self.__log_path = path.abspath(log_path + '.asc')
+            log_path = '{}[{}-{}-{}].asc'.format(log_path, hr, mn, sc)
+        self.__log_path = path.abspath(log_path)
         self.__log_errors = log_errors
         self.__log_request = 'start'
         return self.__log_path
 
     def __stop_logging(self):
         """Stop logging. Only called from the run loop of the thread."""
-        self.__log_request = None
         old_path = self.__log_path
-        self.__log_path = ''
         if self.__log_file is not None and not self.__log_file.closed:
-            old_path = self.__log_path
             self.__log_file.flush()
             self.__log_file.close()
             self.__log_file = None
+            if self.__delete_log:
+                self.__delete_log = False
+                try:
+                    remove(old_path)
+                except Exception:
+                    # The receive thread crashing is hard to debug. This is
+                    # safer.
+                    pass
             logging.debug('Logging stopped.')
             if not self.__msg_queues:
                 self.__sleep_time = 0.1
                 self.__logging = False
+        self.__log_path = ''
+        self.__log_request = None
         return old_path
 
-    def stop_logging(self):
+    def stop_logging(self, delete_log):
         """Request the thread stop logging."""
         if self.__log_request == 'start':
             while self.__log_request == 'start':
@@ -664,6 +670,7 @@ class ReceiveThread(Thread):
             old_path = self.__log_path
             logging.debug('Stop logging requested.')
             self.__log_request = 'stop'
+            self.__delete_log = delete_log
         else:
             old_path = ''
             logging.error('Logging already stopped!')
