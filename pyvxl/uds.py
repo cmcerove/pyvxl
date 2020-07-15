@@ -74,42 +74,6 @@ class UDS:
             raise TypeError(f'Expected int but got {type(timeout)}')
         self.__p2_star_server = timeout
 
-    def send_tester_present(self, once=False):
-        """Send tester present."""
-        if once:
-            self.can.send_message(self.tx_msg.id, '023E800000000000', 0)
-        else:
-            self.can.send_message(self.tx_msg.id, '023E800000000000', 2000)
-
-    def stop_tester_present(self):
-        """Stop sending tester present.
-
-        This function will only work if tester present was started by calling
-        send_tester_present without once=True.
-        """
-        self.can.stop_message(self.tx_msg)
-
-    def ecu_reset(self, reset_type, raise_error=True, **kwargs):
-        """ECU Reset - service 0x11."""
-        result = None
-        reset_types = {'hard_reset': 0x01}
-        if reset_type not in reset_types:
-            raise NotImplementedError(f'Reset type {reset_type} is not '
-                                      'implemented for service 0x11')
-        successful, data = self.send_service(0x11, [reset_types[reset_type]],
-                                             **kwargs)
-        if not successful:
-            if raise_error:
-                raise AssertionError('Failed resetting the ECU!')
-        else:
-            result = data
-        return result
-
-    def control_dtc_setting(self, on_off, **kwargs):
-        """Control DTC setting (service 85)."""
-        # TODO: Implement this
-        pass
-
     def _check(self, check_type, data):
         """Generic funcion for checking types."""
         expected_len = expected_max = 0
@@ -149,8 +113,94 @@ class UDS:
                             f'{type(data)}')
         return data
 
+    def session_control(self, session, **kwargs):
+        """Session Control - Service 0x10."""
+        raise NotImplementedError
+
+    def ecu_reset(self, reset_type, raise_error=True, **kwargs):
+        """ECU Reset - Service 0x11."""
+        result = None
+        reset_types = {'hard_reset': 0x01}
+        if reset_type not in reset_types:
+            raise NotImplementedError(f'Reset type {reset_type} is not '
+                                      'implemented for service 0x11')
+        successful, data = self.send_service(0x11, [reset_types[reset_type]],
+                                             **kwargs)
+        if not successful:
+            if raise_error:
+                raise AssertionError('Failed resetting the ECU!')
+        else:
+            result = data
+        return result
+
+    def clear_dtcs(self, *args, **kwargs):
+        """Clear Diagnostic Information - Service 0x14."""
+        raise NotImplementedError
+
+    def dtcs_dtcs(self, *args, **kwargs):
+        """Read DTC Information - Service 0x19."""
+        raise NotImplementedError
+
+    def read_did(self, did, raise_error=True, **kwargs):
+        """Read Data by Identifier - Service 0x22."""
+        result = None
+        request = self._check('DID', did)
+        successful, data = self.send_service(0x22, request, **kwargs)
+        if not successful:
+            if raise_error:
+                raise AssertionError('Failed to read DID '
+                                     f'0x{request[0]:02X}{request[1]:02X}')
+        else:
+            result = data[2:]  # Remove the DID from the response
+        return result
+
+    def read_mba(self, *args, **kwargs):
+        """Read Memory by Address - Service 0x23."""
+        raise NotImplementedError
+
+    def read_scaling_did(self, *args, **kwargs):
+        """Read Scaling Data by Identifier - Service 0x24."""
+        raise NotImplementedError
+
+    def read_periodic_did(self, *args, **kwargs):
+        """Read Data by Periodic Identifier - Service 0x2A."""
+        raise NotImplementedError
+
+    def dyamically_define_did(self, *args, **kwargs):
+        """Dynamically Define Data Identifier - Service 0x2C."""
+        raise NotImplementedError
+
+    def write_did(self, did, data, raise_error=True, **kwargs):
+        """Read Data by Identifier - Service 0x2E."""
+        result = None
+        request = self._check('DID', did) + self._check_data(data)
+        successful, data = self.send_service(0x2E, request, **kwargs)
+        if not successful:
+            if raise_error:
+                raise AssertionError('Failed to write DID '
+                                     f'0x{request[0]:02X}{request[1]:02X}')
+        else:
+            result = data[2:]  # Remove the DID from the response
+        return result
+
+    def io_cid(self, *args, **kwargs):
+        """Input/Ouput Control by Identifier - Service 0x2F."""
+        raise NotImplementedError
+
+    def security_access(self, level, key=None, **kwargs):
+        """Security Access - Service 0x27.
+
+        If level is odd, this will request the seed for that level.
+        if level is even, this will send the key for level - 1.
+        """
+        raise NotImplementedError
+
+    def communication_control(self, on_off, **kwargs):
+        """Communication Control - Service 0x28."""
+        raise NotImplementedError
+
     def start_rid(self, rid, data=[], raise_error=True, **kwargs):
-        """Start a routine (RID)."""
+        """Routine Control - Service 0x31, Start RID - SubFunction 0x01."""
         self.last_nrc = 0
         result = None
         # Start routine sub function
@@ -166,31 +216,72 @@ class UDS:
             result = data[3:]  # Remove the DID from the response
         return result
 
-    def read_did(self, did, raise_error=True, **kwargs):
-        """Read a diagnostic ID."""
-        result = None
-        request = self._check('DID', did)
-        successful, data = self.send_service(0x22, request, **kwargs)
-        if not successful:
-            if raise_error:
-                raise AssertionError('Failed to read DID '
-                                     f'0x{request[0]:02X}{request[1]:02X}')
-        else:
-            result = data[2:]  # Remove the DID from the response
-        return result
+    def stop_rid(self, rid, data=[], raise_error=True, **kwargs):
+        """Routine Control - Service 0x31, Stop RID - SubFunction 0x02."""
+        raise NotImplementedError
 
-    def write_did(self, did, data, raise_error=True, **kwargs):
-        """Write a diagnostic ID."""
-        result = None
-        request = self._check('DID', did) + self._check_data(data)
-        successful, data = self.send_service(0x2E, request, **kwargs)
-        if not successful:
-            if raise_error:
-                raise AssertionError('Failed to write DID '
-                                     f'0x{request[0]:02X}{request[1]:02X}')
+    def rid_result(self, rid, data=[], raise_error=True, **kwargs):
+        """Routine Control - Service 0x31, RID Result - SubFunction 0x03."""
+        raise NotImplementedError
+
+    def request_download(self, *args, **kwargs):
+        """Request Download - Service 0x34."""
+        raise NotImplementedError
+
+    def request_upload(self, *args, **kwargs):
+        """Request Upload - Service 0x35."""
+        raise NotImplementedError
+
+    def transfer_data(self, *args, **kwargs):
+        """Transfer Data - Service 0x36."""
+        raise NotImplementedError
+
+    def request_transfer_exit(self, *args, **kwargs):
+        """Request Transfer Exit - Service 0x37."""
+        raise NotImplementedError
+
+    def request_file_transfer(self, *args, **kwargs):
+        """Request File Transfer - Service 0x38."""
+        raise NotImplementedError
+
+    def write_mba(self, *args, **kwargs):
+        """Write Memory by Address - Service 0x3D."""
+        raise NotImplementedError
+
+    def send_tester_present(self, once=False):
+        """Send tester present - Service 0x3E."""
+        if once:
+            self.can.send_message(self.tx_msg.id, '023E800000000000', 0)
         else:
-            result = data[2:]  # Remove the DID from the response
-        return result
+            self.can.send_message(self.tx_msg.id, '023E800000000000', 2000)
+
+    def stop_tester_present(self):
+        """Stop sending tester present. - Service 0x3E.
+
+        This function will only work if tester present was started by calling
+        send_tester_present without once=True.
+        """
+        self.can.stop_message(self.tx_msg)
+
+    def access_timing_param(self, *args, **kwargs):
+        """Access Timing Parameter- Service 0x83.."""
+        raise NotImplementedError
+
+    def secured_data_tx(self, *args, **kwargs):
+        """Secured Data Transmission - Service 0x84.."""
+        raise NotImplementedError
+
+    def control_dtc_setting(self, on_off, **kwargs):
+        """Control DTC setting - Service 0x85.."""
+        raise NotImplementedError
+
+    def response_on_event(self, *args, **kwargs):
+        """Response on Event- Service 0x86.."""
+        raise NotImplementedError
+
+    def link_control(self, *args, **kwargs):
+        """Link Control - Service 0x87.."""
+        raise NotImplementedError
 
     def decode_nrc(self, nrc):
         """Convert the negative response code to text."""
