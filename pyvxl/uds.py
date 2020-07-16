@@ -114,6 +114,12 @@ class UDS:
                             f'{type(data)}')
         return data
 
+    def _error(self, msg):
+        """A common function for raising errors."""
+        # TODO: Decide if something like this makes sense. Also if removing
+        # raise_error and always raising and error.
+        raise AssertionError(msg)
+
     def session_control(self, session, **kwargs):
         """Session Control - Service 0x10."""
         raise NotImplementedError

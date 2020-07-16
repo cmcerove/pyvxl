@@ -402,8 +402,8 @@ class Message:
             for sig in self.signals:
                 sig.raw_val = data
             if int(self.data, 16) != data:
-                raise ValueError(f'One or more values in {data} do not map '
-                                 f'to valid signal values for {self}')
+                raise ValueError(f'One or more values in {data:X} do not map '
+                                 'to valid signal values for:\n'f'{self}')
         else:
             self.__data = data
 
@@ -510,7 +510,11 @@ class Signal:
 
     def __str__(self):
         """Return a string representation of this database."""
-        return f'Signal({self.name}) = {self.val}'
+        if isinstance(self.val, str):
+            string = f'Signal({self.name}) = {self.val}'
+        else:
+            string = f'Signal({self.name}) = {self.val:X}'
+        return string
 
     @property
     def name(self):

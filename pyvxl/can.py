@@ -63,7 +63,7 @@ class CAN(object):
         self.__rx_thread.add_channel(num, baud)
         self.__rx_lock.release()
         self.__tx_lock.release()
-        logging.debug(f'Added {channel}')
+        logging.debug(f'Added channel {channel}')
         return channel
 
     def remove_channel(self, num):
@@ -83,7 +83,7 @@ class CAN(object):
         self.__rx_thread.remove_channel(num)
         self.__rx_lock.release()
         self.__tx_lock.release()
-        logging.debug(f'Removed {channel}')
+        logging.debug(f'Removed channel {channel}')
         return channel
 
     def start_logging(self, *args, **kwargs):
@@ -160,6 +160,7 @@ class Channel:
         self.__tx_thread = tx_thread
         self.__rx_thread = rx_thread
         self.__channel = num
+        self.__name = str(num)
         self.baud = baud
         self.db = Database(db_path)
         self.uds = UDS(self)
@@ -185,6 +186,18 @@ class Channel:
             raise TypeError(f'Expected {type(Database)} but got {type(db)}')
         self.__db = db
 
+    @property
+    def name(self):
+        """The name of this channel."""
+        return self.__name
+
+    @name.setter
+    def name(self, name):
+        """Set the name of this channel."""
+        if not isinstance(name, str):
+            raise TypeError('Expected str but got {}'.format(type(name)))
+        self.__name = name
+
     def _send(self, msg, send_once=False):
         """Common function for sending a message.
 
@@ -195,7 +208,7 @@ class Channel:
         self.__vxl.send(self.channel, msg.id, msg.data)
         if not send_once and msg.period:
             self.__tx_thread.add(self.channel, msg)
-        logging.debug('TX: {: >8X} {: <16}'.format(msg.id, msg.data))
+        logging.info(f'{self.name[:8]: ^8} TX: {msg.id: >8X} {msg.data: <16}')
 
     def send_message(self, name_or_id, data=None, period=None, send_once=False):
         """Send a message by name or id."""
@@ -203,7 +216,7 @@ class Channel:
         if data is not None:
             msg.data = data
         if period is not None:
-            if msg.sending and period == 0:
+            if msg.sending:
                 self.stop_message(msg.id)
             msg.period = period
         self._send(msg, send_once)
@@ -227,6 +240,7 @@ class Channel:
 
     def stop_all_messages(self):
         """Stop sending all periodic messages."""
+        logging.debug(f'Stopping messages on {self}')
         self.__tx_thread.remove_all(self.channel)
 
     def send_signal(self, name, value=None, send_once=False):
@@ -413,7 +427,7 @@ class ReceiveThread(Thread):
         rx_tx_pat = re.compile(r'id=(\w+)\sl=(\d),\s(\w+)?\s(TX)?\s*tid=(\w+)')
         # Error Frame:
         # type=0147,  ERROR_FRAME tid=00
-        error_pat = re.compile(r'\w+=(\d+),\s+ERROR_FRAME\s\w+=(\d+)')
+        error_pat = re.compile(r'\w+=(\w+),\s+ERROR_FRAME\s\w+=(\d+)')
 
         log_msgs = []
         elapsed = 0
@@ -853,21 +867,19 @@ class TransmitThread(Thread):
                 self.__max_increment = curr_lcm
             if self.__elapsed >= self.__max_increment:
                 self.__elapsed = self.__sleep_time_ms
-        # print(f'sleep time ms: {self.__sleep_time_ms}')
-        # print(f'sleep time s:  {self.__sleep_time_s}')
-        # print(f'max increment: {self.__max_increment}')
 
     def add(self, channel, msg):
         """Add a periodic message to the thread."""
         if channel not in self.__messages:
             self.__messages[channel] = {}
         with self.__lock:
+            if msg.id not in self.__messages[channel]:
+                self.__num_msgs += 1
             self.__messages[channel][msg.id] = msg
-            self.__num_msgs += 1
             self.__update_times()
             msg._set_sending(True)
-        logging.debug('TX: {: >8X} {: <16} period={}ms'
-                      ''.format(msg.id, msg.data, msg.period))
+            logging.info(f'Periodic added: 0x{msg.id:03X} {msg.data: <16} '
+                         f'period={msg.period}ms')
 
     def remove(self, channel, msg):
         """Remove a periodic message from the thread."""
@@ -877,10 +889,10 @@ class TransmitThread(Thread):
                 self.__num_msgs -= 1
                 self.__update_times()
                 msg._set_sending(False)
-            logging.debug(f'Removed periodic message: 0x{msg.id:03X} '
-                          f'{msg.data: <16} period={msg.period}ms')
+            logging.info(f'Periodic removed: 0x{msg.id:03X} {msg.data: <16} '
+                         f'period={msg.period}ms')
         else:
-            logging.debug(f'{msg.name} (0x{msg.id:X}) is not being sent!')
+            logging.warning(f'{msg.name} (0x{msg.id:X}) is not being sent!')
 
     def remove_all(self, channel):
         """Remove all periodic messages for a specific channel."""

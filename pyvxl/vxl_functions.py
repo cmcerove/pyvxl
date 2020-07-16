@@ -67,7 +67,9 @@ def vxl_deactivate_channel(*args):
 def vxl_transmit(*args):
     """Transmit a CAN message."""
     status = getError(vxDLL.xlCanTransmit(*args))
-    logging.debug('{0}: {1}'.format('xlCanTransmit', status))
+    # Since this causes so much spam during debugging, it should be uncommented
+    # temporarily.
+    # logging.debug('{0}: {1}'.format('xlCanTransmit', status))
     return True if status == b'XL_SUCCESS' else False
 
 
@@ -75,7 +77,7 @@ def vxl_receive(*args):
     """Receive a message."""
     status = getError(vxDLL.xlReceive(*args))
     # Since this causes so much spam during debugging, it should be uncommented
-    # only if you suspect this is the issue.
+    # temporarily.
     # if status != 'XL_ERR_QUEUE_IS_EMPTY':
     #     logging.debug('{0}: {1}'.format('xlReceive', status))
     return True if status != b'XL_ERR_QUEUE_IS_EMPTY' else False
@@ -146,7 +148,7 @@ def vxl_request_chip_state(*args):
     """Request the CAN chip state be put in the receive queue."""
     status = getError(vxDLL.xlCanRequestChipState(*args))
     # Since this causes so much spam during debugging, it should be uncommented
-    # only if you suspect this is the issue.
+    # temporarily.
     # logging.debug('{0}: {1}'.format('xlCanRequestChipState', status))
     return True if status == b'XL_SUCCESS' else False
 
