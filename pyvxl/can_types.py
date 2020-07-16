@@ -635,8 +635,9 @@ class Signal:
                     curr_val = key
                     break
             else:
-                raise ValueError(f'{self}.num_val is set to {self.num_val} '
-                                 f'which is not in {self.values}')
+                raise ValueError(f'{self.name}.num_val is set to '
+                                 f'{self.num_val} which is not in '
+                                 f'{self.values}')
         return curr_val
 
     @val.setter

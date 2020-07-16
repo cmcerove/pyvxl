@@ -356,14 +356,16 @@ class UDS:
 
         if fc_id:
             self.can.start_queue(fc_id, 10000)
+            dequeue_id = fc_id
         else:
             self.can.start_queue(self.rx_msg.id, 10000)
+            dequeue_id = self.rx_msg.id
         # Send out the first frame
         self.tx_msg.data = frames[0]
         self.can._send(self.tx_msg, send_once=True)
-        _, resp = self.can.dequeue_msg(self.rx_msg.id, p2)
+        _, resp = self.can.dequeue_msg(dequeue_id, p2)
         while resp and resp[2:8] == pending_resp:
-            _, resp = self.can.dequeue_msg(self.rx_msg.id, p2_star)
+            _, resp = self.can.dequeue_msg(dequeue_id, p2_star)
 
         if fc_id:
             self.can.stop_queue(fc_id)
