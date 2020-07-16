@@ -86,12 +86,11 @@ def test_logging(can):
     # which is the last virtual channel
     can.add_channel(can1.channel - 1)
     # The second to last channel which is virtual
-    name = 'test_can_log'
+    name = 'test_can_log.asc'
     opened = can.start_logging(name, False)
     # Give the receive thread time to start logging
     sleep(0.3)
-    assert (name + '.asc') == path.basename(opened)
-    assert opened.endswith('.asc')
+    assert name == path.basename(opened)
     assert path.isfile(opened)
     msg3_sig1 = can1.db.get_signal('msg3_sig1')
     msg3_sig1.val = 1

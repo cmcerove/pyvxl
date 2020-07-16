@@ -510,7 +510,7 @@ class Signal:
 
     def __str__(self):
         """Return a string representation of this database."""
-        if isinstance(self.val, str):
+        if isinstance(self.val, str) or isinstance(self.val, float):
             string = f'Signal({self.name}) = {self.val}'
         else:
             string = f'Signal({self.name}) = {self.val:X}'

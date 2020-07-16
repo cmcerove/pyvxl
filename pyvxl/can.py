@@ -235,12 +235,13 @@ class Channel:
     def stop_message(self, name_or_id):
         """Stop sending a periodic message."""
         msg = self.db.get_message(name_or_id)
+        logging.info(f'Stopping message {msg.id: >8X}')
         self.__tx_thread.remove(self.channel, msg)
         return msg
 
     def stop_all_messages(self):
         """Stop sending all periodic messages."""
-        logging.debug(f'Stopping messages on {self}')
+        logging.info(f'Stopping messages on {self}')
         self.__tx_thread.remove_all(self.channel)
 
     def send_signal(self, name, value=None, send_once=False):
@@ -346,7 +347,14 @@ class Channel:
             If there aren't any queued messages, (None, None) will be returned.
         """
         msg = self.db.get_message(name_or_msg_id)
-        return self.__rx_thread.dequeue_msg(self.channel, msg.id, timeout)
+        rx_time, data = self.__rx_thread.dequeue_msg(self.channel, msg.id,
+                                                     timeout)
+        if data is not None:
+            logging.info(f'{self.name[:8]: ^8} RX: {msg.id: >8X} {data: <16}')
+        else:
+            logging.info(f'{self.name[:8]: ^8} RX timeout: {msg.id: >8X} was '
+                         f'not received after {timeout} milliseconds')
+        return rx_time, data
 
     def send_recv(self, tx_id, tx_data, rx_id, timeout=1000, queue_size=1000):
         """Send a message and wait for a response."""
@@ -469,8 +477,9 @@ class ReceiveThread(Thread):
                 self.__time = time
                 # Check if the main thread is waiting on a received message
                 if self.__wait_args is not None:
-                    _, _, end_time = self.__wait_args
-                    if time > end_time:
+                    channel, msg_id, end_time = self.__wait_args
+                    queued = self.__msg_queues[channel][msg_id].qsize()
+                    if time > end_time or queued:
                         # The timeout has expired; wake up the main thread
                         self.__wait_args = None
                         self.__wait_sem.release()
@@ -615,7 +624,6 @@ class ReceiveThread(Thread):
         self.__log_file.write('base hex  timestamps absolute\n')
         self.__log_file.write('no internal events logged\n')
         self.__sleep_time = 0.01
-        logging.debug('__start_logging exit')
 
     def add_channel(self, channel, baud):
         """Start receiving on a channel."""
@@ -778,14 +786,14 @@ class ReceiveThread(Thread):
                 while self.__time is None:
                     sleep(0.01)
                 end_time = self.__time + (timeout / 1000)
-                logging.debug('wait_sem.acquire()')
+                # logging.debug('wait_sem.acquire()')
                 self.__wait_args = (channel, msg_id, end_time)
                 self.__wait_sem.acquire()
-                logging.debug('wait_sem.acquire() - returned')
+                # logging.debug('wait_sem.acquire() - returned')
             if timeout is None or msg_queues[msg_id].qsize():
-                logging.debug('queue.get()')
+                # logging.debug('queue.get()')
                 rx_time, msg_data = msg_queues[msg_id].get()
-                logging.debug('queue.get() - returned')
+                # logging.debug('queue.get() - returned')
         else:
             logging.error('Queue for 0x{:X} hasn\'t been started! Call '
                           'start_queuing first.'.format(msg_id))
@@ -878,7 +886,7 @@ class TransmitThread(Thread):
             self.__messages[channel][msg.id] = msg
             self.__update_times()
             msg._set_sending(True)
-            logging.info(f'Periodic added: 0x{msg.id:03X} {msg.data: <16} '
+            logging.info(f'Periodic added: {msg.id: >8X} {msg.data: <16} '
                          f'period={msg.period}ms')
 
     def remove(self, channel, msg):
@@ -889,7 +897,7 @@ class TransmitThread(Thread):
                 self.__num_msgs -= 1
                 self.__update_times()
                 msg._set_sending(False)
-            logging.info(f'Periodic removed: 0x{msg.id:03X} {msg.data: <16} '
+            logging.info(f'Periodic removed: {msg.id: >8X} {msg.data: <16} '
                          f'period={msg.period}ms')
         else:
             logging.warning(f'{msg.name} (0x{msg.id:X}) is not being sent!')

@@ -324,21 +324,12 @@ class UDS:
             nrc_text = nrc_dict[nrc]
         return nrc_text
 
-    def _send_recv(self, tx_data, timeout, tx_id=None, queue_size=10000):
-        """Similar to can.send_recv without changing any db Message data."""
-        tx_msg = self.tx_msg if tx_id is None else self.can.get_message(tx_id)
-        self.can.start_queue(self.rx_msg.id, queue_size)
-        tx_msg.data = tx_data
-        self.can._send(self.tx_msg, send_once=True)
-        _, msg_data = self.can.dequeue_msg(self.rx_msg.id, timeout)
-        return msg_data
-
     def send_service(self, service, values, fc_id=None, timeout=None):
         """Send a diagnostic serivce."""
         p2 = self.p2_server if timeout is None else timeout
         p2_star = self.p2_star_server
         num_bytes = 4
-        num = 0
+        msgs_to_rx = 0
         valid_resp = False
         data = False
         frames = []
@@ -353,7 +344,7 @@ class UDS:
             values = values[5:]
             num_frames = int(len(values) / 7) + (1 if len(values) % 7 else 0)
             for x in range(0, num_frames):
-                tmp = ''.join(['{y:02X}' for y in values[x * 7:x * 7 + 7]])
+                tmp = ''.join([f'{y:02X}' for y in values[x * 7:x * 7 + 7]])
                 frames.append(f'2{(x + 1) % 0x10:01X}{tmp}')
                 if x == num_frames - 1 and len(frames[-1]) < 16:
                     frames[-1] += '5' * (16 - len(frames[-1]))
@@ -363,26 +354,31 @@ class UDS:
             data = f'{length:02X}{service:02X}{values}'
             frames.append(data)
 
-        # Send out the first frame
-        if fc_id and len(frames) > 1:
-            resp = self._send_recv(frames[0], fc_id, timeout=p2)
+        if fc_id:
+            self.can.start_queue(fc_id, 10000)
         else:
-            resp = self._send_recv(frames[0], timeout=p2)
-        frames = frames[1:]
+            self.can.start_queue(self.rx_msg.id, 10000)
+        # Send out the first frame
+        self.tx_msg.data = frames[0]
+        self.can._send(self.tx_msg, send_once=True)
+        _, resp = self.can.dequeue_msg(self.rx_msg.id, p2)
         while resp and resp[2:8] == pending_resp:
-            _, resp = self.can.dequeue(self.rx_msg.id, p2_star)
-        self.can.stop_queue(self.rx_msg.id)
+            _, resp = self.can.dequeue_msg(self.rx_msg.id, p2_star)
+
+        if fc_id:
+            self.can.stop_queue(fc_id)
+            self.can.start_queue(self.rx_msg.id, 10000)
 
         if resp and len(frames) > 1:
             # Sending multiframe, expecting to receive a flow control frame
             if resp[0] == '3':    # Clear to send
-                for data in frames[:-1]:
+                frames = frames[1:]
+                for data in frames:
+                    self.tx_msg.data = data
                     self.can._send(self.tx_msg, send_once=True)
-                resp = self._send_recv(frames[-1], timeout=p2)
-
+                _, resp = self.can.dequeue_msg(self.rx_msg.id, p2)
                 while resp and resp[2:8] == pending_resp:
                     _, resp = self.can.dequeue_msg(self.rx_msg.id, p2_star)
-                self.can.stop_queue(self.rx_msg.id)
 
         if resp:
             if resp[0] == '1':    # multi-frame
@@ -398,7 +394,6 @@ class UDS:
                 num_bytes = int(resp[:2], 16)
                 # Remove the length
                 resp = resp[2:]
-
             if resp[:2] == positive_resp:  # and resp[2:4] == did:
                 valid_resp = True
                 # Remove the positive response byte
@@ -408,47 +403,40 @@ class UDS:
                 if num_bytes >= bytes_in_resp:
                     data = resp
                     bytes_left = num_bytes - bytes_in_resp
-                    num = int(bytes_left / 7)
+                    msgs_to_rx = int(bytes_left / 7)
                     # Add an extra frame if num_bytes isn't evenly divisble by 7
                     if bytes_left % 7 != 0:
-                        num += 1
+                        msgs_to_rx += 1
                 else:
                     data = resp[:2 * num_bytes]
-                    num = 0
+                    msgs_to_rx = 0
             else:
                 nrc = resp[4:6]
                 self.last_nrc = int(nrc, 16)
                 logging.info(f'Negative Response: {self.decode_nrc(nrc)}')
                 data = 0
-                num = 0
+                msgs_to_rx = 0
 
-            if num > 0:
+            if msgs_to_rx > 0:
                 # TODO: Implement other parameters for the flow control msg
                 # Multi frame response, send the flow control frame
-                if fc_id:
-                    resp = self._send_recv('3000000000000000', fc_id,
-                                           timeout=p2)
-                else:
-                    resp = self._send_recv('3000000000000000', timeout=p2)
-                if resp:
-                    rxMsgs = []
-                    messagesToReceive = num
-                    while messagesToReceive:
-                        if not resp:
-                            break
-                        elif resp[2:8] == pending_resp:
-                            _, resp = self.can.dequeue_msg(self.rx_msg.id,
-                                                           p2_star)
-                        else:
-                            messagesToReceive -= 1
-                            rxMsgs.append(resp)
-                            resp = self.can.dequeue_msg(self.rx_msg.id, p2)
-                    resp = rxMsgs
-
-                self.can.stop_queue(self.rx_msg.id)
+                self.tx_msg.data = '3000000000000000'
+                self.can._send(self.tx_msg, send_once=True)
+                msgs_received = []
+                timeout = p2
+                while len(msgs_received) < msgs_to_rx:
+                    _, resp = self.can.dequeue_msg(self.rx_msg.id, timeout)
+                    if not resp:
+                        break
+                    elif resp[2:8] == pending_resp:
+                        timeout = p2_star
+                    else:
+                        timeout = p2
+                        msgs_received.append(resp)
+                resp = msgs_received
 
                 if resp:
-                    if len(resp) == num:
+                    if len(resp) == msgs_to_rx:
                         seqnr = 1
                         tmp = ''
                         # Only return values in a valid sequence
@@ -466,6 +454,7 @@ class UDS:
                 else:
                     valid_resp = False
                     data = False
+        self.can.stop_queue(self.rx_msg.id)
 
         if valid_resp:
             if data:
