@@ -105,8 +105,7 @@ GOTO setup
 ECHO.
 ECHO.Installing pyvxl...
 ECHO.
-call python setup.py develop --uninstall
-call python setup.py install
+call pip3 install .
 IF ERRORLEVEL 1 GOTO setup_error
 ECHO.
 ECHO.pyvxl installed correctly
@@ -118,7 +117,7 @@ GOTO clean
 ECHO.
 ECHO.Installing pyvxl for development...
 ECHO.
-call python setup.py develop
+call pip3 install -e .
 IF ERRORLEVEL 1 GOTO setup_error
 ECHO.
 ECHO.pyvxl installed correctly
