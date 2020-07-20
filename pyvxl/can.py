@@ -438,7 +438,10 @@ class ReceiveThread(Thread):
 
         log_msgs = []
         elapsed = 0
-        while not self.__stopped.wait(self.__sleep_time):
+        while True:
+            sleep(self.__sleep_time)
+            if self.__stopped.is_set():
+                break
             # Check for changes in CAN hardware once per second
             elapsed += self.__sleep_time
             if elapsed >= 1:
