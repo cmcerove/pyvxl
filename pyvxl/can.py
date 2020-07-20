@@ -369,8 +369,7 @@ class ReceiveThread(Thread):
 
     def __init__(self, vxl, lock):
         """."""
-        super().__init__()
-        self.daemon = True
+        super().__init__(daemon=True)
         self.__vxl = vxl
         self.__rx_lock = lock
         # Format (channel, msg_id, end_time). These are used to tell the
@@ -639,6 +638,8 @@ class ReceiveThread(Thread):
         """Request the thread start logging."""
         if not isinstance(log_path, str):
             raise TypeError('Expected str but got {}'.format(type(log_path)))
+        if not log_path:
+            raise ValueError('log_path of "" is invalid')
         if self.__log_request == 'start':
             raise AssertionError('start_logging called twice.')
         elif self.__log_request == 'stop':
@@ -805,19 +806,17 @@ class TransmitThread(Thread):
 
     def __init__(self, vxl, lock):
         """."""
-        super().__init__()
-        self.daemon = True
+        super().__init__(daemon=True)
         self.__vxl = vxl
         self.__lock = lock
-        self.__stopped = Event()
         self.__messages = {}
         self.__num_msgs = 0
         self.__set_defaults()
 
     def run(self):
         """The main loop for the thread."""
-        while not self.__stopped.wait(self.__sleep_time_s):
-            # sleep(1)
+        while True:
+            sleep(self.__sleep_time_s)
             with self.__lock:
                 for channel, msgs in self.__messages.items():
                     for msg in msgs.values():
@@ -829,10 +828,6 @@ class TransmitThread(Thread):
                     self.__elapsed = self.__sleep_time_ms
                 else:
                     self.__elapsed += self.__sleep_time_ms
-
-    def stop(self):
-        """Stop the thread."""
-        self.__stopped.set()
 
     def __set_defaults(self):
         """Set values to defaults when no messages have been added."""
