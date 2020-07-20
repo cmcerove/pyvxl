@@ -836,7 +836,7 @@ class TransmitThread(Thread):
 
     def __set_defaults(self):
         """Set values to defaults when no messages have been added."""
-        self.__sleep_time_ms = 1
+        self.__sleep_time_ms = 1000
         self.__sleep_time_s = 1
         self.__max_increment = 0
         self.__elapsed = 0
@@ -857,15 +857,18 @@ class TransmitThread(Thread):
             self.__sleep_time_s = msg.period / 1000.0
             self.__max_increment = msg.period
             if self.__num_msgs > 1:
+                msg_start = msg
                 curr_gcd = self.__sleep_time_ms
                 curr_lcm = self.__max_increment
                 prev = msg.period
                 for msgs in self.__messages.values():
                     for msg in msgs.values():
+                        if msg is msg_start:
+                            continue
                         curr = msg.period
-                        tmp_gcd = gcd(prev, curr)
-                        tmp_lcm = prev * curr / tmp_gcd
-                        if curr_gcd is None or tmp_gcd < curr_gcd:
+                        tmp_gcd = gcd(curr_gcd, curr)
+                        tmp_lcm = int(prev * curr / gcd(prev, curr))
+                        if tmp_gcd < curr_gcd:
                             curr_gcd = tmp_gcd
                         if tmp_lcm > curr_lcm:
                             curr_lcm = tmp_lcm
