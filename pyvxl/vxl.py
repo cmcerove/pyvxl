@@ -361,7 +361,7 @@ class VxlChannel:
                 raise AssertionError('Failed flushing the rx queue for '
                                      f'{self}')
         if not vxl_activate_channel(self.vxl.port, self.mask,
-                                    self.vxl.bus_type, ACTIVATE_RESET_CLOCK):
+                                    self.vxl.bus_type, ACTIVATE_NONE):
             raise AssertionError(f'Failed activating {self}')
         self.__activated = True
 

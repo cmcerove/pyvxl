@@ -8,7 +8,7 @@ import atexit
 from os import path, remove
 from queue import Queue
 from time import localtime, sleep, perf_counter
-from threading import Thread, Event, Lock, BoundedSemaphore
+from threading import Thread, Event, Lock, BoundedSemaphore, Condition
 # TODO: Look into adding a condition for pausing the main thread while
 #       waiting for received messages.
 from math import gcd
@@ -822,22 +822,29 @@ class TransmitThread(Thread):
         self.__messages = {}
         self.__num_msgs = 0
         self.__set_defaults()
+        self.__updated = Condition(self.__lock)
 
     def run(self):
         """The main loop for the thread."""
+        time_wasted = 0
         while True:
-            sleep(self.__sleep_time_s)
+            start = perf_counter()
             with self.__lock:
-                for channel, msgs in self.__messages.items():
-                    for msg in msgs.values():
-                        if self.__elapsed % msg.period == 0:
-                            if msg.update_func is not None:
-                                msg.data = msg.update_func(msg)
-                            self.__vxl.send(channel, msg.id, msg.data)
-                if self.__elapsed >= self.__max_increment:
-                    self.__elapsed = self.__sleep_time_ms
+                if time_wasted < self.__sleep_time_s and \
+                   self.__updated.wait(self.__sleep_time_s - time_wasted):
+                    time_wasted += perf_counter() - start
                 else:
-                    self.__elapsed += self.__sleep_time_ms
+                    time_wasted = 0
+                    for channel, msgs in self.__messages.items():
+                        for msg in msgs.values():
+                            if self.__elapsed % msg.period == 0:
+                                if msg.update_func is not None:
+                                    msg.data = msg.update_func(msg)
+                                self.__vxl.send(channel, msg.id, msg.data)
+                    if self.__elapsed >= self.__max_increment:
+                        self.__elapsed = self.__sleep_time_ms
+                    else:
+                        self.__elapsed += self.__sleep_time_ms
 
     def __set_defaults(self):
         """Set values to defaults when no messages have been added."""
@@ -848,6 +855,7 @@ class TransmitThread(Thread):
 
     def __update_times(self):
         """Update times for the transmit loop."""
+        old_sleep_time = self.__sleep_time_s
         if self.__num_msgs == 0:
             self.__set_defaults()
         else:
@@ -883,6 +891,8 @@ class TransmitThread(Thread):
                 self.__max_increment = curr_lcm
             if self.__elapsed >= self.__max_increment:
                 self.__elapsed = self.__sleep_time_ms
+        if old_sleep_time != self.__sleep_time_s:
+            self.__updated.notify()
 
     def add(self, channel, msg):
         """Add a periodic message to the thread."""
