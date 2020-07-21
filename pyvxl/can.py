@@ -4,6 +4,7 @@
 
 import logging
 import re
+import atexit
 from os import path, remove
 from queue import Queue
 from time import localtime, sleep, perf_counter
@@ -391,7 +392,6 @@ class ReceiveThread(Thread):
         # Adding/replacing a queue in self.__msg_queues is safe since a
         # reference will still exist when self.__msg_queues[msg_id] is called.
         self.__queue_lock = Lock()
-        self.__stopped = Event()
         self.__time = 0
         self.__log_path = ''
         self.__log_file = None
@@ -404,10 +404,12 @@ class ReceiveThread(Thread):
         self.__bus_status = ''
         self.__tx_err_count = 0
         self.__rx_err_count = 0
+        self.__pending_msgs = []
         # Check for channel changes once per second and raise an error.
         # The vxlAPI.dll does not properly handle changes to the number of
         # channels after connecting to the dll.
         self.__init_channels = self.__vxl.get_can_channels(True)
+        atexit.register(self.stop)
 
     def run(self):
         """Main receive loop."""
@@ -436,12 +438,10 @@ class ReceiveThread(Thread):
         # type=0147,  ERROR_FRAME tid=00
         error_pat = re.compile(r'\w+=(\w+),\s+ERROR_FRAME\s\w+=(\d+)')
 
-        log_msgs = []
+        log_msgs = self.__pending_msgs
         elapsed = 0
         while True:
             sleep(self.__sleep_time)
-            if self.__stopped.is_set():
-                break
             # Check for changes in CAN hardware once per second
             elapsed += self.__sleep_time
             if elapsed >= 1:
@@ -528,7 +528,7 @@ class ReceiveThread(Thread):
                                                                        2)])
                         else:
                             data = ''
-                        if self.__log_file:
+                        if self.__log_file is not None:
                             if msg_id > 0x7FF:
                                 msg_id = '{:X}x'.format(msg_id & 0x1FFFFFFF)
                             else:
@@ -550,7 +550,7 @@ class ReceiveThread(Thread):
                         # Strip the extended message ID bit
                         msg_id &= 0x1FFFFFFF
                         self.__enqueue_msg(time, channel, msg_id, data)
-                        if self.__log_file:
+                        if self.__log_file is not None:
                             if msg_id > 0x7FF:
                                 msg_id = '{:X}x'.format(msg_id)
                             else:
@@ -569,14 +569,21 @@ class ReceiveThread(Thread):
             # writes to a file are slightly delayed.
             if self.__log_file is not None and log_msgs:
                 self.__log_file.writelines(log_msgs)
-                log_msgs = []
+                self.__log_file.flush()
+                log_msgs.clear()
         if self.__log_file is not None and log_msgs:
             self.__log_file.writelines(log_msgs)
             self.__stop_logging()
 
-    def __del__(self):
+    def stop(self):
         """Close open log file."""
-        self.__stopped.set()
+        if self.__log_file is not None:
+            if self.__pending_msgs:
+                logging.debug('writing pending messages to log')
+                self.__log_file.writelines(self.__pending_msgs)
+                self.__pending_msgs.clear()
+            self.__log_file.flush()
+            self.__log_file.close()
 
     def __receive(self, request_chip_state=False):
         """Receive incoming can frames."""
