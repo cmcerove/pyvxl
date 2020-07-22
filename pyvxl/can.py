@@ -8,7 +8,7 @@ import atexit
 from os import path, remove
 from queue import Queue
 from time import localtime, sleep, perf_counter
-from threading import Thread, Event, Lock, BoundedSemaphore, Condition
+from threading import Thread, Lock, BoundedSemaphore, Condition
 # TODO: Look into adding a condition for pausing the main thread while
 #       waiting for received messages.
 from math import gcd
@@ -154,7 +154,7 @@ class CAN(object):
 
 
 class Channel:
-    """A transmit only extension of VxlChannel."""
+    """The interface to a channel added through CAN.add_channel."""
 
     def __init__(self, vxl, tx_thread, rx_thread, num, baud, db_path):  # noqa
         self.__vxl = vxl
@@ -262,19 +262,19 @@ class Channel:
     def wait_for_no_error(self, timeout=0):
         """Block until a non error frame is received."""
         no_error = False
-        # Set errors_found so this function doesn't return immediately based
+        # Set the error state so this function doesn't return immediately based
         # on a previously received non error frame.
-        self.__rx_thread.errors_found = True
+        self.__rx_thread.set_error_state(self.channel, True)
         if not timeout:
             # Wait as long as necessary if there isn't a timeout set
-            while self.__rx_thread.errors_found:
+            while self.__rx_thread.get_error_state(self.channel):
                 sleep(0.001)
             no_error = True
         else:
             start = perf_counter()
             timeout = float(timeout) / 1000.0
             while (perf_counter() - start) < timeout:
-                if not self.__rx_thread.errors_found:
+                if not self.__rx_thread.get_error_state(self.channel):
                     no_error = True
                     break
                 sleep(0.001)
@@ -284,23 +284,22 @@ class Channel:
     def wait_for_error(self, timeout=0, flush=False):
         """Block until an error frame is received."""
         error = False
-        # Clear errors_found so this function doesn't return immediately based
-        # on a previously received error frame.
-        self.__rx_thread.errors_found = False
-
+        # Clear the error state so this function doesn't return immediately
+        # based on a previously received error frame.
+        self.__rx_thread.set_error_state(self.channel, False)
         if flush:
             self.__vxl.flush_queues()
 
         if not timeout:
             # Wait as long as necessary if there isn't a timeout set
-            while not self.__rx_thread.errors_found:
+            while not self.__rx_thread.get_error_state(self.channel):
                 sleep(0.001)
             error = True
         else:
             start = perf_counter()
             timeout = float(timeout) / 1000.0
             while (perf_counter() - start) < timeout:
-                if self.__rx_thread.errors_found:
+                if self.__rx_thread.get_error_state(self.channel):
                     error = True
                     break
                 sleep(0.001)
@@ -386,24 +385,19 @@ class ReceiveThread(Thread):
         # Decrement the semaphore by 1 so the next call to acquire will
         # block until the receive thread releases it.
         self.__wait_sem.acquire()
-        # This lock prevents queues from being removed from self.__msg_queues
-        # between the check 'msg_id in self.__msg_queues' and getting
-        # the item with self.__msg_queues[msg_id] which usually follows.
-        # Adding/replacing a queue in self.__msg_queues is safe since a
-        # reference will still exist when self.__msg_queues[msg_id] is called.
-        self.__queue_lock = Lock()
+        # This lock helps synchronize mutable types that are modified by both
+        # threads.
+        self.__lock = Lock()
         self.__time = 0
+        self.__sleep_time = 0.1
         self.__log_path = ''
         self.__log_file = None
         self.__log_errors = False
         self.__delete_log = False
         self.__log_request = Queue()
-        self.errors_found = False
         self.__msg_queues = {}
-        self.__sleep_time = 0.1
-        self.__bus_status = ''
-        self.__tx_err_count = 0
-        self.__rx_err_count = 0
+
+        self.__bus_status = {}
         self.__pending_msgs = []
         # Check for channel changes once per second and raise an error.
         # The vxlAPI.dll does not properly handle changes to the number of
@@ -479,8 +473,8 @@ class ReceiveThread(Thread):
                 self.__time = time
                 # Check if the main thread is waiting on a received message
                 if self.__wait_args is not None:
-                    channel, msg_id, end_time = self.__wait_args
-                    queued = self.__msg_queues[channel][msg_id].qsize()
+                    chan, msg_id, end_time = self.__wait_args
+                    queued = self.__msg_queues[chan][msg_id].qsize()
                     if time > end_time or queued:
                         # The timeout has expired; wake up the main thread
                         self.__wait_args = None
@@ -490,9 +484,11 @@ class ReceiveThread(Thread):
                 if msg_type == 'CHIP_STATE':
                     cs = chip_pat.match(data)
                     if cs:
-                        self.__bus_status = cs.group(1)
-                        self.__tx_err_count = int(cs.group(2))
-                        self.__rx_err_count = int(cs.group(3))
+                        bus_status = cs.group(1)
+                        tx_err_count = int(cs.group(2))
+                        rx_err_count = int(cs.group(3))
+                        self.__set_status(channel, bus_status, tx_err_count,
+                                          rx_err_count)
                     else:
                         logging.error('Received an unhandled format for '
                                       'CHIP_STATE: {}'.format(data))
@@ -500,7 +496,7 @@ class ReceiveThread(Thread):
                     # log_msgs.append(full_data + '\n')
                     error = error_pat.match(data)
                     if error:
-                        self.errors_found = True
+                        self.set_error_state(channel, True)
                         if not self.__log_errors:
                             data = self.__receive()
                             continue
@@ -509,7 +505,7 @@ class ReceiveThread(Thread):
                             # TODO: implement logging error frames
                             # data = self.__receive()
                             # continue
-                    self.errors_found = False
+                    self.set_error_state(channel, False)
                     rx_tx = rx_tx_pat.match(data)
                     if not rx_tx:
                         # id=81234567 l=0,  tid=00
@@ -606,6 +602,49 @@ class ReceiveThread(Thread):
                 data = None
         return data
 
+    def add_channel(self, channel, baud):
+        """Start receiving on a channel."""
+        with self.__lock:
+            self.__msg_queues[channel] = {}
+            self.__bus_status[channel] = {'bus_status': 'INACTIVE',
+                                          'tx_err_count': 0, 'rx_err_count': 0,
+                                          'error_state': False}
+
+    def remove_channel(self, channel):
+        """Remove a channel; stop receiving on it."""
+        with self.__lock:
+            self.__msg_queues.pop(channel)
+            self.__bus_status.pop(channel)
+
+    def __set_status(self, channel, bus_status, tx_err_count, rx_err_count):
+        """Set the status of a channel from a chip_state message."""
+        if channel in self.__bus_status:
+            self.__bus_status[channel]['bus_status'] = bus_status
+            self.__bus_status[channel]['tx_err_count'] = tx_err_count
+            self.__bus_status[channel]['rx_err_count'] = rx_err_count
+
+    def get_status(self, channel):
+        """Get information about a channel."""
+        status = {}
+        if channel in self.__bus_status:
+            status['bus_status'] = self.__bus_status[channel]['bus_status']
+            status['tx_err_count'] = self.__bus_status[channel]['tx_err_count']
+            status['rx_err_count'] = self.__bus_status[channel]['rx_err_count']
+        return status
+
+    def set_error_state(self, channel, error_state):
+        """Set the error state of a channel."""
+        with self.__lock:
+            if channel in self.__bus_status:
+                self.__bus_status[channel]['error_state'] = error_state
+
+    def get_error_state(self, channel):
+        """Get the error state of a channel."""
+        error = False
+        if channel in self.__bus_status:
+            error = self.__bus_status[channel]['error_state']
+        return error
+
     def __start_logging(self):
         """Start logging all traffic."""
         self.__log_request = None
@@ -633,16 +672,6 @@ class ReceiveThread(Thread):
         self.__log_file.write('base hex  timestamps absolute\n')
         self.__log_file.write('no internal events logged\n')
         self.__sleep_time = 0.01
-
-    def add_channel(self, channel, baud):
-        """Start receiving on a channel."""
-        with self.__queue_lock:
-            self.__msg_queues[channel] = {}
-
-    def remove_channel(self, channel):
-        """Remove a channel; stop receiving on it."""
-        with self.__queue_lock:
-            self.__msg_queues.pop(channel)
 
     def start_logging(self, log_path, add_date=True, log_errors=False):
         """Request the thread start logging."""
@@ -711,10 +740,10 @@ class ReceiveThread(Thread):
 
     def start_queue(self, channel, msg_id, queue_size):
         """Start queuing all data received for msg_id."""
-        with self.__queue_lock:
+        with self.__lock:
             if channel in self.__msg_queues:
                 if msg_id in self.__msg_queues[channel]:
-                    self.__msg_queues[channel][msg_id].pop(msg_id)
+                    self.__msg_queues[channel].pop(msg_id)
                 self.__msg_queues[channel][msg_id] = Queue(queue_size)
                 self.__sleep_time = 0.01
             else:
@@ -722,7 +751,7 @@ class ReceiveThread(Thread):
 
     def stop_queue(self, channel, msg_id):
         """Stop queuing received data for msg_id."""
-        with self.__queue_lock:
+        with self.__lock:
             if channel in self.__msg_queues:
                 self.__msg_queues[channel].pop(msg_id)
                 for channel in self.__msg_queues:
@@ -745,7 +774,7 @@ class ReceiveThread(Thread):
 
     def stop_all_queues(self):
         """Stop all queues."""
-        with self.__queue_lock:
+        with self.__lock:
             for channel in self.__msg_queues:
                 self.__msg_queues[channel] = {}
             if not self.__log_request and not self.__log_path:
@@ -753,7 +782,7 @@ class ReceiveThread(Thread):
 
     def __enqueue_msg(self, rx_time, channel, msg_id, data):
         """Put a received message in the queue."""
-        with self.__queue_lock:
+        with self.__lock:
             if channel in self.__msg_queues:
                 msg_queues = self.__msg_queues[channel]
             else:
