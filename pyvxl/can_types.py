@@ -487,7 +487,6 @@ class Signal:
 
     def __init__(self, name, mux, bit_msb, bit_len, endianness, signedness,
                  scale, offset, min_val, max_val, units, receivers):  # noqa
-        """."""
         self.name = name
         self.mux = mux  # not implemented
         self.endianness = endianness
