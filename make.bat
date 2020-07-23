@@ -1,5 +1,7 @@
 @ECHO OFF
 
+SET MODULE=pyvxl
+
 :: "Makefile" for Windows
 set "installDir=.\lib"
 set "inspy=0"
@@ -17,19 +19,21 @@ if "%1" == "clean" GOTO clean
 GOTO help
 
 :check_python
-if %ins%==1 PAUSE
-set "ins=0"
-set "arch=False"
-if not exist "C:\Python27\python.exe" (
-    GOTO python
-    set "arch=True"
-) else (
-    :: Check that python is 32bit
-    for /f %%i in ('C:\Python27\python.exe -c "import platform;print bool(platform.architecture()[0] == '32bit')"') do (set "arch=%%i")
-)
-if %arch% == False GOTO arch_error
-if not exist "C:\Python27\Scripts\pip.exe" GOTO pip
-if not exist "C:\Python27\Scripts\easy_install.exe" GOTO easyinstall
+rem TODO: Change this to an exe that checks the latest version of python 3
+rem       is installed. If it isn't installed, it will download and install it.
+rem if %ins%==1 PAUSE
+rem set "ins=0"
+rem set "arch=False"
+rem if not exist "C:\Python27\python.exe" (
+rem     GOTO python
+rem     set "arch=True"
+rem ) else (
+rem     :: Check that python is 32bit
+rem     for /f %%i in ('C:\Python27\python.exe -c "import platform;print bool(platform.architecture()[0] == '32bit')"') do (set "arch=%%i")
+rem )
+rem if %arch% == False GOTO arch_error
+rem if not exist "C:\Python27\Scripts\pip.exe" GOTO pip
+rem if not exist "C:\Python27\Scripts\easy_install.exe" GOTO easyinstall
 GOTO check_path
 
 :python
@@ -72,24 +76,26 @@ set "ins=1"
 GOTO check_python
 
 :check_path
-echo.
-reg query HKEY_CURRENT_USER\Environment /v "path" > nul 2>&1
-if errorlevel 1 goto nopath
-set "test="
-for /f "tokens=*" %%i in ('reg query HKEY_CURRENT_USER\Environment /v "path"') do (
-    set "test=%test%%%i"
-)
-set "test=%test:~18%"
-set "searchVal=python27"
-@setlocal enableextensions enabledelayedexpansion
-if not "x!test:%searchVal%=!"=="x%test%" GOTO setup
-endlocal
-echo.Adding python to environment variables...
-echo.
-setx PATH "C:\Python27;C:\Python27\Scripts;%test%;"
-rem Backward compatibility for Windows XP
-set "PATH=C:\Python27;C:\Python27\Scripts;%test%;"
-echo.
+rem TODO: This check should also be done in the exe for downloading/installing
+rem       python.
+rem echo.
+rem reg query HKEY_CURRENT_USER\Environment /v "path" > nul 2>&1
+rem if errorlevel 1 goto nopath
+rem set "test="
+rem for /f "tokens=*" %%i in ('reg query HKEY_CURRENT_USER\Environment /v "path"') do (
+rem     set "test=%test%%%i"
+rem )
+rem set "test=%test:~18%"
+rem set "searchVal=python27"
+rem @setlocal enableextensions enabledelayedexpansion
+rem if not "x!test:%searchVal%=!"=="x%test%" GOTO setup
+rem endlocal
+rem echo.Adding python to environment variables...
+rem echo.
+rem setx PATH "C:\Python27;C:\Python27\Scripts;%test%;"
+rem rem Backward compatibility for Windows XP
+rem set "PATH=C:\Python27;C:\Python27\Scripts;%test%;"
+rem echo.
 GOTO setup
 
 :nopath
@@ -103,27 +109,27 @@ GOTO setup
 
 :setup
 ECHO.
-ECHO.Installing pyvxl...
+ECHO.Installing %MODULE%...
 ECHO.
 call pip3 install .
 IF ERRORLEVEL 1 GOTO setup_error
 ECHO.
-ECHO.pyvxl installed correctly
+ECHO.%MODULE% installed correctly
 echo.
 ECHO.
 GOTO clean
 
 :setup_develop
 ECHO.
-ECHO.Installing pyvxl for development...
+ECHO.Installing %MODULE% for development...
 ECHO.
 call pip3 install -e .
 IF ERRORLEVEL 1 GOTO setup_error
 ECHO.
-ECHO.pyvxl installed correctly
+ECHO.%MODULE% installed correctly
 echo.
 ECHO.
-GOTO clean
+GOTO clean_develop
 
 :doc
 ECHO.
@@ -150,7 +156,18 @@ START cover\index.html
 GOTO end
 
 :clean
-DEL pyvxl\*.pyc 2>NUL
+SLEEP 0.2
+DEL %MODULE%\*.pyc 2>NUL
+RD /s/q dist 2>NUL
+RD /s/q %MODULE%.egg-info 2>NUL
+RD /s/q build 2>NUL
+GOTO end
+
+:clean_develop
+SLEEP 0.2
+DEL %MODULE%\*.pyc 2>NUL
+RD /s/q dist 2>NUL
+RD /s/q build 2>NUL
 GOTO end
 
 :help
@@ -167,7 +184,7 @@ goto error
 
 :setup_error
 echo.
-echo.pyvxl did not install successfully.
+echo.%MODULE% did not install successfully.
 echo.
 echo.Try reruning the batch file.
 echo.
