@@ -681,7 +681,8 @@ class Signal:
 
         size = len('{:b}'.format(num))
         if size > self.bit_len:
-            raise ValueError('Unable to set {} to  {}; value too large!'
+            raise ValueError('Unable to set {} to {}; value too large!'
+
                              ''.format(self.name, num))
 
         if negative:
