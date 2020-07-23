@@ -156,7 +156,7 @@ START cover\index.html
 GOTO end
 
 :clean
-SLEEP 0.2
+call python -c "import time; time.sleep(0.2)"
 DEL %MODULE%\*.pyc 2>NUL
 RD /s/q dist 2>NUL
 RD /s/q %MODULE%.egg-info 2>NUL
@@ -164,7 +164,7 @@ RD /s/q build 2>NUL
 GOTO end
 
 :clean_develop
-SLEEP 0.2
+call python -c "import time; time.sleep(0.2)"
 DEL %MODULE%\*.pyc 2>NUL
 RD /s/q dist 2>NUL
 RD /s/q build 2>NUL
