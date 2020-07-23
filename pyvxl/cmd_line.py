@@ -1,53 +1,34 @@
 #!/usr/bin/env python
 
-"""
-The command line program run when typing 'can'
-"""
+"""Command line interface to pyvxl. Installed in python/scripts as 'can'."""
 
-import sys, logging, traceback, socket, select, os, subprocess
+import sys
+import logging
+import traceback
+import socket
+import select
+import os
+import subprocess
 from argparse import ArgumentParser
 from colorama import Fore, Style
-from pyvxl import config, settings
+from pyvxl import config
 from pyvxl import CAN
-from pyvxl.initbus import initbus
 
 __program__ = 'can'
 
 
-def initialize_bus(can, node=None):
-    """Called by the command 'init' and by default starts all periodics found
-       in the database except those transmitted by the device under test.
-
-       For a more specific initialization, see initbus.py located in this
-       directory.
-    """
-    can.hvWakeUp()
-    if node:
-        can.start_periodics(node)
-    else:
-        # Calls initbus() within initbus.py - currently being used in to
-        # send required periodics not found in the database and inital signal
-        # values simulating a running vehicle.
-        initbus(can)
-
 def print_help():
-    """Called by the command h or help"""
+    """Called by the command h or help."""
     # pylint: disable=C0301
     helpcolor = Fore.RED + Style.BRIGHT
-    helprst = Fore.RESET+Style.RESET_ALL
+    helprst = Fore.RESET + Style.RESET_ALL
     # TODO: Convert this to a list and print(like it's being piped to less)
-    print(helpcolor+'Valid commands:')
+    print(helpcolor + 'Valid commands:')
     print('')
     print(' - Bus Manipulation -----------------------------------------------------------')
     print('  restart')
     print('     - Reconnects to the CAN bus. Useful if the error light on the CAN case is')
     print('       red.')
-    print('')
-    print('  init [node]')
-    print('     - Without a value for [node], calls initbus.py, sending all signals')
-    print('       defined in that file. With [node], calls vector.start_periodics(node),')
-    print('       starting all periodics in the database except those transmitted by')
-    print('       [node].')
     print('')
     print('  send signal <-f> <signal> <value> ')
     print('     - Send the msg containing <signal> with the signal value = <value>.')
@@ -189,10 +170,10 @@ def main():
                 subprocess.call(['python', path])
         sys.exit(0)
     if args.verbose:
-        logging.basicConfig(format=settings.VERBOSE_DEBUG_MESSAGE,
+        logging.basicConfig(format=config.VERBOSE_DEBUG_MESSAGE,
                             level=logging.DEBUG)
     else:
-        logging.basicConfig(format=settings.DEFAULT_DEBUG_MESSAGE,
+        logging.basicConfig(format=config.DEFAULT_DEBUG_MESSAGE,
                             level=logging.INFO)
     dbcPath = config.get(config.DBC_PATH_1)
     baudRate = config.get(config.CAN_BAUD_RATE_1)
@@ -251,7 +232,7 @@ def main():
         logging.info('Starting in CAN only mode')
     validCommands = ['send', 'stop', 'stopall', 'find', 'stopnode', 'log',
                      'periodics', 'config', 'h', 'waitfor', 'help', 'exit',
-                     'q', 'init', 'restart']
+                     'q', 'restart']
     HOST = ''
     PORT = 50000+(2*channel)
     sock = None
@@ -407,7 +388,7 @@ def main():
                     elif command == 'config':
                         can.print_config()
                         print('Connected to channel: '+str(can.channel.value)+
-                               ' @ '+str(can.baud_rate)+'Bd!')
+                              ' @ '+str(can.baud_rate)+'Bd!')
                     elif command == 'waitfor':
                         data = ''
                         if len(s) == 3:
@@ -421,11 +402,6 @@ def main():
                                 conn.sendall(data)
                             else:
                                 conn.sendall('')
-                    elif command == 'init':
-                        if len(s) > 1:
-                            initialize_bus(can, node=s[1])
-                        else:
-                            initialize_bus(can)
                     elif command == 'periodics':
                         if len(s) > 1:
                             if s[1] == 'info':
@@ -433,7 +409,7 @@ def main():
                                     inp = ' '.join(s[2:])
                                     print(inp)
                                     can.print_periodics(info=True,
-                                                        searchFor=inp)
+                                                        search_for=inp)
                                 else:
                                     can.print_periodics(info=True)
                             else:
