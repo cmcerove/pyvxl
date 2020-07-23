@@ -214,7 +214,7 @@ class DBCParser:
         print('Syntax error at token {p.type} ({p.value}) on line {p.lineno}')
 
     def p_dbc(self, p):  # noqa
-        '''dbc : version \
+        """dbc : version \
                  symbol_section \
                  message_section \
                  node_dict \
@@ -230,24 +230,24 @@ class DBCParser:
                  attribute_rel_list \
                  val_list \
                  sig_valtype_list \
-                 signal_group_list'''
+                 signal_group_list"""
         pass
 
     def p_version(self, p):  # noqa
-        '''version : VERSION STRING_VAL'''
+        """version : VERSION STRING_VAL"""
         p[0] = p[2]
 
     def p_symbol_section(self, p):  # noqa
-        '''symbol_section : NS ':'
-                          | NS ':' symbol_list'''
+        """symbol_section : NS ':'
+                          | NS ':' symbol_list"""
         if len(p) > 3 and len(p[3]) > 3:
             p[0] = p[3]
         else:
             p[0] = []
 
     def p_symbol_list(self, p):  # noqa
-        '''symbol_list : symbol
-                       | symbol symbol_list'''
+        """symbol_list : symbol
+                       | symbol symbol_list"""
         if len(p) > 2:
             p[0] = p[2]
             p[0].insert(0, p[1])
@@ -255,7 +255,7 @@ class DBCParser:
             p[0] = [p[1]]
 
     def p_symbol(self, p):  # noqa
-        '''symbol : NS_DESC
+        """symbol : NS_DESC
                   | CM
                   | BA_DEF
                   | BA
@@ -282,16 +282,16 @@ class DBCParser:
                   | BU_SG_REL
                   | BU_EV_REL
                   | BU_BO_REL
-                  | SG_MUL_VAL'''
+                  | SG_MUL_VAL"""
         p[0] = p[1]
 
     def p_message_section(self, p):  # noqa
-        '''message_section : BS ':' '''
+        """message_section : BS ':' """
         pass
 
     def p_space_node_dict(self, p):  # noqa
-        '''space_node_dict : empty
-                           | ID space_node_dict'''
+        """space_node_dict : empty
+                           | ID space_node_dict"""
         if p[1]:
             p[0] = p[2]
             p[0][p[1].lower()] = self.node_type(p[1])
@@ -299,21 +299,21 @@ class DBCParser:
             p[0] = self.nodes
 
     def p_node_dict(self, p):  # noqa
-        '''node_dict : BU ':' space_node_dict'''
+        """node_dict : BU ':' space_node_dict"""
         p[0] = p[3]
 
     def p_valtable_list(self, p):  # noqa
-        '''valtable_list : empty
-                         | valtable valtable_list'''
+        """valtable_list : empty
+                         | valtable valtable_list"""
         pass
 
     def p_valtable(self, p):  # noqa
-        '''valtable : VAL_TABLE ID val_map ';' '''
+        """valtable : VAL_TABLE ID val_map ';' """
         pass
 
     def p_message_dict(self, p):  # noqa
-        '''message_dict : empty
-                        | message message_dict'''
+        """message_dict : empty
+                        | message message_dict"""
         if p[1]:
             p[0] = p[2]
             p[0][p[1].id] = p[1]
@@ -324,14 +324,14 @@ class DBCParser:
             p[0] = self.messages
 
     def p_message(self, p):  # noqa
-        '''message : BO INT_VAL ID ':' INT_VAL ID signal_list'''
+        """message : BO INT_VAL ID ':' INT_VAL ID signal_list"""
         p[0] = self.message_type(p[2], p[3], p[5], p[6], p[7])
         for sig in p[7]:
             sig.msg_id = p[2]
 
     def p_signal_list(self, p):  # noqa
-        '''signal_list : empty
-                       | signal signal_list'''
+        """signal_list : empty
+                       | signal signal_list"""
         if p[1]:
             p[0] = p[2]
             p[0].append(p[1])
@@ -339,14 +339,14 @@ class DBCParser:
             p[0] = []
 
     def p_signal(self, p):  # noqa
-        '''signal : SG signal_name mux_info ':' bit_msb '|' bit_len '@' endianness signedness '(' scale ',' offset ')' '[' min '|' max ']' STRING_VAL comma_identifier_list'''
+        """signal : SG signal_name mux_info ':' bit_msb '|' bit_len '@' endianness signedness '(' scale ',' offset ')' '[' min '|' max ']' STRING_VAL comma_identifier_list"""
         p[0] = self.signal_type(p[2], p[3], p[5], p[7], p[9], p[10], p[12],
                                 p[14], p[17], p[19], p[21], p[22])
         self.signals[p[2].lower()] = p[0]
 
     def p_envvar_list(self, p):  # noqa
-        '''envvar_list : empty
-                       | envvar envvar_list'''
+        """envvar_list : empty
+                       | envvar envvar_list"""
         if p[1]:
             p[0] = p[2]
             p[0].append(p[1])
@@ -354,13 +354,13 @@ class DBCParser:
             p[0] = []
 
     def p_envvar(self, p):  # noqa
-        '''envvar : EV ID ':' INT_VAL '[' double_val '|' double_val ']' \
-                    STRING_VAL double_val INT_VAL DUMMY_NODE_VECTOR comma_identifier_list ';' '''
+        """envvar : EV ID ':' INT_VAL '[' double_val '|' double_val ']' \
+                    STRING_VAL double_val INT_VAL DUMMY_NODE_VECTOR comma_identifier_list ';' """
         p[0] = DBCEnvVar(p[2], p[4], p[6], p[8], p[10], p[11], p[12], p[13], p[14])
 
     def p_envvar_data_list(self, p):  # noqa
-        '''envvar_data_list : empty
-                            | envvar_data envvar_data_list'''
+        """envvar_data_list : empty
+                            | envvar_data envvar_data_list"""
         if p[1]:
             p[0] = p[2]
             p[0].append(p[1])
@@ -368,18 +368,18 @@ class DBCParser:
             p[0] = []
 
     def p_envvar_data(self, p):  # noqa
-        '''envvar_data : ENVVAR_DATA ID ':' INT_VAL ';' '''
+        """envvar_data : ENVVAR_DATA ID ':' INT_VAL ';' """
         pass
 
     def p_attribute_value(self, p):  # noqa
-        '''attribute_value : INT_VAL
+        """attribute_value : INT_VAL
                            | STRING_VAL
-                           | DOUBLE_VAL'''
+                           | DOUBLE_VAL"""
         p[0] = p[1]
 
     def p_attribute_list(self, p):  # noqa
-        '''attribute_list : empty
-                          | attribute attribute_list'''
+        """attribute_list : empty
+                          | attribute attribute_list"""
         if p[1]:
             p[0] = p[2]
             p[0][p[1][0]] = p[1][1]
@@ -387,11 +387,11 @@ class DBCParser:
             p[0] = {}
 
     def p_attribute(self, p):  # noqa
-        '''attribute : BA STRING_VAL attribute_value ';'
+        """attribute : BA STRING_VAL attribute_value ';'
                      | BA STRING_VAL BU ID attribute_value ';'
                      | BA STRING_VAL BO INT_VAL attribute_value ';'
                      | BA STRING_VAL SG INT_VAL ID attribute_value ';'
-                     | BA STRING_VAL EV ID attribute_value ';' '''
+                     | BA STRING_VAL EV ID attribute_value ';' """
         if p[2] == 'SignalLongName':
             self.signals[p[5].lower()].long_name = p[6]
         elif p[2] == 'GenSigStartValue':
@@ -413,70 +413,70 @@ class DBCParser:
             self.messages[int(p[4]) & 0x1FFFFFFF].repetitions = p[5]
 
     def p_attribute_rel_list(self, p):  # noqa
-        '''attribute_rel_list : empty
-                              | attribute_rel attribute_rel_list'''
+        """attribute_rel_list : empty
+                              | attribute_rel attribute_rel_list"""
         pass
 
     def p_attribute_rel(self, p):  # noqa
-        '''attribute_rel : BA_REL STRING_VAL BU_SG_REL ID SG INT_VAL signal_name attribute_value ';' '''
+        """attribute_rel : BA_REL STRING_VAL BU_SG_REL ID SG INT_VAL signal_name attribute_value ';' """
         pass
 
     def p_attribute_definition_default_list(self, p):  # noqa
-        '''attribute_definition_default_list : empty
-                                             | attribute_definition_default attribute_definition_default_list'''
+        """attribute_definition_default_list : empty
+                                             | attribute_definition_default attribute_definition_default_list"""
         pass
 
     def p_attribute_definition_default(self, p):  # noqa
-        '''attribute_definition_default : attribute_definition_object_or_relation STRING_VAL INT_VAL ';'
+        """attribute_definition_default : attribute_definition_object_or_relation STRING_VAL INT_VAL ';'
                                         | attribute_definition_object_or_relation STRING_VAL DOUBLE_VAL ';'
-                                        | attribute_definition_object_or_relation STRING_VAL STRING_VAL ';' '''
+                                        | attribute_definition_object_or_relation STRING_VAL STRING_VAL ';' """
         pass
 
     def p_attribute_definition_object_or_relation(self, p):  # noqa
-        '''attribute_definition_object_or_relation : BA_DEF_DEF
-                                                   | BA_DEF_DEF_REL'''
+        """attribute_definition_object_or_relation : BA_DEF_DEF
+                                                   | BA_DEF_DEF_REL"""
         pass
 
     def p_attribute_definition_list(self, p):  # noqa
-        '''attribute_definition_list : empty
-                                     | attribute_definition attribute_definition_list'''
+        """attribute_definition_list : empty
+                                     | attribute_definition attribute_definition_list"""
         pass
 
     def p_attribute_definition(self, p):  # noqa
-        '''attribute_definition : attribute_object_type STRING_VAL INT INT_VAL INT_VAL ';'
+        """attribute_definition : attribute_object_type STRING_VAL INT INT_VAL INT_VAL ';'
                                 | attribute_object_type STRING_VAL FLOAT double_val double_val ';'
                                 | attribute_object_type STRING_VAL STRING ';'
                                 | attribute_object_type STRING_VAL ENUM comma_string_list ';'
-                                | attribute_object_type STRING_VAL HEX INT_VAL INT_VAL ';' '''
+                                | attribute_object_type STRING_VAL HEX INT_VAL INT_VAL ';' """
         if p[2] == 'GenMsgSendType' and p[3] == 'ENUM':
             self.send_types = p[4]
             self.send_types.reverse()
 
     def p_attribute_object_type(self, p):  # noqa
-        '''attribute_object_type : BA_DEF
+        """attribute_object_type : BA_DEF
                                  | BA_DEF BU
                                  | BA_DEF BO
                                  | BA_DEF SG
                                  | BA_DEF EV
                                  | BA_DEF_REL BU_SG_REL
-                                 | BA_DEF_REL BU_BO_REL'''
+                                 | BA_DEF_REL BU_BO_REL"""
         if len(p) == 3:
             p[0] = p[2]
 
     def p_val_list(self, p):  # noqa
-        '''val_list : empty
-                    | val val_list'''
+        """val_list : empty
+                    | val val_list"""
         pass
 
     def p_val(self, p):  # noqa
-        '''val : VAL INT_VAL signal_name val_map ';'
-               | VAL ID val_map ';' '''
+        """val : VAL INT_VAL signal_name val_map ';'
+               | VAL ID val_map ';' """
         if len(p) == 6:
             self.signals[p[3].lower()].values = p[4]
 
     def p_val_map(self, p):  # noqa
-        '''val_map : empty
-                   | val_map_entry val_map'''
+        """val_map : empty
+                   | val_map_entry val_map"""
         if p[1]:
             p[0] = p[2]
             p[2][p[1][1]] = p[1][0]
@@ -484,47 +484,47 @@ class DBCParser:
             p[0] = {}
 
     def p_val_map_entry(self, p):  # noqa
-        '''val_map_entry : INT_VAL STRING_VAL'''
+        """val_map_entry : INT_VAL STRING_VAL"""
         p[0] = (p[1], p[2].lower())
 
     def p_sig_valtype_list(self, p):  # noqa
-        '''sig_valtype_list : empty
-                            | sig_valtype sig_valtype_list'''
+        """sig_valtype_list : empty
+                            | sig_valtype sig_valtype_list"""
         pass
 
     def p_sig_valtype(self, p):  # noqa
-        '''sig_valtype : SIG_VALTYPE INT_VAL ID ':' INT_VAL ';' '''
+        """sig_valtype : SIG_VALTYPE INT_VAL ID ':' INT_VAL ';' """
         pass
 
     def p_comment_list(self, p):  # noqa
-        '''comment_list : empty
-                        | comment comment_list'''
+        """comment_list : empty
+                        | comment comment_list"""
         pass
 
     def p_comment(self, p):  # noqa
-        '''comment : CM STRING_VAL ';'
+        """comment : CM STRING_VAL ';'
                    | CM EV ID STRING_VAL ';'
                    | CM BU ID STRING_VAL ';'
                    | CM BO INT_VAL STRING_VAL ';'
-                   | CM SG INT_VAL ID STRING_VAL ';' '''
+                   | CM SG INT_VAL ID STRING_VAL ';' """
         pass
 
     def p_mux_info(self, p):  # noqa
-        '''mux_info : empty
-                    | ID'''
+        """mux_info : empty
+                    | ID"""
         pass
 
     def p_signal_name(self, p):  # noqa
-        '''signal_name : ID'''
+        """signal_name : ID"""
         p[0] = p[1]
 
     def p_signal_name_list(self, p):  # noqa
-        '''signal_name_list : space_identifier_list'''
+        """signal_name_list : space_identifier_list"""
         p[0] = p[1]
 
     def p_space_identifier_list(self, p):  # noqa
-        '''space_identifier_list : ID
-                                 | ID space_identifier_list'''
+        """space_identifier_list : ID
+                                 | ID space_identifier_list"""
         if len(p) == 3:
             p[0] = p[2]
             p[0].append(p[1])
@@ -532,8 +532,8 @@ class DBCParser:
             p[0] = [p[1]]
 
     def p_comma_identifier_list(self, p):  # noqa
-        '''comma_identifier_list : ID
-                                 | ID ',' comma_identifier_list'''
+        """comma_identifier_list : ID
+                                 | ID ',' comma_identifier_list"""
         if len(p) == 4:
             p[0] = p[2]
             p[0].append(p[1])
@@ -541,8 +541,8 @@ class DBCParser:
             p[0] = [p[1]]
 
     def p_comma_string_list(self, p):  # noqa
-        '''comma_string_list : STRING_VAL
-                             | STRING_VAL ',' comma_string_list'''
+        """comma_string_list : STRING_VAL
+                             | STRING_VAL ',' comma_string_list"""
         if len(p) == 4:
             p[0] = p[3]
             p[0].append(p[1])
@@ -550,63 +550,63 @@ class DBCParser:
             p[0] = [p[1]]
 
     def p_double_val(self, p):  # noqa
-        '''double_val : DOUBLE_VAL
+        """double_val : DOUBLE_VAL
                       | NAN
-                      | INT_VAL'''
+                      | INT_VAL"""
         if 'NAN' != p[1]:
             p[0] = float(p[1])
         else:
             p[0] = None
 
     def p_bit_msb(self, p):  # noqa
-        '''bit_msb : INT_VAL'''
+        """bit_msb : INT_VAL"""
         p[0] = p[1]
 
     def p_bit_len(self, p):  # noqa
-        '''bit_len : INT_VAL'''
+        """bit_len : INT_VAL"""
         p[0] = p[1]
 
     def p_scale(self, p):  # noqa
-        '''scale : double_val'''
+        """scale : double_val"""
         p[0] = p[1]
 
     def p_offset(self, p):  # noqa
-        '''offset : double_val'''
+        """offset : double_val"""
         p[0] = p[1]
 
     def p_min(self, p):  # noqa
-        '''min : double_val'''
+        """min : double_val"""
         p[0] = p[1]
 
     def p_max(self, p):  # noqa
-        '''max : double_val'''
+        """max : double_val"""
         p[0] = p[1]
 
     def p_endianness(self, p):  # noqa
-        '''endianness : INT_VAL'''
+        """endianness : INT_VAL"""
         p[0] = p[1]
 
     def p_signedness(self, p):  # noqa
-        '''signedness : '+'
-                      | '-' '''
+        """signedness : '+'
+                      | '-' """
         pass
 
     def p_signal_group(self, p):  # noqa
-        '''signal_group : SIG_GROUP INT_VAL ID INT_VAL ':' signal_name_list ';' '''
+        """signal_group : SIG_GROUP INT_VAL ID INT_VAL ':' signal_name_list ';' """
         pass
 
     def p_signal_group_list(self, p):  # noqa
-        '''signal_group_list : empty
-                             | signal_group signal_group_list'''
+        """signal_group_list : empty
+                             | signal_group signal_group_list"""
         pass
 
     def p_message_transmitters(self, p):  # noqa
-        '''message_transmitters : BO_TX_BU INT_VAL ':' comma_identifier_list ';' '''
+        """message_transmitters : BO_TX_BU INT_VAL ':' comma_identifier_list ';' """
         pass
 
     def p_message_transmitter_list(self, p):  # noqa
-        '''message_transmitter_list : empty
-                                    | message_transmitters message_transmitter_list'''
+        """message_transmitter_list : empty
+                                    | message_transmitters message_transmitter_list"""
         pass
 
     def p_empty(self, p):  # noqa

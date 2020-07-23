@@ -18,6 +18,9 @@ LIB_PATH = os.path.normpath(os.path.join(os.path.dirname(__file__), 'lib'))
 DLL_PATH = ('c:\\Users\\Public\\Documents\\Vector XL Driver Library\\bin\\'
             'vxlapi.dll')
 
+# TODO: Figure out how to check the installed version to decide if updating
+#       is necessary.
+
 try:
     if os.name == 'nt':
         vxDLL = WinDLL(DLL_PATH)
