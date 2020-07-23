@@ -439,7 +439,8 @@ class Message:
         self.__sending = value
 
     def pprint(self):
-        """Print colored info abnout the message to stdout."""
+        """Print colored info about the message to stdout."""
+
         colorama_init()
         print('')
         color = Style.BRIGHT + Fore.GREEN
