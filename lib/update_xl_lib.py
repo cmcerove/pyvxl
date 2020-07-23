@@ -1,11 +1,11 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 """Download the latest 32 bit version of python 3."""
 
 from __future__ import print_function
 import logging
 import re
-from urllib2 import urlopen
+from urllib.request import urlopen
 from bs4 import BeautifulSoup
 from os import remove
 from os import system as run

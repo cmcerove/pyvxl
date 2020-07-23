@@ -1,18 +1,14 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 """
-Installer for pyvxl libraries and command-line tools.
+Installer for pyvxl.
 
 Run 'make.bat' to install.
-
-Requires setuptools (http://pypi.python.org/pypi/setuptools/).
 """
 
 import os
 import sys
-import platform
-import subprocess
-import pkg_resources
+
 if os.name == 'nt':
     from ctypes import WinDLL
 from setuptools import setup, find_packages
@@ -30,7 +26,7 @@ except WindowsError:
     if not admin.isUserAdmin():
         path = os.path.join(LIB_PATH, 'xl_lib97.exe')
         admin.runAsAdmin(cmdLine=[path])
-        raw_input('Press return to continue . . .')
+        input('Press return to continue . . .')
     else:
         print('Failed to aquire admin privileges necessary to install '
               'xl_lib97. Aborting...')
@@ -43,7 +39,7 @@ if os.name == 'nt':
 setup(
 
     name='pyvxl',
-    version='0.1.2',
+    version='0.2.0',
 
     description=('A python interface to the vector vxlapi.dll.'),
     author='Chris Cerovec',
@@ -57,7 +53,8 @@ setup(
                       'pytest',
                       'colorama',
                       'configparser',
-                      'pypiwin32'],
+                      'pypiwin32',
+                      'beautifulsoup4'],
 
     classifiers=[
         'Programming Language :: Python :: 3',
