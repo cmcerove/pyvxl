@@ -23,7 +23,6 @@ class DBCEnvVar:
 
     def __init__(self, name, etype, minV, maxV, unit, initial, index,  # noqa
                  access, nodes=None, vals=None, comment=""):  # noqa
-        """."""
         self.name = str(name)
         self.type = int(etype)
         self.min = float(minV)
