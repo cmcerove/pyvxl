@@ -272,7 +272,8 @@ class UDS:
         This function will only work if tester present was started by calling
         send_tester_present without once=True.
         """
-        self.can.stop_message(self.__tester_present_id)
+        if self.__tester_present_id is not None:
+            self.can.stop_message(self.__tester_present_id)
 
     def access_timing_param(self, *args, **kwargs):
         """Access Timing Parameter- Service 0x83.."""

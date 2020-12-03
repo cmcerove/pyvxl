@@ -6,15 +6,16 @@ Installer for pyvxl.
 Run 'make.bat' to install.
 """
 
-import os
 import sys
+from os import path, name
+from glob import glob
 
-if os.name == 'nt':
+if name == 'nt':
     from ctypes import WinDLL
 from setuptools import setup, find_packages
 import admin
 
-LIB_PATH = os.path.normpath(os.path.join(os.path.dirname(__file__), 'lib'))
+LIB_PATH = path.normpath(path.join(path.dirname(__file__), 'lib'))
 DLL_PATH = ('c:\\Users\\Public\\Documents\\Vector XL Driver Library\\bin\\'
             'vxlapi.dll')
 
@@ -22,12 +23,12 @@ DLL_PATH = ('c:\\Users\\Public\\Documents\\Vector XL Driver Library\\bin\\'
 #       is necessary.
 
 try:
-    if os.name == 'nt':
+    if name == 'nt':
         vxDLL = WinDLL(DLL_PATH)
 except WindowsError:
     # Install the vxlAPI.dll
     if not admin.isUserAdmin():
-        path = os.path.join(LIB_PATH, 'xl_lib97.exe')
+        path = path.join(LIB_PATH, glob(path.join(LIB_PATH, 'xl_lib*'))[0])
         admin.runAsAdmin(cmdLine=[path])
         input('Press return to continue . . .')
     else:
@@ -36,7 +37,7 @@ except WindowsError:
         sys.exit(1)
 
 
-if os.name == 'nt':
+if name == 'nt':
     sys.path.append('C:\\Python27\\Lib\\site-packages\\win32')
 
 setup(
