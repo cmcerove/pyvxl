@@ -19,7 +19,6 @@ __program__ = 'can'
 
 def print_help():
     """Called by the command h or help."""
-    # pylint: disable=C0301
     helpcolor = Fore.RED + Style.BRIGHT
     helprst = Fore.RESET + Style.RESET_ALL
     # TODO: Convert this to a list and print(like it's being piped to less)
