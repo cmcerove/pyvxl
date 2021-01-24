@@ -4,11 +4,18 @@
 
 import os
 import logging
+from platform import architecture
 from ctypes import WinDLL, c_char_p
 
+
 # Import the vector DLL
-vxl_path = ('c:\\Users\\Public\\Documents\\Vector XL Driver Library\\'
-            'bin\\vxlapi.dll')
+arch, _ = architecture()
+if arch == '64bit':
+    vxl_path = ('c:\\Users\\Public\\Documents\\Vector XL Driver Library\\'
+                'bin\\vxlapi64.dll')
+else:
+    vxl_path = ('c:\\Users\\Public\\Documents\\Vector XL Driver Library\\'
+                'bin\\vxlapi.dll')
 if os.name == 'nt':
     if os.path.isfile(vxl_path):
         vxDLL = WinDLL(vxl_path)
