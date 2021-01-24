@@ -486,7 +486,7 @@ class Signal:
 
     __msb_map = gen_msb_map()
 
-    def __init__(self, name, mux, bit_msb, bit_len, endianness, signedness,
+    def __init__(self, name, mux, bit_msb, bit_len, endianness, signedness,  # noqa
                  scale, offset, min_val, max_val, units, receivers):  # noqa
         self.name = name
         self.mux = mux  # not implemented
@@ -744,7 +744,7 @@ class Signal:
 
 import_str = '''
 ----------------------------------------------------
-Import Statistics
+Imported
 ----------------------------------------------------
 Nodes: {}
 Messages: {}

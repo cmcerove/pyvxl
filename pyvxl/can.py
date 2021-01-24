@@ -55,15 +55,12 @@ class CAN(object):
         # If the receive port has already been started, it needs to be stopped
         # before adding a new channel and restarted after or data won't be
         # received from the new channel.
-        self.__tx_lock.acquire()
-        self.__rx_lock.acquire()
-        if self.__vxl.started:
-            self.__vxl.stop()
-        self.__vxl.add_channel(num, baud)
-        self.__vxl.start()
-        self.__rx_thread.add_channel(num, baud)
-        self.__rx_lock.release()
-        self.__tx_lock.release()
+        with self.__tx_lock and self.__rx_lock:
+            if self.__vxl.started:
+                self.__vxl.stop()
+            self.__vxl.add_channel(num, baud)
+            self.__vxl.start()
+            self.__rx_thread.add_channel(num, baud)
         logging.debug(f'Added channel {channel}')
         return channel
 
@@ -74,16 +71,13 @@ class CAN(object):
         if num not in self.__channels:
             raise ValueError(f'Channel {num} not found')
         channel = self.__channels.pop(num)
-        self.__tx_lock.acquire()
-        self.__rx_lock.acquire()
-        if self.__vxl.started:
-            self.__vxl.stop()
-        self.__vxl.remove_channel(num)
-        if self.__vxl.channels:
-            self.__vxl.start()
-        self.__rx_thread.remove_channel(num)
-        self.__rx_lock.release()
-        self.__tx_lock.release()
+        with self.__tx_lock and self.__rx_lock:
+            if self.__vxl.started:
+                self.__vxl.stop()
+            self.__vxl.remove_channel(num)
+            if self.__vxl.channels:
+                self.__vxl.start()
+            self.__rx_thread.remove_channel(num)
         logging.debug(f'Removed channel {channel}')
         return channel
 
