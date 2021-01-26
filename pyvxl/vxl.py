@@ -15,6 +15,7 @@ from pyvxl.vxl_types import vxl_driver_config_type, vxl_event_type
 
 import os
 import logging
+from time import sleep
 from ctypes import cdll, c_uint, c_int, c_ubyte, c_ulong, cast
 from ctypes import c_ushort, c_ulonglong, pointer, sizeof, POINTER
 from ctypes import c_long, create_string_buffer
@@ -435,30 +436,42 @@ class VxlCan(Vxl):
         Type checking on input parameters is intentionally left out to increase
         transmit speed.
         """
+        status = b'XL_ERR_QUEUE_IS_FULL'
         if channel not in self.channels:
             raise ValueError(f'{channel} has not been added through '
                              'add_channel.')
         dlc = int(len(msg_data) / 2)
         msg_data = bytes.fromhex(msg_data)
-        xl_event = vxl_event_type()
-        data = create_string_buffer(msg_data, 8)
-        memset(pointer(xl_event), 0, sizeof(xl_event))
-        xl_event.tag = c_ubyte(0x0A)
-        if msg_id > 0x8000:
-            xl_event.tagData.msg.id = c_ulong(msg_id | 0x80000000)
-        else:
-            xl_event.tagData.msg.id = c_ulong(msg_id)
-        xl_event.tagData.msg.dlc = c_ushort(dlc)
-        xl_event.tagData.msg.flags = c_ushort(0)
-        # Converting from a string to a c_ubyte array
-        tmp_ptr = pointer(data)
-        data_ptr = cast(tmp_ptr, POINTER(c_ubyte * 8))
-        xl_event.tagData.msg.data = data_ptr.contents
-        msg_count = c_uint(1)
-        msg_ptr = pointer(msg_count)
-        event_ptr = pointer(xl_event)
-        return vxl_transmit(self.port, self.channels[channel].mask, msg_ptr,
-                            event_ptr)
+        # Retry transmitting until the queue isn't full
+        while status == b'XL_ERR_QUEUE_IS_FULL':
+            xl_event = vxl_event_type()
+            data = create_string_buffer(msg_data, 8)
+            memset(pointer(xl_event), 0, sizeof(xl_event))
+            xl_event.tag = c_ubyte(0x0A)
+            if msg_id > 0x8000:
+                xl_event.tagData.msg.id = c_ulong(msg_id | 0x80000000)
+            else:
+                xl_event.tagData.msg.id = c_ulong(msg_id)
+            xl_event.tagData.msg.dlc = c_ushort(dlc)
+            xl_event.tagData.msg.flags = c_ushort(0)
+            # Converting from a string to a c_ubyte array
+            tmp_ptr = pointer(data)
+            data_ptr = cast(tmp_ptr, POINTER(c_ubyte * 8))
+            xl_event.tagData.msg.data = data_ptr.contents
+            msg_count = c_uint(1)
+            msg_ptr = pointer(msg_count)
+            event_ptr = pointer(xl_event)
+            status = vxl_transmit(self.port, self.channels[channel].mask,
+                                  msg_ptr, event_ptr)
+            if status == b'XL_ERR_QUEUE_IS_FULL':
+                # Let other threads run. Before this sleep was added, I was
+                # seeing 400+ loops in this function until the queue was no
+                # longer full. After adding it, there was at most one extra
+                # loop. I think this thread is starving something important
+                # and the sleep allows it to catch up.
+                sleep(0.001)
+
+        return True if status == b'XL_SUCCESS' else False
 
     def get_can_channels(self, include_virtual=False):
         """Return a list of connected CAN channels."""

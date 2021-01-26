@@ -76,8 +76,7 @@ def vxl_transmit(*args):
     status = getError(vxDLL.xlCanTransmit(*args))
     # Since this causes so much spam during debugging, it should be uncommented
     # temporarily.
-    # logging.debug('{0}: {1}'.format('xlCanTransmit', status))
-    return True if status == b'XL_SUCCESS' else False
+    return status
 
 
 def vxl_receive(*args):
