@@ -17,30 +17,45 @@ if name != 'nt':
 from ctypes import WinDLL
 from setuptools import setup, find_packages
 
-LIB_PATH = path.normpath(path.join(path.dirname(__file__), 'lib'))
+lib_path = path.normpath(path.join(path.dirname(__file__), 'lib'))
+
+exe_path = path.join(lib_path, 'Vector XL Driver Library Setup.exe')
+ps_cmd = f"Start-Process -FilePath '{exe_path}' -ArgumentList '/S /v/qn' -Wait"
+ps_cmd = f"powershell -command \"{ps_cmd}\""
+
+
+vxl_version = '11.6.12'
+vxl_base_path = r'C:\Users\Public\Documents\Vector\XL Driver Library '
+vxl_lib_path = f'{vxl_base_path}{vxl_version}'
+vxl_lib_path = path.join(vxl_lib_path, 'bin')
+
+# The current version isn't installed. Install it.
+if not path.isdir(vxl_lib_path):
+    system(ps_cmd)
 
 arch, _ = architecture()
 if arch == '64bit':
-    vxl_path = ('c:\\Users\\Public\\Documents\\Vector XL Driver Library\\'
-                'bin\\vxlapi64.dll')
+    vxl_path = path.join(vxl_lib_path, 'vxlapi64.dll')
 else:
-    vxl_path = ('c:\\Users\\Public\\Documents\\Vector XL Driver Library\\'
-                'bin\\vxlapi.dll')
-
-# TODO: Figure out how to check the installed version to decide if updating
-#       is necessary.
+    vxl_path = path.join(vxl_lib_path, 'vxlapi.dll')
 
 try:
     dll = WinDLL(vxl_path)
 except WindowsError:
-    exe = r'.\lib\Vector XL Driver Library Setup.exe'
-    ps_cmd = f"Start-Process -FilePath '{exe}' -ArgumentList '/S /v/qn' -Wait"
-    system(f"powershell -command \"{ps_cmd}\"")
-    try:
-        dll = WinDLL(vxl_path)
-    except WindowsError:
-        print('Failed importing the dll. Exiting...')
+    if path.isfile(vxl_path):
+        print(f'Failed importing {vxl_path}')
         sys.exit(1)
+    else:
+        system(ps_cmd)
+        if not path.isfile(vxl_path):
+            print(f'Something went wrong installing {exe_path}')
+            sys.exit(1)
+        try:
+            dll = WinDLL(vxl_path)
+        except WindowsError:
+            print(f'Failed importing {vxl_path}')
+            sys.exit(1)
+
 
 setup(
 
