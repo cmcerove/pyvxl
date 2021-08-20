@@ -42,6 +42,11 @@ class CAN(object):
         # dict is called to prevent editting self.__channels externally.
         return dict(self.__channels)
 
+    @property
+    def vxl(self):
+        """A reference to the lower layer vxl object."""
+        return self.__vxl
+
     def add_channel(self, num=0, baud=500000, db=None):
         """Add a channel."""
         # Default to the a virtual channel
@@ -524,7 +529,7 @@ class ReceiveThread(Thread):
                             else:
                                 msg_id = '{:X}'.format(msg_id)
                             log_msgs.append('{: >11.6f} {}  {: <16}Tx   d {} '
-                                            '{}\n'.format(time, channel,
+                                            '{}\n'.format(time, channel - 1,
                                                           msg_id, dlc, data))
                     else:
                         # RX message
@@ -546,7 +551,7 @@ class ReceiveThread(Thread):
                             else:
                                 msg_id = '{:X}'.format(msg_id)
                             log_msgs.append('{: >11.6f} {}  {: <16}Rx   d {} '
-                                            '{}\n'.format(time, channel,
+                                            '{}\n'.format(time, channel - 1,
                                                           msg_id, dlc, data))
                 else:
                     logging.error('Unknown msg_type: {} - full message [{}]'
