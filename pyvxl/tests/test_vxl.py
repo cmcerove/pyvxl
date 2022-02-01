@@ -107,7 +107,12 @@ def test_receive(vxl):  # noqa
     data = vxl.receive()
     matched = msg_start_pat.match(data)
     assert matched
-    assert matched.group(1) == 'RX_MSG'
+    assert matched.group(1) in ['RX_MSG', 'CHIP_STATE']
+    if matched.group(1) == 'CHIP_STATE':
+        data = vxl.receive()
+        matched = msg_start_pat.match(data)
+        assert matched
+        assert matched.group(1) == 'RX_MSG'
     # Channel might change, just check that it exists
     channel = matched.group(2)
     assert channel
@@ -134,7 +139,12 @@ def test_send_recv_extended(vxl):  # noqa
     data = vxl.receive()
     matched = msg_start_pat.match(data)
     assert matched
-    assert matched.group(1) == 'RX_MSG'
+    assert matched.group(1) in ['RX_MSG', 'CHIP_STATE']
+    if matched.group(1) == 'CHIP_STATE':
+        data = vxl.receive()
+        matched = msg_start_pat.match(data)
+        assert matched
+        assert matched.group(1) == 'RX_MSG'
     # Channel might change, just check that it exists
     channel = matched.group(2)
     assert channel

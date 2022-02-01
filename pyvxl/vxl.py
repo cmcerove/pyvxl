@@ -3,7 +3,7 @@
 """Holds classes designed to interact specific protocols of vxlAPI."""
 
 from pyvxl.vxl_functions import vxl_open_driver, vxl_close_driver
-from pyvxl.vxl_functions import vxl_open_port, vxl_close_port
+from pyvxl.vxl_functions import vxl_open_port, vxl_close_port, vxl_reset_clock
 from pyvxl.vxl_functions import vxl_activate_channel, vxl_deactivate_channel
 from pyvxl.vxl_functions import vxl_get_driver_config
 from pyvxl.vxl_functions import vxl_transmit, vxl_receive
@@ -15,6 +15,7 @@ from pyvxl.vxl_types import vxl_driver_config_type, vxl_event_type
 
 import os
 import logging
+from time import sleep
 from ctypes import cdll, c_uint, c_int, c_ubyte, c_ulong, cast
 from ctypes import c_ushort, c_ulonglong, pointer, sizeof, POINTER
 from ctypes import c_long, create_string_buffer
@@ -205,6 +206,22 @@ class Vxl:
             data = vxl_get_event_str(rx_event_ptr)
         return data
 
+    def get_rx_queued_length(self):
+        """Get the number of elements currently in the receive queue."""
+        if self.port is None:
+            raise AssertionError('Port not opened! Call open_port first.')
+        size = c_int(0)
+        size_ptr = pointer(size)
+        logging.debug(vxl_get_receive_queue_size(self.port, size_ptr))
+        logging.debug(f'Rx Queued Items: {size.value}')
+        return size.value
+
+    def reset_clock(self):
+        """Reset time stamps for the open port."""
+        if self.port is None:
+            raise AssertionError('Port not opened! Call open_port first.')
+        return vxl_reset_clock(self.port)
+
     def get_dll_version(self):
         """Get the version of the vxlAPI.dll."""
         ver = self.config.dllVersion
@@ -212,14 +229,6 @@ class Vxl:
         minor = ((ver & 0xFF0000) >> 16)
         build = ver & 0xFFFF
         return f'{major}.{minor}.{build}'
-
-    def get_rx_queued_length(self):
-        """Get the number of elements currently in the receive queue."""
-        size = c_int(0)
-        size_ptr = pointer(size)
-        logging.debug(vxl_get_receive_queue_size(self.port, size_ptr))
-        logging.debug(f'Rx Queued Items: {size.value}')
-        return size.value
 
     def get_time(self):
         """Get the time from the dll."""
@@ -403,6 +412,7 @@ class VxlCan(Vxl):
     def start(self):
         """Connect to the CAN channel."""
         self.open_port('pyvxl.VxlCan')
+        self.reset_clock()
         for channel in self.channels.values():
             channel.activate()
 
@@ -427,7 +437,8 @@ class VxlCan(Vxl):
         vxl_deactivate_channel(self.port, self.access_mask)
         vxl_flush_tx_queue(self.port, self.access_mask)
         vxl_flush_rx_queue(self.port)
-        vxl_activate_channel(self.port, self.access_mask, BUS_TYPE_CAN, 8)
+        vxl_activate_channel(self.port, self.access_mask, BUS_TYPE_CAN,
+                             ACTIVATE_NONE)
 
     def send(self, channel, msg_id, msg_data):
         """Send a CAN message.
@@ -435,30 +446,42 @@ class VxlCan(Vxl):
         Type checking on input parameters is intentionally left out to increase
         transmit speed.
         """
+        status = b'XL_ERR_QUEUE_IS_FULL'
         if channel not in self.channels:
             raise ValueError(f'{channel} has not been added through '
                              'add_channel.')
         dlc = int(len(msg_data) / 2)
         msg_data = bytes.fromhex(msg_data)
-        xl_event = vxl_event_type()
-        data = create_string_buffer(msg_data, 8)
-        memset(pointer(xl_event), 0, sizeof(xl_event))
-        xl_event.tag = c_ubyte(0x0A)
-        if msg_id > 0x8000:
-            xl_event.tagData.msg.id = c_ulong(msg_id | 0x80000000)
-        else:
-            xl_event.tagData.msg.id = c_ulong(msg_id)
-        xl_event.tagData.msg.dlc = c_ushort(dlc)
-        xl_event.tagData.msg.flags = c_ushort(0)
-        # Converting from a string to a c_ubyte array
-        tmp_ptr = pointer(data)
-        data_ptr = cast(tmp_ptr, POINTER(c_ubyte * 8))
-        xl_event.tagData.msg.data = data_ptr.contents
-        msg_count = c_uint(1)
-        msg_ptr = pointer(msg_count)
-        event_ptr = pointer(xl_event)
-        return vxl_transmit(self.port, self.channels[channel].mask, msg_ptr,
-                            event_ptr)
+        # Retry transmitting until the queue isn't full
+        while status == b'XL_ERR_QUEUE_IS_FULL':
+            xl_event = vxl_event_type()
+            data = create_string_buffer(msg_data, 8)
+            memset(pointer(xl_event), 0, sizeof(xl_event))
+            xl_event.tag = c_ubyte(0x0A)
+            if msg_id > 0x8000:
+                xl_event.tagData.msg.id = c_ulong(msg_id | 0x80000000)
+            else:
+                xl_event.tagData.msg.id = c_ulong(msg_id)
+            xl_event.tagData.msg.dlc = c_ushort(dlc)
+            xl_event.tagData.msg.flags = c_ushort(0)
+            # Converting from a string to a c_ubyte array
+            tmp_ptr = pointer(data)
+            data_ptr = cast(tmp_ptr, POINTER(c_ubyte * 8))
+            xl_event.tagData.msg.data = data_ptr.contents
+            msg_count = c_uint(1)
+            msg_ptr = pointer(msg_count)
+            event_ptr = pointer(xl_event)
+            status = vxl_transmit(self.port, self.channels[channel].mask,
+                                  msg_ptr, event_ptr)
+            if status == b'XL_ERR_QUEUE_IS_FULL':
+                # Let other threads run. Before this sleep was added, I was
+                # seeing 400+ loops in this function until the queue was no
+                # longer full. After adding it, there was at most one extra
+                # loop. I think this thread is starving something important
+                # and the sleep allows it to catch up.
+                sleep(0.001)
+
+        return True if status == b'XL_SUCCESS' else False
 
     def get_can_channels(self, include_virtual=False):
         """Return a list of connected CAN channels."""

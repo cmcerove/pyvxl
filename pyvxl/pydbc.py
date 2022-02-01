@@ -174,6 +174,7 @@ class DBCParser:
     """A yacc based DBC parser."""
 
     def __init__(self, path, node_type, message_type, signal_type, **kwargs):  # noqa
+        self.path = path
         self.node_type = node_type
         self.message_type = message_type
         self.signal_type = signal_type
@@ -210,7 +211,8 @@ class DBCParser:
 
     def p_error(self, p):
         """Print a parsing error."""
-        print('Syntax error at token {p.type} ({p.value}) on line {p.lineno}')
+        print(f'\nSyntax error while importing {self.path} at token {p.type} '
+              f'({p.value}) on line {p.lineno}\n')
 
     def p_dbc(self, p):  # noqa
         """dbc : version \
