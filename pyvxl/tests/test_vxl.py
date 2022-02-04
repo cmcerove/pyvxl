@@ -161,16 +161,32 @@ def test_send_recv_extended(vxl):  # noqa
     assert matched.group(4) == 'TX'
 
 
+def test_get_rx_queued_length(vxl):  # noqa
+    assert isinstance(vxl.get_rx_queued_length(), int)
+
+
+def test_get_rx_queued_length_no_port():  # noqa
+    vxl = Vxl()
+    with pytest.raises(AssertionError):
+        vxl.get_rx_queued_length()
+
+
+def test_reset_clock(vxl):  # noqa
+    vxl.reset_clock()
+
+
+def test_reset_clock_no_port():  # noqa
+    vxl = Vxl()
+    with pytest.raises(AssertionError):
+        vxl.reset_clock()
+
+
 def test_get_dll_version(vxl):  # noqa
     ver = vxl.config.dllVersion
     major = ((ver & 0xFF000000) >> 24)
     minor = ((ver & 0xFF0000) >> 16)
     build = ver & 0xFFFF
     assert f'{major}.{minor}.{build}' == vxl.get_dll_version()
-
-
-def test_get_rx_queued_length(vxl):  # noqa
-    assert isinstance(vxl.get_rx_queued_length(), int)
 
 
 def test_get_time(vxl):  # noqa
@@ -352,6 +368,18 @@ def test_vxl_send_without_data_and_long_id(vxl):  # noqa
 def test_send_fail(vxl):  # noqa
     with pytest.raises(ValueError):
         vxl.send(-1, 123, '')
+
+
+def test_send_queue_full(vxl, monkeypatch):  # noqa
+    def vxl_queue_full(one, two, three, four, five, svar=[False]):  # noqa
+        if not svar[0]:
+            svar[0] = True
+            return b'XL_ERR_QUEUE_IS_FULL'
+        return b'XL_SUCCESS'
+    monkeypatch.setattr(vxl_file, 'vxl_transmit', vxl_queue_full)
+
+    channel = list(vxl.channels.keys())[0]
+    assert vxl.send(channel, 0x123, '010203') is False
 
 
 def test_get_can_channels(vxl):  # noqa
