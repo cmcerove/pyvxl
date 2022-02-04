@@ -9,7 +9,7 @@ from pyvxl.vxl_functions import vxl_get_driver_config
 from pyvxl.vxl_functions import vxl_transmit, vxl_receive
 from pyvxl.vxl_functions import vxl_get_receive_queue_size
 from pyvxl.vxl_functions import vxl_set_baudrate, vxl_get_sync_time
-from pyvxl.vxl_functions import vxl_get_event_str, vxl_request_chip_state
+from pyvxl.vxl_functions import vxl_request_chip_state
 from pyvxl.vxl_functions import vxl_flush_tx_queue, vxl_flush_rx_queue
 from pyvxl.vxl_types import vxl_driver_config_type, vxl_can_rx_event
 from pyvxl.vxl_types import vxl_can_tx_event
@@ -48,6 +48,9 @@ BUS_TYPE_NAMES = {BUS_TYPE_CAN: 'CAN', BUS_TYPE_LIN: 'LIN'}
 
 INTERFACE_VERSION_V3 = 3  # CAN, LIN, DAIO and K-Line
 INTERFACE_VERSION_V4 = 4  # MOST,CAN FD, Ethernet, FlexRay and ARINC429
+
+XL_CAN_TXMSG_FLAG_EDL = 0x0001  # Extended data length
+XL_CAN_TXMSG_FLAG_BRS = 0x0002  # Baud rate switch
 
 
 class Vxl:
@@ -465,17 +468,17 @@ class VxlCan(Vxl):
                 xl_event.tagData.canMsg.canId = c_ulong(msg_id | 0x80000000)
             else:
                 xl_event.tagData.canMsg.canId = c_ulong(msg_id)
-            # TODO: This needs to be the actual value transmitted on CAN for
-            # the DLC. e.g. 15 == 64 bytes
+
+            if dlc > 8:
+                xl_event.tagData.canMsg.msgFlags = XL_CAN_TXMSG_FLAG_EDL | XL_CAN_TXMSG_FLAG_BRS
+                dlc_map = {12: 9, 16: 10, 20: 11, 24: 12, 32: 13, 48: 14, 64: 15}
+                if dlc not in dlc_map:
+                    raise ValueError(f'{dlc}s larger than 8 must be one of '
+                                     f'these values: {dlc_map.values()}')
+                dlc = dlc_map[dlc]
+            else:
+                xl_event.tagData.canMsg.msgFlags = c_uint(0)
             xl_event.tagData.canMsg.dlc = c_ubyte(dlc)
-
-            # unsigned int  fl[3] = {
-
-            #   0 , // CAN (no FD)
-            #   XL_CAN_TXMSG_FLAG_EDL,
-            #   XL_CAN_TXMSG_FLAG_EDL | XL_CAN_TXMSG_FLAG_BRS,
-            # };
-            xl_event.tagData.canMsg.msgFlags = c_uint(0)
             # Converting from a string to a c_ubyte array
             tmp_ptr = pointer(data)
             data_ptr = cast(tmp_ptr, POINTER(c_ubyte * 64))
