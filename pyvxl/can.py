@@ -17,8 +17,8 @@ from pyvxl.uds import UDS
 from pyvxl.can_types import Database
 
 
-class CAN(object):
-    """."""
+class CAN:
+    """Simulate one or more CAN channels."""
 
     __instance_created = False
 
@@ -366,8 +366,7 @@ class Channel:
 class ReceiveThread(Thread):
     """Thread for receiving CAN messages."""
 
-    def __init__(self, vxl, lock):
-        """."""
+    def __init__(self, vxl, lock):  # noqa
         super().__init__(daemon=True)
         self.__vxl = vxl
         self.__rx_lock = lock
@@ -406,69 +405,33 @@ class ReceiveThread(Thread):
 
     def run(self):
         """Main receive loop."""
-        # I've only found 5 different receive frame formats. I will keep this
-        # list updated as I find more. All formats have been identical up to
-        # the receive time (in nanoseconds), so this common part is checked
-        # first.
-        #  Type          Channel Time
-        # 'CHIP_STATE c=1, t=4308992, ' Chip state frames            (1 total)
-        # 'RX_MSG c=1, t=161054720, '   Valid Rx/TX and Error frames (4 total)
-        msg_start_pat = re.compile(r'^(\w+)\sc=(\d+),\st=(\d+),\s')
-        # Possible bus statuses for chip state frames:
-        # 'busStatus= ACTIVE, txErrCnt=8, rxErrCnt=0'
-        # 'busStatus= WARNING, txErrCnt=96, rxErrCnt=0'
-        # 'busStatus= PASSIVE, txErrCnt=127, rxErrCnt=0'
-        chip_pat = re.compile(r'\w+=\s(\w+),\s\w+=(\d+),\s\w+=(\d+)')
-        # Valid Transmitted CAN Message:
-        # 'id=0147 l=8, 0040800000000000 TX tid=00'
-        # Valid Received CAN Message with data:
-        # 'id=00D0 l=8, 8C845A61000003D0 tid=00'
-        # Valid Received CAN Message without data:
-        # 'id=81234567 l=0,  tid=00'
-        # The 3 above should match the following pattern.
-        rx_tx_pat = re.compile(r'id=(\w+)\sl=(\d),\s(\w+)?\s(TX)?\s*tid=(\w+)')
-        # Error Frame:
-        # type=0147,  ERROR_FRAME tid=00
-        error_pat = re.compile(r'\w+=(\w+),\s+ERROR_FRAME\s\w+=(\d+)')
-
+        # From vxlapi.h
+        XL_CAN_EV_TAG_RX_OK = 0x0400  # noqa
+        XL_CAN_EV_TAG_RX_ERROR = 0x0401  # noqa
+        XL_CAN_EV_TAG_TX_ERROR = 0x0402  # noqa
+        XL_CAN_EV_TAG_TX_REQUEST = 0x0403  # noqa
+        XL_CAN_EV_TAG_TX_OK = 0x0404  # noqa
+        XL_CAN_EV_TAG_CHIP_STATE = 0x0409  # noqa
+        XL_SYNC_PULSE = 0x000B  # noqa
         log_msgs = self.__pending_msgs
-        elapsed = 0
         while True:
             sleep(self.__sleep_time)
-            # Check for changes in CAN hardware once per second
-            elapsed += self.__sleep_time
-            if elapsed >= 1:
-                elapsed = 0
-                # TODO: Implement or remove this
-                # for chan in self.__vxl.get_can_channels(True):
-                #     if chan not in self.__init_channels:
-                #         if self.__log_file is not None:
-                #             self.__stop_logging()
-                #         # TODO: Implement a way to pass this error to the
-                #         # main thread.
-                #         raise AssertionError('CAN case was connected or '
-                #                              'disconnected.')
             # Only modify the log file from the Thread
             if self.__log_request == 'start':
                 self.__start_logging()
             elif self.__log_request == 'stop':
                 self.__stop_logging()
 
-            data = self.__receive(True)
-            while data is not None:
-                match = msg_start_pat.search(data)
-                if data == 'UNKNOWN':
-                    data = self.__receive()
-                    continue
-                elif not match:
-                    logging.error('Received unknown frame format \'{}\'. '
-                                  'Skipping...'.format(data))
-                    data = self.__receive()
-                    continue
-                msg_type = match.group(1)
-                channel = int(match.group(2)) + 1
+            rx_event = self.__receive(True)
+            while rx_event is not None:
+                # rx_event is the type vxl_can_rx_event in vxl_types.py
+                channel = rx_event.channelIndex + 1
                 # Convert from nanoseconds to seconds
-                time = int(match.group(3)) / 1000000000.0
+                time = rx_event.timeStampSync / 1000000000.0
+                # Currently unused parts of rx_event:
+                #   size
+                #   userHandle
+                #   flagsChip
                 self.__time = time
                 # Check if the main thread is waiting on a received message
                 if self.__wait_args is not None:
@@ -478,85 +441,75 @@ class ReceiveThread(Thread):
                         # The timeout has expired; wake up the main thread
                         self.__wait_args = None
                         self.__wait_sem.release()
-                full_data = data
-                data = data.replace(match.group(0), '')
-                if msg_type == 'CHIP_STATE':
-                    cs = chip_pat.match(data)
-                    if cs:
-                        bus_status = cs.group(1)
-                        tx_err_count = int(cs.group(2))
-                        rx_err_count = int(cs.group(3))
-                        self.__set_status(channel, bus_status, tx_err_count,
-                                          rx_err_count)
-                    else:
-                        logging.error('Received an unhandled format for '
-                                      'CHIP_STATE: {}'.format(data))
-                elif msg_type == 'RX_MSG':
-                    # log_msgs.append(full_data + '\n')
-                    error = error_pat.match(data)
-                    if error:
-                        self.set_error_state(channel, True)
-                        if not self.__log_errors:
-                            data = self.__receive()
-                            continue
-                        else:
-                            raise NotImplementedError
-                            # TODO: implement logging error frames
-                            # data = self.__receive()
-                            # continue
+
+                if rx_event.tag == XL_CAN_EV_TAG_RX_OK or \
+                   rx_event.tag == XL_CAN_EV_TAG_TX_OK:
                     self.set_error_state(channel, False)
-                    rx_tx = rx_tx_pat.match(data)
-                    if not rx_tx:
-                        # id=81234567 l=0,  tid=00
-                        logging.error('Unknown rx_tx format: [{}]'
-                                      ''.format(full_data))
-                        data = self.__receive()
-                        continue
-                    elif rx_tx.group(4):
-                        # TX message
-                        msg_id = int(rx_tx.group(1), 16)
-                        dlc = rx_tx.group(2)
-                        d = rx_tx.group(3)
-                        if d:
-                            data = ' '.join([d[x:x + 2] for x in range(0,
-                                                                       len(d),
-                                                                       2)])
+                    msg_id = rx_event.tagData.canRxOkMsg.canId
+                    rx_event.tagData.canRxOkMsg.msgFlags
+                    rx_event.tagData.canRxOkMsg.crc
+                    rx_event.tagData.canRxOkMsg.totalBitCnt
+                    dlc = rx_event.tagData.canRxOkMsg.dlc
+                    rx_data = rx_event.tagData.canRxOkMsg.data
+                    # Convert rx_data from a ctypes 64 byte array to a string
+                    data = ''
+                    for i, byte in enumerate(rx_data):
+                        if i >= dlc:
+                            break
+                        elif i > 0:
+                            data += f' {byte:02X}'
                         else:
-                            data = ''
-                        if self.__log_file is not None:
-                            if msg_id > 0x7FF:
-                                msg_id = '{:X}x'.format(msg_id & 0x1FFFFFFF)
-                            else:
-                                msg_id = '{:X}'.format(msg_id)
-                            log_msgs.append('{: >11.6f} {}  {: <16}Tx   d {} '
-                                            '{}\n'.format(time, channel - 1,
-                                                          msg_id, dlc, data))
-                    else:
-                        # RX message
-                        msg_id = int(rx_tx.group(1), 16)
-                        dlc = rx_tx.group(2)
-                        d = rx_tx.group(3)
-                        if d:
-                            data = ' '.join([d[x:x + 2] for x in range(0,
-                                                                       len(d),
-                                                                       2)])
-                        else:
-                            data = ''
-                        # Strip the extended message ID bit
-                        msg_id &= 0x1FFFFFFF
+                            data += f'{byte:02X}'
+                    # Strip the extended message ID bit
+                    msg_id &= 0x1FFFFFFF
+                    txrx = 'Tx'
+                    if rx_event.tag == XL_CAN_EV_TAG_RX_OK:
+                        txrx = 'Rx'
                         self.__enqueue_msg(time, channel, msg_id, data)
-                        if self.__log_file is not None:
-                            if msg_id > 0x7FF:
-                                msg_id = '{:X}x'.format(msg_id)
-                            else:
-                                msg_id = '{:X}'.format(msg_id)
-                            log_msgs.append('{: >11.6f} {}  {: <16}Rx   d {} '
-                                            '{}\n'.format(time, channel - 1,
-                                                          msg_id, dlc, data))
+                    if self.__log_file is not None:
+                        if msg_id > 0x7FF:
+                            msg_id = '{:X}x'.format(msg_id)
+                        else:
+                            msg_id = '{:X}'.format(msg_id)
+
+                        log_msgs.append(f'{time: >11.6f} {channel - 1}  '
+                                        f'{msg_id: <16}{txrx}   '
+                                        f'd {dlc} {data}\n')
+                elif (rx_event.tag == XL_CAN_EV_TAG_RX_ERROR or
+                      rx_event.tag == XL_CAN_EV_TAG_TX_ERROR):
+                    self.set_error_state(channel, True)
+                    # Currently unused. Here's what we have access to:
+                    # rx_event.tagData.canError.errorCode
+                    if not self.__log_errors:
+                        rx_event = self.__receive()
+                        continue
+                    else:
+                        # TODO: implement logging for error frames
+                        raise NotImplementedError
+                elif rx_event.tag == XL_CAN_EV_TAG_TX_REQUEST:
+                    self.set_error_state(channel, False)
+                    # Currently unused. Here's what we have access to:
+                    # rx_event.tagData.canTxRequest.canId
+                    # rx_event.tagData.canTxRequest.msgFlags
+                    # rx_event.tagData.canTxRequest.dlc
+                    # rx_event.tagData.canTxRequest.data
+                elif rx_event.tag == XL_CAN_EV_TAG_CHIP_STATE:
+                    self.set_error_state(channel, False)
+                    bus_status = rx_event.tagData.canChipState.busStatus
+                    tx_err_count = rx_event.tagData.canChipState.txErrorCounter
+                    rx_err_count = rx_event.tagData.canChipState.rxErrorCounter
+                    self.__set_status(channel, bus_status, tx_err_count,
+                                      rx_err_count)
+                elif rx_event.tag == XL_SYNC_PULSE:
+                    self.set_error_state(channel, False)
+                    # Currently unused. Here's what we have access to:
+                    # rx_event.tagData.canSyncPulse.pulseCode
+                    # rx_event.tagData.canSyncPulse.time
                 else:
-                    logging.error('Unknown msg_type: {} - full message [{}]'
-                                  ''.format(msg_type, data))
-                data = self.__receive()
+                    # The XL Driver Library Manual doesn't specify any other
+                    # possible tags so this shouldn't happen.
+                    logging.error(f'Unknown rx_event.tag: {rx_event.tag}')
+                rx_event = self.__receive()
             # Writing to the log is placed after all messages have been
             # received to minimize the frequency of file I/O during
             # this thread. This hopefully favors notifying the main thread a
@@ -842,8 +795,7 @@ class ReceiveThread(Thread):
 class TransmitThread(Thread):
     """Thread for transmitting CAN messages."""
 
-    def __init__(self, vxl, lock):
-        """."""
+    def __init__(self, vxl, lock):  # noqa
         super().__init__(daemon=True)
         self.__vxl = vxl
         self.__lock = lock

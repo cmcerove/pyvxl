@@ -37,7 +37,7 @@ else:
 
 getError = vxDLL.xlGetErrorString
 getError.restype = c_char_p
-getEventStr = vxDLL.xlGetEventString
+getEventStr = vxDLL.xlCanGetEventString
 getEventStr.restype = c_char_p
 
 
@@ -85,15 +85,13 @@ def vxl_deactivate_channel(*args):
 
 def vxl_transmit(*args):
     """Transmit a CAN message."""
-    status = getError(vxDLL.xlCanTransmit(*args))
-    # Since this causes so much spam during debugging, it should be uncommented
-    # temporarily.
+    status = getError(vxDLL.xlCanTransmitEx(*args))
     return status
 
 
 def vxl_receive(*args):
     """Receive a message."""
-    status = getError(vxDLL.xlReceive(*args))
+    status = getError(vxDLL.xlCanReceive(*args))
     # Since this causes so much spam during debugging, it should be uncommented
     # temporarily.
     # if status != 'XL_ERR_QUEUE_IS_EMPTY':

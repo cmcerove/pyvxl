@@ -103,6 +103,7 @@ class vxl_license_info_type(Structure):  # noqa
                 ('licName', c_char * 65)]
 
 
+# vxl_sync_pulse_type (XL_SYNC_PULSE_EV) is equivalent to XL_CAN_EV_SYNC_PULSE
 class vxl_sync_pulse_type(Structure):  # noqa
     _pack_ = 1
     _fields_ = [('pulseCode', c_ubyte),
@@ -218,3 +219,93 @@ class vxl_event_type(Structure):  # noqa
 
 class vxl_events_type(Structure):  # noqa
     _fields_ = [('event', vxl_event_type * 5)]
+
+
+class vxl_can_tx_msg(Structure):  # noqa
+    _fields_ = [('canId', c_uint),
+                ('msgFlags', c_uint),
+                ('dlc', c_ubyte),
+                ('reserved', c_ubyte * 7),
+                ('data', c_ubyte * 64)]
+
+
+class vxl_tag_data_tx_fd_type(Union):  # noqa
+    _fields_ = [('canMsg', vxl_can_tx_msg)]
+
+
+class vxl_can_tx_event(Structure):  # noqa
+    _fields_ = [('tag', c_ushort),
+                ('transId', c_ushort),
+                ('channelIndex', c_ubyte),
+                ('reserved', c_ubyte * 3),
+                ('tagData', vxl_tag_data_tx_fd_type)]
+
+
+class vxl_can_ev_rx_msg(Structure):  # noqa
+    _fields_ = [('canId', c_uint),
+                ('msgFlags', c_uint),
+                ('crc', c_uint),
+                ('reserved1', c_ubyte * 12),
+                ('totalBitCnt', c_ushort),
+                ('dlc', c_ubyte),
+                ('reserved', c_ubyte * 5),
+                ('data', c_ubyte * 64)]
+
+
+class vxl_can_ev_tx_request(Structure):  # noqa
+    _fields_ = [('canId', c_uint),
+                ('msgFlags', c_uint),
+                ('dlc', c_ubyte),
+                ('reserved1', c_ubyte),
+                ('reserved', c_ushort),
+                ('data', c_ubyte * 64)]
+
+
+class vxl_can_ev_chip_state(Structure):  # noqa
+    _fields_ = [('busStatus', c_ubyte),
+                ('txErrorCounter', c_ubyte),
+                ('rxErrorCounter', c_ubyte),
+                ('reserved', c_ubyte),
+                ('reserved0', c_uint)]
+
+
+class vxl_can_ev_error(Structure):  # noqa
+    _fields_ = [('errorCode', c_ubyte),
+                ('reserved', c_ubyte * 95)]
+
+
+class vxl_tag_data_rx_fd_type(Union):  # noqa
+    _fields_ = [('raw', c_ubyte * 96),
+                ('canRxOkMsg', vxl_can_ev_rx_msg),
+                ('canTxOkMsg', vxl_can_ev_rx_msg),
+                ('canTxRequest', vxl_can_ev_tx_request),
+                ('canError', vxl_can_ev_error),
+                ('canChipState', vxl_can_ev_chip_state),
+                ('canSyncPulse', vxl_sync_pulse_type)]
+
+
+class vxl_can_rx_event(Structure):  # noqa
+    _fields_ = [('size', c_uint),
+                ('tag', c_ushort),
+                ('channelIndex', c_ushort),
+                ('userHandle', c_uint),
+                ('flagsChip', c_ushort),
+                ('reserved0', c_ushort),
+                ('reserved1', c_ulonglong),
+                ('timeStampSync', c_ulonglong),
+                ('tagData', vxl_tag_data_rx_fd_type)]
+
+
+class vxl_can_fd_conf(Structure):  # noqa
+    _fields_ = [('arbitrationBitRate', c_uint),
+                ('sjwAbr', c_uint),
+                ('tseg1Abr', c_uint),
+                ('tseg2Abr', c_uint),
+                ('dataBitRate', c_uint),
+                ('sjwDbr', c_uint),
+                ('tseg1Dbr', c_uint),
+                ('tseg2Dbr', c_uint),
+                ('reserved', c_ubyte),
+                ('options', c_ubyte),
+                ('reserved1', c_ubyte * 2),
+                ('reserved2', c_uint)]

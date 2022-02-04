@@ -11,7 +11,8 @@ from pyvxl.vxl_functions import vxl_get_receive_queue_size
 from pyvxl.vxl_functions import vxl_set_baudrate, vxl_get_sync_time
 from pyvxl.vxl_functions import vxl_get_event_str, vxl_request_chip_state
 from pyvxl.vxl_functions import vxl_flush_tx_queue, vxl_flush_rx_queue
-from pyvxl.vxl_types import vxl_driver_config_type, vxl_event_type
+from pyvxl.vxl_types import vxl_driver_config_type, vxl_can_rx_event
+from pyvxl.vxl_types import vxl_can_tx_event
 
 import os
 import logging
@@ -44,6 +45,9 @@ BUS_TYPE_DAIO = 0x00000040
 BUS_TYPE_J1708 = 0x00000100
 IMPLEMENTED_BUS_TYPES = (BUS_TYPE_CAN,)
 BUS_TYPE_NAMES = {BUS_TYPE_CAN: 'CAN', BUS_TYPE_LIN: 'LIN'}
+
+INTERFACE_VERSION_V3 = 3  # CAN, LIN, DAIO and K-Line
+INTERFACE_VERSION_V4 = 4  # MOST,CAN FD, Ethernet, FlexRay and ARINC429
 
 
 class Vxl:
@@ -83,7 +87,8 @@ class Vxl:
         perm_mask = c_ulonglong(self.access_mask.value)
         perm_ptr = pointer(perm_mask)
         if not vxl_open_port(ph_ptr, app_name, self.access_mask, perm_ptr,
-                             self.rx_queue_size, 3, self.bus_type):
+                             self.rx_queue_size, INTERFACE_VERSION_V4,
+                             self.bus_type):
             raise AssertionError(f'Failed opening port for {prog_name}')
         # Set which channels we have init access on
         for channel in self.__channels.values():
@@ -197,14 +202,12 @@ class Vxl:
         """
         if self.port is None:
             raise AssertionError('Port not opened! Call open_port first.')
-        data = None
-        msg = c_uint(1)
-        msg_ptr = pointer(msg)
-        rx_event = vxl_event_type()
+        rx_event = vxl_can_rx_event()
         rx_event_ptr = pointer(rx_event)
-        if vxl_receive(self.port, msg_ptr, rx_event_ptr):
-            data = vxl_get_event_str(rx_event_ptr)
-        return data
+        response = None
+        if vxl_receive(self.port, rx_event_ptr):
+            response = rx_event
+        return response
 
     def get_rx_queued_length(self):
         """Get the number of elements currently in the receive queue."""
@@ -454,25 +457,35 @@ class VxlCan(Vxl):
         msg_data = bytes.fromhex(msg_data)
         # Retry transmitting until the queue isn't full
         while status == b'XL_ERR_QUEUE_IS_FULL':
-            xl_event = vxl_event_type()
+            xl_event = vxl_can_tx_event()
             data = create_string_buffer(msg_data, 8)
             memset(pointer(xl_event), 0, sizeof(xl_event))
-            xl_event.tag = c_ubyte(0x0A)
+            xl_event.tag = c_ushort(0x0440)
             if msg_id > 0x8000:
-                xl_event.tagData.msg.id = c_ulong(msg_id | 0x80000000)
+                xl_event.tagData.canMsg.canId = c_ulong(msg_id | 0x80000000)
             else:
-                xl_event.tagData.msg.id = c_ulong(msg_id)
-            xl_event.tagData.msg.dlc = c_ushort(dlc)
-            xl_event.tagData.msg.flags = c_ushort(0)
+                xl_event.tagData.canMsg.canId = c_ulong(msg_id)
+            # TODO: This needs to be the actual value transmitted on CAN for
+            # the DLC. e.g. 15 == 64 bytes
+            xl_event.tagData.canMsg.dlc = c_ubyte(dlc)
+
+            # unsigned int  fl[3] = {
+
+            #   0 , // CAN (no FD)
+            #   XL_CAN_TXMSG_FLAG_EDL,
+            #   XL_CAN_TXMSG_FLAG_EDL | XL_CAN_TXMSG_FLAG_BRS,
+            # };
+            xl_event.tagData.canMsg.msgFlags = c_uint(0)
             # Converting from a string to a c_ubyte array
             tmp_ptr = pointer(data)
-            data_ptr = cast(tmp_ptr, POINTER(c_ubyte * 8))
-            xl_event.tagData.msg.data = data_ptr.contents
+            data_ptr = cast(tmp_ptr, POINTER(c_ubyte * 64))
+            xl_event.tagData.canMsg.data = data_ptr.contents
             msg_count = c_uint(1)
-            msg_ptr = pointer(msg_count)
+            msg_sent = c_uint(0)
+            msg_sent_ptr = pointer(msg_sent)
             event_ptr = pointer(xl_event)
             status = vxl_transmit(self.port, self.channels[channel].mask,
-                                  msg_ptr, event_ptr)
+                                  msg_count, msg_sent_ptr, event_ptr)
             if status == b'XL_ERR_QUEUE_IS_FULL':
                 # Let other threads run. Before this sleep was added, I was
                 # seeing 400+ loops in this function until the queue was no

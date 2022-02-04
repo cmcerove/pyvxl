@@ -19,6 +19,7 @@ class Database:
         self.__nodes = {}
         self.__messages = {}
         self.__signals = {}
+        self.__protocol = 'CAN'
         self.path = db_path
 
     def __str__(self):
@@ -57,17 +58,35 @@ class Database:
         self.__path = db
         p = DBCParser(db, Node, Message, Signal, write_tables=0, debug=False)
         if not p.messages:
-            raise ValueError('{} contains no messages or is not a valid dbc.'
-                             ''.format(db))
+            raise ValueError(f'{db} contains no messages.')
 
         self.__nodes = p.nodes
         self.__messages = p.messages
         self.__signals = p.signals
 
+        can_fd = False
+        if p.can_fd_support:
+            self.__protocol = 'CAN FD'
+            can_fd = True
+
+        # Set the id_type on each message in case the dbc did not specify it
+        # for all messages. DBCs that are only standard CAN won't include the
+        # id_type.
         for msg in p.messages.values():
-            if msg.send_type_num is not None and\
-               msg.send_type_num < len(p.send_types):
-                msg.send_type = p.send_types[msg.send_type_num]
+            if msg.id_type is None:
+                if not can_fd and msg.id <= 0x7FF:
+                    msg.id_type = 'CAN Standard'
+                elif not can_fd and msg.id > 0x7FF:
+                    msg.id_type = 'CAN Extended'
+                elif can_fd and msg.id <= 0x7FF:
+                    msg.id_type = 'CAN FD Standard'
+                else:  # can_fd and msg.id > 0x7FF:
+                    msg.id_type = 'CAN FD Extended'
+
+    @property
+    def protocol(self):
+        """Whether this database requires CAN or CAN FD."""
+        return self.__protocol
 
     @property
     def nodes(self):
@@ -257,13 +276,13 @@ class Message:
         self.__sending = False
         self.period = 0
         self.delay = None
-        self.send_type_num = None
-        self.send_type = None
         self.repetitions = None
         self.update_func = None
+        self.__id_type = None
         # TODO: Populate this on import
         self.transmitters = None
         self.__init_completed = True
+        self.__valid_fd_dlcs = list(range(9)) + [12, 16, 20, 24, 32, 48, 64]
 
     def __str__(self):
         """Return a string representation of this message."""
@@ -292,6 +311,43 @@ class Message:
             raise AssertionError('can\'t set attribute')
 
     @property
+    def id_type(self):
+        """The ID type for this message.
+
+        Indicates whether this message is CAN Standard, CAN Extended,
+        CAN FD Standard or CAN FD Extended.
+        """
+        return self.__id_type
+
+    @id_type.setter
+    def id_type(self, id_type):
+        """."""
+        id_types = {0: 'CAN Standard', 1: 'CAN Extended',
+                    14: 'CAN FD Standard', 15: 'CAN FD Extended'}
+        if isinstance(id_type, str):
+            for id_type_val, id_type_name in id_types.items():
+                if id_type == id_type_name:
+                    id_type = id_type_val
+                    break
+            else:
+                raise ValueError(f'{id_type} is an invalid id_type or pyvxl '
+                                 'has not been updated to handle this case. '
+                                 f'Implemented id_types = {id_types.values()}')
+        elif not isinstance(id_type, int):
+            raise TypeError(f'Expected int or str but got {type(id_type)}')
+        elif id_type not in id_types:
+            raise ValueError(f'{id_type} is an invalid id_type or pyvxl has '
+                             'not been updated to handle this case. '
+                             f'Implemented id_types = {id_types}')
+        can_fd = bool(id_type & 0b1110)
+        if can_fd and self.dlc not in self.__valid_fd_dlcs:
+            raise ValueError(f'Msg: {self.name}, DLC: {self.dlc}\n CAN FD '
+                             f'dlc must be {self.__valid_fd_dlcs}')
+        elif not can_fd and (self.dlc < 0 or self.dlc > 8):
+            raise ValueError(f'{self.dlc}: CAN dlc must be between 0 and 8')
+        self.__id_type = id_type
+
+    @property
     def name(self):
         """The name of the message."""
         return self.__name
@@ -318,8 +374,11 @@ class Message:
         """Set the length of the message in bytes."""
         if not isinstance(dlc, int):
             raise TypeError(f'Expected int but got {type(dlc)}')
-        if dlc < 0 or dlc > 8:
-            raise ValueError(f'{dlc} must be between 0 and 8')
+        elif dlc < 0 or dlc > 64:
+            raise ValueError(f'{dlc} must be between 0 and 64')
+        elif dlc > 8 and dlc not in [12, 16, 20, 24, 32, 48, 64]:
+            raise ValueError(f'Msg: {self.name}, DLC: {self.dlc}\n CAN FD '
+                             f'dlc must be {self.__valid_fd_dlcs}')
         try:
             _ = self.__dlc
         except AttributeError:
@@ -466,7 +525,9 @@ class Message:
 def gen_msb_map():
     """Generate dictionary to look up the start bit for each signal."""
     msb_map = {}
-    for x in range(1, 9):
+    # CAN FD can have DLCs up to 64 bytes
+    max_dlc = 64
+    for x in range(1, max_dlc + 1):
         little_endian = 0
         big_endian = (x - 1) * 8
         ret = {}
@@ -564,7 +625,7 @@ class Signal:
 
     @msg.setter
     def msg(self, msg):
-        """Add a reference to message this signal is included in."""
+        """Add a reference to the message containing this signal."""
         if self.__msg is not None:
             raise AttributeError('can\'t set attribute')
         if not isinstance(msg, Message):

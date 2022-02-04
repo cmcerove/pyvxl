@@ -178,36 +178,16 @@ class DBCParser:
         self.node_type = node_type
         self.message_type = message_type
         self.signal_type = signal_type
+        self.can_fd_support = False
         self.nodes = {}
         self.messages = {}
         self.signals = {}
-        self.send_types = []
-        self.send_types_expected = ['cyclicX', 'spontanX', 'cyclicIfActiveX',
-                                    'spontanWithDelay', 'cyclicAndSpontanX',
-                                    'cyclicAndSpontanWithDelay',
-                                    'spontanWithRepitition',
-                                    'cyclicIfActiveAndSpontanWD',
-                                    'cyclicIfActiveFast',
-                                    'cyclicWithRepeatOnDemand', 'none']
         self.lexer = DBCLexer(debug=False)
         self.tokens = self.lexer.tokens
         self.parser = yacc(module=self, **kwargs)
         with open(path, 'r') as f:
             dbc = f.read()
         self.parser.parse(dbc, self.lexer.lexer, 0, 0, None)
-        if not self.send_types:
-            raise AssertionError('')
-        update = True
-        if len(self.send_types) == len(self.send_types_expected):
-            for x in range(len(self.send_types)):
-                if self.send_types[x] != self.send_types_expected[x]:
-                    break
-            else:
-                update = False
-
-        if update:
-            for msg in self.messages:
-                msg.send_type = self.send_types[msg.send_type_num]
 
     def p_error(self, p):
         """Print a parsing error."""
@@ -408,10 +388,15 @@ class DBCParser:
         elif p[2] == 'GenMsgDelayTime':
             self.messages[int(p[4]) & 0x1FFFFFFF].delay = p[5]
         elif p[2] == 'GenMsgSendType':
-            # print('Setting send type for {:X} to {}'.format(p[4], p[5]))
-            self.messages[int(p[4]) & 0x1FFFFFFF].send_type_num = p[5]
+            # This was removed since I can't find a standard specifying these
+            # send types and how they should be implemented. I've also seen
+            # DBCs from different OEMs with different names used so I think
+            # there might not be a standard.
+            pass
         elif p[2] == 'GenMsgNrOfRepetitions':
             self.messages[int(p[4]) & 0x1FFFFFFF].repetitions = p[5]
+        elif p[2] == 'VFrameFormat':
+            self.messages[int(p[4]) & 0x1FFFFFFF].id_format = p[5]
 
     def p_attribute_rel_list(self, p):  # noqa
         """attribute_rel_list : empty
@@ -450,8 +435,13 @@ class DBCParser:
                                 | attribute_object_type STRING_VAL ENUM comma_string_list ';'
                                 | attribute_object_type STRING_VAL HEX INT_VAL INT_VAL ';' """
         if p[2] == 'GenMsgSendType' and p[3] == 'ENUM':
-            self.send_types = p[4]
-            self.send_types.reverse()
+            # This was removed since I can't find a standard specifying these
+            # send types and how they should be implemented. I've also seen
+            # DBCs from different OEMs with different names used so I think
+            # there might not be a standard.
+            pass
+        elif p[2] == 'VFrameFormat' and p[3] == 'ENUM':
+            self.can_fd_support = True
 
     def p_attribute_object_type(self, p):  # noqa
         """attribute_object_type : BA_DEF
@@ -536,7 +526,7 @@ class DBCParser:
         """comma_identifier_list : ID
                                  | ID ',' comma_identifier_list"""
         if len(p) == 4:
-            p[0] = p[2]
+            p[0] = p[3]
             p[0].append(p[1])
         else:
             p[0] = [p[1]]
