@@ -65,7 +65,7 @@ def main():
         raise AssertionError(f'Executable extracted from {zip_name} is no '
                              f'longer called {exe_name}! This breaks setup.py')
 
-    with open('version.txt', 'w') as f:
+    with open(path.join(lib_path, 'version.txt'), 'w') as f:
         # f.write(new_version)
         f.write('20.30.4')
 
