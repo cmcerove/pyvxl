@@ -67,7 +67,7 @@ def main():
 
     with open(path.join(lib_path, 'version.txt'), 'w') as f:
         # f.write(new_version)
-        f.write('20.30.4')
+        f.write('20.30.14')
 
 
 if __name__ == '__main__':
