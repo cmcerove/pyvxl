@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 
 """Implements UDS requests based on ISO 14229-1:2013."""
 
@@ -57,7 +57,7 @@ class UDS:
     @p2_server.setter
     def p2_server(self, timeout):
         """Set the p2_server timeout in milliseconds."""
-        if not isinstance(timeout, int):
+        if not isinstance(timeout, int) or isinstance(timeout, bool):
             raise TypeError(f'Expected int but got {type(timeout)}')
         self.__p2_server = timeout
 
@@ -71,7 +71,7 @@ class UDS:
     @p2_star_server.setter
     def p2_star_server(self, timeout):
         """Set the p2_star_server timeout in milliseconds."""
-        if not isinstance(timeout, int):
+        if not isinstance(timeout, int) or isinstance(timeout, bool):
             raise TypeError(f'Expected int but got {type(timeout)}')
         self.__p2_star_server = timeout
 
@@ -90,7 +90,7 @@ class UDS:
                                  f'equal to {expected_len} characters. '
                                  f'{data:X} is {len(data)} characters long.')
             data = data.zfill(expected_len)
-        elif isinstance(data, int):
+        elif isinstance(data, int) and not isinstance(data, bool):
             if data > expected_max:
                 raise ValueError(f'{data:X} not in range: 0 <= {check_type} <='
                                  f' 0x{expected_max:X}')

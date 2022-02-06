@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 
 """Holds classes designed to interact specific protocols of vxlAPI."""
 
@@ -7,8 +7,7 @@ from pyvxl.vxl_functions import vxl_open_port, vxl_close_port, vxl_reset_clock
 from pyvxl.vxl_functions import vxl_activate_channel, vxl_deactivate_channel
 from pyvxl.vxl_functions import vxl_get_driver_config
 from pyvxl.vxl_functions import vxl_transmit, vxl_receive
-from pyvxl.vxl_functions import vxl_get_receive_queue_size
-from pyvxl.vxl_functions import vxl_set_baudrate, vxl_get_sync_time
+from pyvxl.vxl_functions import vxl_get_receive_queue_size, vxl_get_sync_time
 from pyvxl.vxl_functions import vxl_request_chip_state, vxl_set_fd_conf
 from pyvxl.vxl_functions import vxl_flush_tx_queue, vxl_flush_rx_queue
 from pyvxl.vxl_types import vxl_driver_config_type, vxl_can_rx_event
@@ -155,7 +154,7 @@ class Vxl:
         """Set the receive queue size."""
         if self.port is not None:
             raise AssertionError('Port must be closed to change queue size.')
-        if not isinstance(size, int):
+        if not isinstance(size, int) or isinstance(size, bool):
             raise TypeError(f'Expected int but got {type(size)}')
         elif size < 8192 or size > 524288:
             raise ValueError(f'{size} must be >= 8192 and <= 524288')
@@ -325,7 +324,7 @@ class VxlChannel:
     @num.setter
     def num(self, num):
         """Set the number for the channel."""
-        if not isinstance(num, int):
+        if not isinstance(num, int) or isinstance(num, bool):
             raise TypeError(f'Expected int but got {type(num)}')
         elif num < 0:
             raise ValueError(f'{num} must be a postive number')
@@ -371,7 +370,7 @@ class VxlChannel:
     @baud.setter
     def baud(self, baud):
         """Set the arbitration baud rate for the channel."""
-        if not isinstance(baud, int):
+        if not isinstance(baud, int) or isinstance(baud, bool):
             raise TypeError(f'Expected int but got {type(baud)}')
         # TODO: Add checking for valid baud rates
         self.__baud = baud
@@ -384,7 +383,7 @@ class VxlChannel:
     @sjw_arb.setter
     def sjw_arb(self, sjw_arb):
         """Set the arbitration synchronization jump width for the channel."""
-        if not isinstance(sjw_arb, int):
+        if not isinstance(sjw_arb, int) or isinstance(sjw_arb, bool):
             raise TypeError(f'Expected int but got {type(sjw_arb)}')
         self.__sjw_arb = sjw_arb
 
@@ -402,7 +401,7 @@ class VxlChannel:
 
         Time segment 1 is the number of quanta before the sample point.
         """
-        if not isinstance(tseg1_arb, int):
+        if not isinstance(tseg1_arb, int) or isinstance(tseg1_arb, bool):
             raise TypeError(f'Expected int but got {type(tseg1_arb)}')
         self.__tseg1_arb = tseg1_arb
 
@@ -420,7 +419,7 @@ class VxlChannel:
 
         Time segment 2 is the number of quanta after the sample point.
         """
-        if not isinstance(tseg2_arb, int):
+        if not isinstance(tseg2_arb, int) or isinstance(tseg2_arb, bool):
             raise TypeError(f'Expected int but got {type(tseg2_arb)}')
         self.__tseg2_arb = tseg2_arb
 
@@ -432,7 +431,7 @@ class VxlChannel:
     @data_baud.setter
     def data_baud(self, baud):
         """Set the data baud rate for the channel."""
-        if not isinstance(baud, int):
+        if not isinstance(baud, int) or isinstance(baud, bool):
             raise TypeError(f'Expected int but got {type(baud)}')
         # TODO: Add checking for valid baud rates
         self.__data_baud = baud
@@ -445,7 +444,7 @@ class VxlChannel:
     @sjw_data.setter
     def sjw_data(self, sjw_data):
         """Set the data synchronization jump width for the channel."""
-        if not isinstance(sjw_data, int):
+        if not isinstance(sjw_data, int) or isinstance(sjw_data, bool):
             raise TypeError(f'Expected int but got {type(sjw_data)}')
         self.__sjw_data = sjw_data
 
@@ -463,7 +462,7 @@ class VxlChannel:
 
         Time segment 1 is the number of quanta before the sample point.
         """
-        if not isinstance(tseg1_data, int):
+        if not isinstance(tseg1_data, int) or isinstance(tseg1_data, bool):
             raise TypeError(f'Expected int but got {type(tseg1_data)}')
         self.__tseg1_data = tseg1_data
 
@@ -481,7 +480,7 @@ class VxlChannel:
 
         Time segment 2 is the number of quanta after the sample point.
         """
-        if not isinstance(tseg2_data, int):
+        if not isinstance(tseg2_data, int) or isinstance(tseg2_data, bool):
             raise TypeError(f'Expected int but got {type(tseg2_data)}')
         self.__tseg2_data = tseg2_data
 
@@ -618,8 +617,10 @@ class VxlCan(Vxl):
                 xl_event.tagData.canMsg.canId = c_ulong(msg_id)
 
             if dlc > 8:
-                xl_event.tagData.canMsg.msgFlags = XL_CAN_TXMSG_FLAG_EDL | XL_CAN_TXMSG_FLAG_BRS
-                dlc_map = {12: 9, 16: 10, 20: 11, 24: 12, 32: 13, 48: 14, 64: 15}
+                fd_flags = XL_CAN_TXMSG_FLAG_EDL | XL_CAN_TXMSG_FLAG_BRS
+                xl_event.tagData.canMsg.msgFlags = fd_flags
+                dlc_map = {12: 9, 16: 10, 20: 11, 24: 12, 32: 13, 48: 14,
+                           64: 15}
                 if dlc not in dlc_map:
                     raise ValueError(f'{dlc}s larger than 8 must be one of '
                                      f'these values: {dlc_map.values()}')

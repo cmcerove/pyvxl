@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 
 """CAN types used by pyvxl.CAN."""
 
@@ -141,7 +141,7 @@ class Database:
             else:
                 raise ValueError(f'{name_or_id} does not match a message name '
                                  f'in {self}')
-        elif isinstance(name_or_id, int):
+        elif isinstance(name_or_id, int) and not isinstance(name_or_id, bool):
             # Strip the extended ID bit if it exists
             name_or_id &= 0x1fffffff
             if name_or_id not in self.messages:
@@ -158,10 +158,9 @@ class Database:
         Returns a list of message objects.
         """
         raise NotImplementedError
-        messages = []
         num_found = 0
-        msg_id = self._check_message(name_or_id)
-        if isinstance(msg_id, int):
+        msg_id = self._check_message(name)
+        if isinstance(msg_id, int) and not isinstance(msg_id, bool):
             name &= 0x1fffffff
             try:
                 msg = self.imported.messages[msg_id]
@@ -333,7 +332,7 @@ class Message:
                 raise ValueError(f'{id_type} is an invalid id_type or pyvxl '
                                  'has not been updated to handle this case. '
                                  f'Implemented id_types = {id_types.values()}')
-        elif not isinstance(id_type, int):
+        elif not isinstance(id_type, int) or isinstance(id_type, bool):
             raise TypeError(f'Expected int or str but got {type(id_type)}')
         elif id_type not in id_types:
             raise ValueError(f'{id_type} is an invalid id_type or pyvxl has '
@@ -372,7 +371,7 @@ class Message:
     @dlc.setter
     def dlc(self, dlc):
         """Set the length of the message in bytes."""
-        if not isinstance(dlc, int):
+        if not isinstance(dlc, int) or isinstance(dlc, bool):
             raise TypeError(f'Expected int but got {type(dlc)}')
         elif dlc < 0 or dlc > 64:
             raise ValueError(f'{dlc} must be between 0 and 64')
@@ -452,7 +451,7 @@ class Message:
                 data = int(data, 16)
             except ValueError:
                 raise ValueError(f'{data} is not a hexadecimal string')
-        elif not isinstance(data, int):
+        elif not isinstance(data, int) or isinstance(data, bool):
             raise TypeError(f'Expected a hex str or int but got {type(data)}')
         if data < 0 or data > self.__max_val:
             raise ValueError(f'{data:X} must be positive and less than the '
@@ -474,7 +473,7 @@ class Message:
     @period.setter
     def period(self, period):
         """Set the transmit period for the message."""
-        if not isinstance(period, int):
+        if not isinstance(period, int) or isinstance(period, bool):
             raise TypeError(f'Expected int but got {type(period)}')
         if self.sending:
             raise AssertionError(f'Stop sending {self} before changing the '
@@ -602,7 +601,7 @@ class Signal:
     @endianness.setter
     def endianness(self, endianness):
         """The endianness of the signal."""
-        if not isinstance(endianness, int):
+        if not isinstance(endianness, int) or isinstance(endianness, bool):
             raise TypeError(f'Expected int but got {type(endianness)}')
         if endianness not in [0, 1]:
             raise ValueError(f'{endianness} must be 0 or 1')
@@ -661,7 +660,7 @@ class Signal:
     @raw_val.setter
     def raw_val(self, msg_data):
         """Set the raw_value based on the full message data."""
-        if not isinstance(msg_data, int):
+        if not isinstance(msg_data, int) or isinstance(msg_data, bool):
             raise TypeError(f'Expected int but got {type(msg_data)}')
         self.__val = msg_data & self.mask
 

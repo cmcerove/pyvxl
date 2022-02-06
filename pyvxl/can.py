@@ -1,9 +1,8 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 
 """Contains the classes CAN, Channel, TransmitThread and ReceiveThread."""
 
 import logging
-import re
 import atexit
 from os import path, remove
 from queue import Queue
@@ -71,7 +70,7 @@ class CAN:
 
     def remove_channel(self, num):
         """Remove a channel."""
-        if not isinstance(num, int):
+        if not isinstance(num, int) or isinstance(num, bool):
             raise TypeError(f'Expected int but got {type(num)}')
         if num not in self.__channels:
             raise ValueError(f'Channel {num} not found')

@@ -3,7 +3,6 @@
 """Unit tests for pyvxl.vxl."""
 import pytest
 from time import sleep
-import re
 from random import random
 from pyvxl import VxlCan
 from pyvxl.vxl import Vxl, VxlChannel, BUS_TYPE_CAN, BUS_TYPE_LIN
@@ -69,7 +68,7 @@ def test_rx_queue_size_fails(vxl):  # noqa
     with pytest.raises(ValueError):
         vxl.rx_queue_size = 8
     with pytest.raises(ValueError):
-        vxl.rx_queue_size = 20
+        vxl.rx_queue_size = 8200
 
 
 def test_add_channel_fails(vxl):  # noqa
@@ -140,7 +139,9 @@ def test_receive(vxl):  # noqa
 
 
 def test_get_rx_queued_length(vxl):  # noqa
-    assert isinstance(vxl.get_rx_queued_length(), int)
+    length = vxl.get_rx_queued_length()
+    assert isinstance(length, int)
+    assert isinstance(length, bool) is False
 
 
 def test_get_rx_queued_length_no_port():  # noqa
@@ -170,6 +171,7 @@ def test_get_dll_version(vxl):  # noqa
 def test_get_time(vxl):  # noqa
     time = vxl.get_time()
     assert isinstance(time, int)
+    assert isinstance(time, bool) is False
     assert time >= 0
 
 
@@ -181,12 +183,33 @@ def test_print_config(vxl):  # noqa
     vxl.print_config()
 
 
-def test_channel_init_fail():  # noqa
+def test_channel_invalid_types(vxl):  # noqa
+    channel = vxl.channels[list(vxl.channels.keys())[0]]
     with pytest.raises(TypeError):
         VxlChannel('')
+    with pytest.raises(TypeError):
+        channel.num = False
+    with pytest.raises(TypeError):
+        channel.init_access = 1
+    with pytest.raises(TypeError):
+        channel.baud = False
+    with pytest.raises(TypeError):
+        channel.sjw_arb = False
+    with pytest.raises(TypeError):
+        channel.tseg1_arb = False
+    with pytest.raises(TypeError):
+        channel.tseg2_arb = False
+    with pytest.raises(TypeError):
+        channel.data_baud = False
+    with pytest.raises(TypeError):
+        channel.sjw_data = False
+    with pytest.raises(TypeError):
+        channel.tseg1_data = False
+    with pytest.raises(TypeError):
+        channel.tseg2_data = False
 
 
-def test_channel_num_fail(vxl):  # noqa
+def test_channel_num_fails(vxl):  # noqa
     channel = vxl.channels[list(vxl.channels.keys())[0]]
     with pytest.raises(AssertionError):
         channel.num = vxl.config.channelCount + 1
@@ -197,10 +220,8 @@ def test_channel_num_fail(vxl):  # noqa
         channel.num = 0
 
 
-def test_channel_fails(vxl):  # noqa
+def test_channel_activate_fails(vxl):  # noqa
     channel = vxl.channels[list(vxl.channels.keys())[0]]
-    with pytest.raises(TypeError):
-        channel.init_access = 1
     with pytest.raises(AssertionError):
         channel.activate()
     vxl.stop()
@@ -214,14 +235,14 @@ def test_channel_bus_type_fail():  # noqa
         VxlChannel(vxl)
 
 
-def test_channel_baudrate_fail(vxl, monkeypatch):  # noqa
+def test_channel_fd_conf_fail(vxl, monkeypatch):  # noqa
     vxl.stop()
     vxl.open_port('test')
     channel = vxl.channels[list(vxl.channels.keys())[0]]
     channel.init_access = True
-    def vxl_set_baudrate_fail(one, two, three):  # noqa
+    def vxl_set_fd_conf_fail(one, two, three):  # noqa
         return False
-    monkeypatch.setattr(vxl_file, 'vxl_set_baudrate', vxl_set_baudrate_fail)
+    monkeypatch.setattr(vxl_file, 'vxl_set_fd_conf', vxl_set_fd_conf_fail)
     with pytest.raises(AssertionError):
         channel.activate()
 
@@ -231,9 +252,9 @@ def test_channel_flush_tx_queue_fail(vxl, monkeypatch):  # noqa
     vxl.open_port('test')
     channel = vxl.channels[list(vxl.channels.keys())[0]]
     channel.init_access = True
-    def vxl_set_baudrate_pass(one, two, three):  # noqa
+    def vxl_set_fd_conf_pass(one, two, three):  # noqa
         return True
-    monkeypatch.setattr(vxl_file, 'vxl_set_baudrate', vxl_set_baudrate_pass)
+    monkeypatch.setattr(vxl_file, 'vxl_set_fd_conf', vxl_set_fd_conf_pass)
     def vxl_flush_tx_queue_fail(one, two):  # noqa
         return False
     monkeypatch.setattr(vxl_file, 'vxl_flush_tx_queue',
@@ -247,9 +268,9 @@ def test_channel_flush_rx_queue_fail(vxl, monkeypatch):  # noqa
     vxl.open_port('test')
     channel = vxl.channels[list(vxl.channels.keys())[0]]
     channel.init_access = True
-    def vxl_set_baudrate_pass(one, two, three):  # noqa
+    def vxl_set_fd_conf_pass(one, two, three):  # noqa
         return True
-    monkeypatch.setattr(vxl_file, 'vxl_set_baudrate', vxl_set_baudrate_pass)
+    monkeypatch.setattr(vxl_file, 'vxl_set_fd_conf', vxl_set_fd_conf_pass)
     def vxl_flush_tx_queue_pass(one, two):  # noqa
         return True
     monkeypatch.setattr(vxl_file, 'vxl_flush_tx_queue',
@@ -275,7 +296,7 @@ def test_channel_activate_channel_fail(vxl, monkeypatch):  # noqa
         channel.activate()
 
 
-def test_deactivate_fails(vxl, monkeypatch):  # noqa
+def test_channel_deactivate_fails(vxl, monkeypatch):  # noqa
     channel = vxl.channels[list(vxl.channels.keys())[0]]
     vxl.close_port()
     with pytest.raises(AssertionError):
@@ -345,7 +366,17 @@ def test_vxl_send_without_data_and_long_id(vxl):  # noqa
 
 def test_send_fail(vxl):  # noqa
     with pytest.raises(ValueError):
+        # Invalid Channel
         vxl.send(-1, 123, '')
+    channel = list(vxl.channels.keys())[0]
+    dlc_map = {12: 9, 16: 10, 20: 11, 24: 12, 32: 13, 48: 14, 64: 15}
+    for dlc in range(66):
+        # Skip valid dlcs
+        if dlc <= 8 or dlc in dlc_map:
+            continue
+        with pytest.raises(ValueError):
+            # Invalid DLC
+            vxl.send(channel, 0x123, '00' * dlc)
 
 
 def test_send_queue_full(vxl, monkeypatch):  # noqa
