@@ -4,6 +4,7 @@
 import pytest
 from time import sleep
 import re
+from random import random
 from pyvxl import VxlCan
 from pyvxl.vxl import Vxl, VxlChannel, BUS_TYPE_CAN, BUS_TYPE_LIN
 from pyvxl import vxl as vxl_file
@@ -98,67 +99,44 @@ def test_receive_fail(vxl):  # noqa
 
 def test_receive(vxl):  # noqa
     channel = list(vxl.channels.keys())[0]
-    vxl.flush_queues()
-    assert vxl.receive() is None
-    assert vxl.send(channel, 0x123, '1234')
-    msg_start_pat = re.compile(r'^(\w+)\sc=(\d+),\st=(\d+),\s')
-    rx_tx_pat = re.compile(r'id=(\w+)\sl=(\d),\s(\w+)?\s(TX)?\s*tid=(\w+)')
-    sleep(0.01)
-    data = vxl.receive()
-    matched = msg_start_pat.match(data)
-    assert matched
-    assert matched.group(1) in ['RX_MSG', 'CHIP_STATE']
-    if matched.group(1) == 'CHIP_STATE':
-        data = vxl.receive()
-        matched = msg_start_pat.match(data)
-        assert matched
-        assert matched.group(1) == 'RX_MSG'
-    # Channel might change, just check that it exists
-    channel = matched.group(2)
-    assert channel
-    assert int(channel)
-    # Timestamp will change, check that it exists
-    time = matched.group(3)
-    assert time
-    assert int(time)
-    data = data.replace(matched.group(0), '')
-    matched = rx_tx_pat.match(data)
-    assert matched.group(1) == '0123'
-    assert matched.group(2) == '2'
-    assert matched.group(3) == '1234'
-    assert matched.group(4) == 'TX'
+    XL_CAN_EV_TAG_RX_OK = 0x0400  # noqa
+    XL_CAN_EV_TAG_RX_ERROR = 0x0401  # noqa
+    XL_CAN_EV_TAG_TX_ERROR = 0x0402  # noqa
+    XL_CAN_EV_TAG_TX_REQUEST = 0x0403  # noqa
+    XL_CAN_EV_TAG_TX_OK = 0x0404  # noqa
+    XL_CAN_EV_TAG_CHIP_STATE = 0x0409  # noqa
 
+    XL_CAN_TXMSG_FLAG_EDL = 0x0001  # noqa
+    XL_CAN_TXMSG_FLAG_BRS = 0x0002  # noqa
+    fd_flags = XL_CAN_TXMSG_FLAG_EDL | XL_CAN_TXMSG_FLAG_BRS
 
-def test_send_recv_extended(vxl):  # noqa
-    channel = list(vxl.channels.keys())[0]
-    assert vxl.receive() is None
-    assert vxl.send(channel, 0x12345678, '1122334455667788')
-    msg_start_pat = re.compile(r'^(\w+)\sc=(\d+),\st=(\d+),\s')
-    rx_tx_pat = re.compile(r'id=(\w+)\sl=(\d),\s(\w+)?\s(TX)?\s*tid=(\w+)')
-    sleep(0.01)
-    data = vxl.receive()
-    matched = msg_start_pat.match(data)
-    assert matched
-    assert matched.group(1) in ['RX_MSG', 'CHIP_STATE']
-    if matched.group(1) == 'CHIP_STATE':
-        data = vxl.receive()
-        matched = msg_start_pat.match(data)
-        assert matched
-        assert matched.group(1) == 'RX_MSG'
-    # Channel might change, just check that it exists
-    channel = matched.group(2)
-    assert channel
-    assert int(channel)
-    # Timestamp will change, check that it exists
-    time = matched.group(3)
-    assert time
-    assert int(time)
-    data = data.replace(matched.group(0), '')
-    matched = rx_tx_pat.match(data)
-    assert matched.group(1) == '92345678'
-    assert matched.group(2) == '8'
-    assert matched.group(3) == '1122334455667788'
-    assert matched.group(4) == 'TX'
+    # Test all valid message lengths for regular and extended IDs
+    ids_to_test = [0x123, 0x12345678]
+    valid_dlcs = list(range(9)) + [12, 16, 20, 24, 32, 48, 64]
+    for msg_id in ids_to_test:
+        for dlc in valid_dlcs:
+            # Generate random data to send
+            tx_data = ''.join([f'{int(random()*0xFF):02X}' for x in range(dlc)])
+            vxl.flush_queues()
+            assert vxl.receive() is None
+            assert vxl.send(channel, msg_id, tx_data)
+            sleep(0.01)
+            rx_event = vxl.receive()
+            assert rx_event is not None
+            assert rx_event.tag == XL_CAN_EV_TAG_TX_OK
+            assert isinstance(rx_event.timeStampSync / 1000000000.0, float)
+            assert rx_event.channelIndex + 1 == channel
+            assert (rx_event.tagData.canRxOkMsg.canId & 0x7FFFFFFF) == msg_id
+            dlc_map = {9: 12, 10: 16, 11: 20, 12: 24, 13: 32, 14: 48, 15: 64}
+            if dlc <= 8:
+                assert rx_event.tagData.canRxOkMsg.msgFlags == 0
+                assert rx_event.tagData.canRxOkMsg.dlc == dlc
+            else:
+                assert dlc_map[rx_event.tagData.canRxOkMsg.dlc] == dlc
+                assert rx_event.tagData.canRxOkMsg.msgFlags == fd_flags
+            rx_data = rx_event.tagData.canRxOkMsg.data
+            data = ''.join([f'{x:02X}' for i, x in enumerate(rx_data) if i < dlc])
+            assert data == tx_data
 
 
 def test_get_rx_queued_length(vxl):  # noqa
@@ -379,7 +357,7 @@ def test_send_queue_full(vxl, monkeypatch):  # noqa
     monkeypatch.setattr(vxl_file, 'vxl_transmit', vxl_queue_full)
 
     channel = list(vxl.channels.keys())[0]
-    assert vxl.send(channel, 0x123, '010203') is False
+    assert vxl.send(channel, 0x123, '010203') is True
 
 
 def test_get_can_channels(vxl):  # noqa

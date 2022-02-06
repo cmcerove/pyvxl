@@ -445,10 +445,11 @@ class ReceiveThread(Thread):
                 if rx_event.tag == XL_CAN_EV_TAG_RX_OK or \
                    rx_event.tag == XL_CAN_EV_TAG_TX_OK:
                     self.set_error_state(channel, False)
+                    # Currently unused parts of rx_event:
+                    # rx_event.tagData.canRxOkMsg.msgFlags
+                    # rx_event.tagData.canRxOkMsg.crc
+                    # rx_event.tagData.canRxOkMsg.totalBitCnt
                     msg_id = rx_event.tagData.canRxOkMsg.canId
-                    rx_event.tagData.canRxOkMsg.msgFlags
-                    rx_event.tagData.canRxOkMsg.crc
-                    rx_event.tagData.canRxOkMsg.totalBitCnt
                     dlc = rx_event.tagData.canRxOkMsg.dlc
                     rx_data = rx_event.tagData.canRxOkMsg.data
                     # Convert rx_data from a ctypes 64 byte array to a string

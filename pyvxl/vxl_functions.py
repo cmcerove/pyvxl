@@ -132,6 +132,13 @@ def vxl_set_baudrate(*args):
     return True if status == b'XL_SUCCESS' else False
 
 
+def vxl_set_fd_conf(*args):
+    """Set the CAN FD configuration."""
+    status = getError(vxDLL.xlCanFdSetConfiguration(*args))
+    logging.debug('{0}: {1}'.format('xlCanFdSetConfiguration', status))
+    return True if status == b'XL_SUCCESS' else False
+
+
 def vxl_set_notification(*args):
     """Set a notification."""
     status = getError(vxDLL.xlSetNotification(*args))

@@ -9,10 +9,10 @@ from pyvxl.vxl_functions import vxl_get_driver_config
 from pyvxl.vxl_functions import vxl_transmit, vxl_receive
 from pyvxl.vxl_functions import vxl_get_receive_queue_size
 from pyvxl.vxl_functions import vxl_set_baudrate, vxl_get_sync_time
-from pyvxl.vxl_functions import vxl_request_chip_state
+from pyvxl.vxl_functions import vxl_request_chip_state, vxl_set_fd_conf
 from pyvxl.vxl_functions import vxl_flush_tx_queue, vxl_flush_rx_queue
 from pyvxl.vxl_types import vxl_driver_config_type, vxl_can_rx_event
-from pyvxl.vxl_types import vxl_can_tx_event
+from pyvxl.vxl_types import vxl_can_tx_event, vxl_can_fd_conf
 
 import os
 import logging
@@ -49,8 +49,18 @@ BUS_TYPE_NAMES = {BUS_TYPE_CAN: 'CAN', BUS_TYPE_LIN: 'LIN'}
 INTERFACE_VERSION_V3 = 3  # CAN, LIN, DAIO and K-Line
 INTERFACE_VERSION_V4 = 4  # MOST,CAN FD, Ethernet, FlexRay and ARINC429
 
-XL_CAN_TXMSG_FLAG_EDL = 0x0001  # Extended data length
-XL_CAN_TXMSG_FLAG_BRS = 0x0002  # Baud rate switch
+
+# This flag is used to indicate an extended CAN FD data length.
+XL_CAN_TXMSG_FLAG_EDL = 0x0001
+# Baudrate switch.
+XL_CAN_TXMSG_FLAG_BRS = 0x0002
+# This flag is used for Remote-Transmission-Request.
+# Only useable for Standard CAN messages.
+XL_CAN_TXMSG_FLAG_RTR = 0x0010
+# High priority message. Clears all send buffers then transmits.
+XL_CAN_TXMSG_FLAG_HIGHPRIO = 0x0080
+# Generates a wake up message.
+XL_CAN_TXMSG_FLAG_WAKEUP = 0x0200
 
 
 class Vxl:
@@ -147,8 +157,8 @@ class Vxl:
             raise AssertionError('Port must be closed to change queue size.')
         if not isinstance(size, int):
             raise TypeError(f'Expected int but got {type(size)}')
-        elif size < 16 or size > 32768:
-            raise ValueError(f'{size} must be >= 16 and <= 32768')
+        elif size < 8192 or size > 524288:
+            raise ValueError(f'{size} must be >= 8192 and <= 524288')
         elif size & (size - 1):
             raise ValueError(f'{size} must be a power of 2')
         self.__rx_queue_size = size
@@ -277,14 +287,26 @@ class Vxl:
 class VxlChannel:
     """A channel used by Vxl."""
 
-    def __init__(self, vxl, num=0, baud=500000):  # noqa
+    def __init__(self, vxl, num=0, baud=500000, data_baud=1000000,  # noqa
+                 tseg1_arb=6, tseg2_arb=3, sjw_arb=2,
+                 tseg1_data=6, tseg2_data=3, sjw_data=2):
         if not isinstance(vxl, Vxl):
             raise TypeError(f'Expected Vxl but got {type(vxl)}')
         self.__vxl = vxl
         self.__activated = False
         self.num = num
-        self.baud = baud
         self.init_access = False
+        # For more info on CAN bit timing:
+        # https://www.kvaser.com/lesson/can-bit-timing/
+        self.baud = baud
+        self.sjw_arb = sjw_arb
+        self.tseg1_arb = tseg1_arb
+        self.tseg2_arb = tseg2_arb
+        self.data_baud = data_baud
+        self.sjw_data = sjw_data
+        self.tseg1_data = tseg1_data
+        self.tseg2_data = tseg2_data
+        self.__fd_conf = None
 
     def __str__(self):
         """Return a string representation of this channel."""
@@ -330,19 +352,6 @@ class VxlChannel:
         return self.__mask
 
     @property
-    def baud(self):
-        """The baud rate for the channel."""
-        return self.__baud
-
-    @baud.setter
-    def baud(self, baud):
-        """Set the baud rate for the channel."""
-        if not isinstance(baud, int):
-            raise TypeError(f'Expected int but got {type(baud)}')
-        # TODO: Add checking for valid baud rates
-        self.__baud = baud
-
-    @property
     def init_access(self):
         """Whether this channel has init access."""
         return self.__init
@@ -353,6 +362,145 @@ class VxlChannel:
         if not isinstance(value, bool):
             raise TypeError(f'Expected bool but got {type(value)}')
         self.__init = value
+
+    @property
+    def baud(self):
+        """The arbitration baud rate for the channel."""
+        return self.__baud
+
+    @baud.setter
+    def baud(self, baud):
+        """Set the arbitration baud rate for the channel."""
+        if not isinstance(baud, int):
+            raise TypeError(f'Expected int but got {type(baud)}')
+        # TODO: Add checking for valid baud rates
+        self.__baud = baud
+
+    @property
+    def sjw_arb(self):
+        """The arbitration synchronization jump width for the channel."""
+        return self.__sjw_arb
+
+    @sjw_arb.setter
+    def sjw_arb(self, sjw_arb):
+        """Set the arbitration synchronization jump width for the channel."""
+        if not isinstance(sjw_arb, int):
+            raise TypeError(f'Expected int but got {type(sjw_arb)}')
+        self.__sjw_arb = sjw_arb
+
+    @property
+    def tseg1_arb(self):
+        """The arbitration time segment 1 for the channel.
+
+        Time segment 1 is the number of quanta before the sample point.
+        """
+        return self.__tseg1_arb
+
+    @tseg1_arb.setter
+    def tseg1_arb(self, tseg1_arb):
+        """Set the arbitration time segment 1 for the channel.
+
+        Time segment 1 is the number of quanta before the sample point.
+        """
+        if not isinstance(tseg1_arb, int):
+            raise TypeError(f'Expected int but got {type(tseg1_arb)}')
+        self.__tseg1_arb = tseg1_arb
+
+    @property
+    def tseg2_arb(self):
+        """The arbitration time segment 2 for the channel.
+
+        Time segment 2 is the number of quanta after the sample point.
+        """
+        return self.__tseg2_arb
+
+    @tseg2_arb.setter
+    def tseg2_arb(self, tseg2_arb):
+        """The arbitration time segment 2 for the channel.
+
+        Time segment 2 is the number of quanta after the sample point.
+        """
+        if not isinstance(tseg2_arb, int):
+            raise TypeError(f'Expected int but got {type(tseg2_arb)}')
+        self.__tseg2_arb = tseg2_arb
+
+    @property
+    def data_baud(self):
+        """The data baud rate for the channel."""
+        return self.__data_baud
+
+    @data_baud.setter
+    def data_baud(self, baud):
+        """Set the data baud rate for the channel."""
+        if not isinstance(baud, int):
+            raise TypeError(f'Expected int but got {type(baud)}')
+        # TODO: Add checking for valid baud rates
+        self.__data_baud = baud
+
+    @property
+    def sjw_data(self):
+        """The data synchronization jump width for the channel."""
+        return self.__sjw_data
+
+    @sjw_data.setter
+    def sjw_data(self, sjw_data):
+        """Set the data synchronization jump width for the channel."""
+        if not isinstance(sjw_data, int):
+            raise TypeError(f'Expected int but got {type(sjw_data)}')
+        self.__sjw_data = sjw_data
+
+    @property
+    def tseg1_data(self):
+        """The data time segment 1 for the channel.
+
+        Time segment 1 is the number of quanta before the sample point.
+        """
+        return self.__tseg1_data
+
+    @tseg1_data.setter
+    def tseg1_data(self, tseg1_data):
+        """Set the data time segment 1 for the channel.
+
+        Time segment 1 is the number of quanta before the sample point.
+        """
+        if not isinstance(tseg1_data, int):
+            raise TypeError(f'Expected int but got {type(tseg1_data)}')
+        self.__tseg1_data = tseg1_data
+
+    @property
+    def tseg2_data(self):
+        """The data time segment 2 for the channel.
+
+        Time segment 2 is the number of quanta after the sample point.
+        """
+        return self.__tseg2_data
+
+    @tseg2_data.setter
+    def tseg2_data(self, tseg2_data):
+        """The data time segment 2 for the channel.
+
+        Time segment 2 is the number of quanta after the sample point.
+        """
+        if not isinstance(tseg2_data, int):
+            raise TypeError(f'Expected int but got {type(tseg2_data)}')
+        self.__tseg2_data = tseg2_data
+
+    @property
+    def fd_conf(self):
+        """The CAN FD configuration for the channel."""
+        if self.__fd_conf is None:
+            self.__fd_conf = vxl_can_fd_conf()
+        self.__fd_conf.arbitrationBitRate = c_uint(self.baud)
+        self.__fd_conf.sjwAbr = c_uint(self.sjw_arb)
+        self.__fd_conf.tseg1Abr = c_uint(self.tseg1_arb)
+        self.__fd_conf.tseg2Abr = c_uint(self.tseg2_arb)
+        self.__fd_conf.dataBitRate = c_uint(self.data_baud)
+        self.__fd_conf.sjwDbr = c_uint(self.sjw_data)
+        self.__fd_conf.tseg1Dbr = c_uint(self.tseg1_data)
+        self.__fd_conf.tseg2Dbr = c_uint(self.tseg2_data)
+        # Available but currently unused:
+        # fd_conf.options
+        return self.__fd_conf
 
     @property
     def activated(self):
@@ -366,9 +514,10 @@ class VxlChannel:
         if self.vxl.port is None:
             raise AssertionError('Port not opened! Call open_port first.')
         if self.init_access:
-            if not vxl_set_baudrate(self.vxl.port, self.mask, self.baud):
-                raise AssertionError('Failed setting the baud rate for '
-                                     f'{self}')
+            if not vxl_set_fd_conf(self.vxl.port, self.mask,
+                                   pointer(self.fd_conf)):
+                raise AssertionError('Failed setting the CAN FD configuration '
+                                     f'for {self}')
             if not vxl_flush_tx_queue(self.vxl.port, self.mask):
                 raise AssertionError('Failed flushing the tx queue for '
                                      f'{self}')
@@ -461,10 +610,9 @@ class VxlCan(Vxl):
         # Retry transmitting until the queue isn't full
         while status == b'XL_ERR_QUEUE_IS_FULL':
             xl_event = vxl_can_tx_event()
-            data = create_string_buffer(msg_data, 8)
             memset(pointer(xl_event), 0, sizeof(xl_event))
             xl_event.tag = c_ushort(0x0440)
-            if msg_id > 0x8000:
+            if msg_id > 0x7FF:
                 xl_event.tagData.canMsg.canId = c_ulong(msg_id | 0x80000000)
             else:
                 xl_event.tagData.canMsg.canId = c_ulong(msg_id)
@@ -480,6 +628,7 @@ class VxlCan(Vxl):
                 xl_event.tagData.canMsg.msgFlags = c_uint(0)
             xl_event.tagData.canMsg.dlc = c_ubyte(dlc)
             # Converting from a string to a c_ubyte array
+            data = create_string_buffer(msg_data, 64)
             tmp_ptr = pointer(data)
             data_ptr = cast(tmp_ptr, POINTER(c_ubyte * 64))
             xl_event.tagData.canMsg.data = data_ptr.contents
