@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 
 """Unit tests for pyvxl.vxl."""
 import pytest
@@ -74,12 +74,12 @@ def test_rx_queue_size_fails(vxl):  # noqa
 def test_add_channel_fails(vxl):  # noqa
     channel = list(vxl.channels.keys())[0]
     with pytest.raises(AssertionError):
-        vxl.add_channel(channel, 500000)
+        vxl.add_channel(channel, 500000, 1000000)
     vxl.stop()
     with pytest.raises(ValueError):
-        vxl.add_channel(channel, 500000)
+        vxl.add_channel(channel, 500000, 1000000)
     with pytest.raises(ValueError):
-        vxl.add_channel(-1, 500000)
+        vxl.add_channel(-1, 500000, 1000000)
 
 
 def test_remove_channel_fails(vxl):  # noqa

@@ -46,13 +46,13 @@ class CAN:
         """A reference to the lower layer vxl object."""
         return self.__vxl
 
-    def add_channel(self, num=0, baud=500000, db=None):
+    def add_channel(self, num=0, baud=500000, data_baud=1000000, db=None):
         """Add a channel."""
         # Default to the a virtual channel
         if num == 0:
             num = self.__vxl.config.channelCount
         channel = Channel(self.__vxl, self.__tx_thread, self.__rx_thread, num,
-                          baud, db)
+                          db)
         if num in self.__channels:
             raise ValueError(f'Channel {num} has already been added')
         self.__channels[num] = channel
@@ -62,9 +62,9 @@ class CAN:
         with self.__tx_lock and self.__rx_lock:
             if self.__vxl.started:
                 self.__vxl.stop()
-            self.__vxl.add_channel(num, baud)
+            self.__vxl.add_channel(num, baud, data_baud)
             self.__vxl.start()
-            self.__rx_thread.add_channel(num, baud)
+            self.__rx_thread.add_channel(num)
         logging.debug(f'Added channel {channel}')
         return channel
 
@@ -154,19 +154,18 @@ class CAN:
 class Channel:
     """The interface to a channel added through CAN.add_channel."""
 
-    def __init__(self, vxl, tx_thread, rx_thread, num, baud, db_path):  # noqa
+    def __init__(self, vxl, tx_thread, rx_thread, num, db_path):  # noqa
         self.__vxl = vxl
         self.__tx_thread = tx_thread
         self.__rx_thread = rx_thread
         self.__channel = num
         self.__name = str(num)
-        self.baud = baud
         self.db = Database(db_path)
         self.uds = UDS(self)
 
     def __str__(self):
         """Return a string representation of this channel."""
-        return (f'Channel(num={self.channel}, baud={self.baud}, db={self.db})')
+        return (f'Channel(num={self.channel}, db={self.db})')
 
     @property
     def channel(self):
@@ -554,7 +553,7 @@ class ReceiveThread(Thread):
                 data = None
         return data
 
-    def add_channel(self, channel, baud):
+    def add_channel(self, channel):
         """Start receiving on a channel."""
         with self.__lock:
             self.__msg_queues[channel] = {}

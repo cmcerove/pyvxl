@@ -182,12 +182,12 @@ class Vxl:
         # Return a copy to prevent external modification
         return dict(self.__channels)
 
-    def add_channel(self, num, baud):
+    def add_channel(self, num, baud, data_baud):
         """Add a channel."""
         if self.port is not None:
             raise AssertionError('Port must be closed to change channels.')
         # Perform type/range checking on num and baud
-        channel = VxlChannel(self, num, baud)
+        channel = VxlChannel(self, num=num, baud=baud, data_baud=data_baud)
         if num in self.__channels:
             raise ValueError(f'{num} has already been added')
         self.__channels[channel.num] = channel
@@ -542,11 +542,12 @@ class VxlChannel:
 class VxlCan(Vxl):
     """Extends Vxl with CAN specific functionality."""
 
-    def __init__(self, channel=0, baud=500000, rx_queue_size=8192):  # noqa
+    def __init__(self, channel=0, baud=500000, data_baud=1000000,  # noqa
+                 rx_queue_size=8192):
         super().__init__(rx_queue_size)
         self.bus_type = BUS_TYPE_CAN
         if channel is not None:
-            self.add_channel(channel, baud)
+            self.add_channel(channel, baud, data_baud)
 
     def __del__(self):
         """."""
