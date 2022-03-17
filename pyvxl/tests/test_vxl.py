@@ -74,12 +74,15 @@ def test_rx_queue_size_fails(vxl):  # noqa
 def test_add_channel_fails(vxl):  # noqa
     channel = list(vxl.channels.keys())[0]
     with pytest.raises(AssertionError):
-        vxl.add_channel(channel, 500000, 1000000)
+        # Adding a channel when the port is open
+        vxl.add_channel()
     vxl.stop()
     with pytest.raises(ValueError):
-        vxl.add_channel(channel, 500000, 1000000)
+        # Adding a channel that was already added
+        vxl.add_channel(num=channel)
     with pytest.raises(ValueError):
-        vxl.add_channel(-1, 500000, 1000000)
+        # Adding a channel with an invalid number
+        vxl.add_channel(num=-1)
 
 
 def test_remove_channel_fails(vxl):  # noqa
@@ -333,6 +336,11 @@ def test_request_chip_state_fails(vxl, monkeypatch):  # noqa
     vxl.close_port()
     with pytest.raises(AssertionError):
         vxl.request_chip_state()
+
+
+def test_VxlCan_init():  # noqa
+    vxl = VxlCan(rx_queue_size=8192)
+    assert vxl.rx_queue_size == 8192
 
 
 def test_start():  # noqa

@@ -46,7 +46,7 @@ class CAN:
         """A reference to the lower layer vxl object."""
         return self.__vxl
 
-    def add_channel(self, num=0, baud=500000, data_baud=1000000, db=None):
+    def add_channel(self, num=0, db=None, **kwargs):
         """Add a channel."""
         # Default to the a virtual channel
         if num == 0:
@@ -62,7 +62,7 @@ class CAN:
         with self.__tx_lock and self.__rx_lock:
             if self.__vxl.started:
                 self.__vxl.stop()
-            self.__vxl.add_channel(num, baud, data_baud)
+            self.__vxl.add_channel(num=num, **kwargs)
             self.__vxl.start()
             self.__rx_thread.add_channel(num)
         logging.debug(f'Added channel {channel}')
@@ -471,7 +471,7 @@ class ReceiveThread(Thread):
                         else:
                             msg_id = '{:X}'.format(msg_id)
 
-                        log_msgs.append(f'{time: >11.6f} {channel - 1}  '
+                        log_msgs.append(f'{time: >11.6f} {channel}  '
                                         f'{msg_id: <16}{txrx}   '
                                         f'd {dlc} {data}\n')
                 elif (rx_event.tag == XL_CAN_EV_TAG_RX_ERROR or

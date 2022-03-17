@@ -182,14 +182,13 @@ class Vxl:
         # Return a copy to prevent external modification
         return dict(self.__channels)
 
-    def add_channel(self, num, baud, data_baud):
+    def add_channel(self, **kwargs):
         """Add a channel."""
         if self.port is not None:
             raise AssertionError('Port must be closed to change channels.')
-        # Perform type/range checking on num and baud
-        channel = VxlChannel(self, num=num, baud=baud, data_baud=data_baud)
-        if num in self.__channels:
-            raise ValueError(f'{num} has already been added')
+        channel = VxlChannel(self, **kwargs)
+        if channel.num in self.__channels:
+            raise ValueError(f'{channel.num} has already been added')
         self.__channels[channel.num] = channel
         self.__access_mask.value |= channel.mask.value
 
@@ -286,7 +285,7 @@ class Vxl:
 class VxlChannel:
     """A channel used by Vxl."""
 
-    def __init__(self, vxl, num=0, baud=500000, data_baud=1000000,  # noqa
+    def __init__(self, vxl, num=0, baud=500000, data_baud=2000000,  # noqa
                  tseg1_arb=6, tseg2_arb=3, sjw_arb=2,
                  tseg1_data=6, tseg2_data=3, sjw_data=2):
         if not isinstance(vxl, Vxl):
@@ -296,7 +295,15 @@ class VxlChannel:
         self.num = num
         self.init_access = False
         # For more info on CAN bit timing:
-        # https://www.kvaser.com/lesson/can-bit-timing/
+        #   https://www.kvaser.com/lesson/can-bit-timing/
+        # The XL Driver Library manual also says this:
+        #   "The ratio (tseg1+1)/(tseg1+tseg2+1) specifies the sample point.
+        #   The constraint is that (tseg1+tseg2+1) must evenly divide the
+        #   80 MHz CAN clock at the desired bitrate. More precisely, the
+        #   hardware attempts to determine a prescaler >= 1, such that
+        #   (tseg1+tseg2+1)*actualBitrate*prescaler = 80MHz. Where
+        #   actualBitrate differs by less than 1:256 from the requested
+        #   bitrate.
         self.baud = baud
         self.sjw_arb = sjw_arb
         self.tseg1_arb = tseg1_arb
@@ -542,12 +549,14 @@ class VxlChannel:
 class VxlCan(Vxl):
     """Extends Vxl with CAN specific functionality."""
 
-    def __init__(self, channel=0, baud=500000, data_baud=1000000,  # noqa
-                 rx_queue_size=8192):
-        super().__init__(rx_queue_size)
+    def __init__(self, channel=0, **kwargs):  # noqa
+        if 'rx_queue_size' in kwargs:
+            super().__init__(kwargs.pop('rx_queue_size'))
+        else:
+            super().__init__()
         self.bus_type = BUS_TYPE_CAN
         if channel is not None:
-            self.add_channel(channel, baud, data_baud)
+            self.add_channel(num=channel, **kwargs)
 
     def __del__(self):
         """."""

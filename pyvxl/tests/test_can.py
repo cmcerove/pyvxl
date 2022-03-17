@@ -77,8 +77,7 @@ def can():
     return can
 
 
-def test_logging(can):
-    """."""
+def test_logging(can):  # noqa
     msg_pat = re.compile(r'^\s*(\d+\.\d+)\s+(\d+)\s+([\dA-F]+)\s+([RT]x)'
                          r'\s+d\s*(\d+)((\s+[\dA-F][\dA-F])+).*')
     can1 = list(can.channels.values())[0]
@@ -141,6 +140,7 @@ def test_logging(can):
             else:
                 raise AssertionError(f'Tx and Rx for {msg3.id:X} were not '
                                      'found in the log')
+
 
 def test_add_remove_channel(can):  # noqa
     current_channel = list(can.channels.keys())[0]
