@@ -3,6 +3,8 @@
 """Implements UDS requests based on ISO 14229-1:2013."""
 
 import logging
+import re
+from pyvxl.can_types import Signal, gen_msb_map
 from copy import deepcopy
 
 
@@ -17,6 +19,9 @@ class UDS:
         self.__p2_server = None
         self.__p2_star_server = None
         self.__tester_present_id = None
+        self.__dlc_opt_enabled = False
+        self.__padding_value = '00'
+        self.__max_dlc = 8
 
     @property
     def tx_msg(self):
@@ -33,7 +38,16 @@ class UDS:
         # have data for requesting tester present. This copy prevents
         # overwriting the data in tester present with other non-periodic
         # requests.
-        self.__tx_msg = deepcopy(self.can.db.get_message(tx_name_or_id))
+        msg = deepcopy(self.can.db.get_message(tx_name_or_id))
+        if msg.dlc < 8:
+            self.__max_dlc = 8
+        else:
+            self.__max_dlc = msg.dlc
+        # UDS does not care about the signals defined for this message and
+        # needs to be able to use the entire DLC.
+        delattr(msg, '_Message__signals')
+        msg.signals = []
+        self.__tx_msg = msg
 
     @property
     def rx_msg(self):
@@ -74,6 +88,52 @@ class UDS:
         if not isinstance(timeout, int) or isinstance(timeout, bool):
             raise TypeError(f'Expected int but got {type(timeout)}')
         self.__p2_star_server = timeout
+
+    @property
+    def padding_byte_value(self):
+        """The value used to pad diagnostic requests to valid DLCs."""
+        return self.__padding_value
+
+    @padding_byte_value.setter
+    def padding_byte_value(self, padding):
+        """Set the value used to pad diagnostic requests to valid DLCs."""
+        if not isinstance(padding, (int, str)) or isinstance(padding, bool):
+            raise TypeError(f'Expected int but got {type(padding)}')
+        if isinstance(padding, int):
+            num = padding
+        elif padding.isdecimal():
+            num = int(padding)
+        else:
+            pat = re.compile(r'[0-9a-fA-F][0-9a-fA-F]')
+            match = pat.match(padding)
+            if not match or (match and match.group(0) != padding):
+                num = -1
+            else:
+                num = int(padding, 16)
+
+        if num < 0 or num > 0xFF:
+            raise ValueError(f'padding={padding} must be between 0 and 255')
+        self.__padding_value = num
+
+    @property
+    def data_length_optimization_enabled(self):
+        """Whether data length optimization for DLCs is enabled.
+
+        This only applies to DLCs less than 8 bytes long. When this is enabled,
+        requests shorter than 8 bytes won't have padding added.
+
+        e.g. A request to enter a programming session would look like:
+                [02] 10 02 [00 00 00 00 00] when optimization is disabled or
+                [02] 10 02 when optimization is enabled, so the DLC would be 3.
+        """
+        return self.__dlc_opt_enabled
+
+    @data_length_optimization_enabled.setter
+    def data_length_optimization_enabled(self, enabled):
+        """Set the p2_star_server timeout in milliseconds."""
+        if not isinstance(enabled, bool):
+            raise TypeError(f'Expected bool but got {type(enabled)}')
+        self.__dlc_opt_enabled = enabled
 
     def _check(self, check_type, data):
         """Generic funcion for checking types."""
@@ -337,6 +397,7 @@ class UDS:
         positive_resp = f'{service | 0x40:02X}'
         pending_resp = f'7F{service:02X}78'
         length = len(values) + 1
+        opt = self.data_length_optimization_enabled
 
         if len(values) > 6:
             first = f'1{length:03X}{service:02X}'
@@ -347,10 +408,12 @@ class UDS:
             for x in range(0, num_frames):
                 tmp = ''.join([f'{y:02X}' for y in values[x * 7:x * 7 + 7]])
                 frames.append(f'2{(x + 1) % 0x10:01X}{tmp}')
-                if x == num_frames - 1 and len(frames[-1]) < 16:
-                    frames[-1] += '5' * (16 - len(frames[-1]))
+                if x == num_frames - 1 and len(frames[-1]) < 16 and not opt:
+                    padding_needed = (16 - len(frames[-1])) / 2
+                    frames[-1] += self.padding_byte_value * padding_needed
         else:
-            values += (6 - len(values)) * [0x55]
+            if not opt:
+                values += (6 - len(values)) * self.padding_byte_value
             values = ''.join([f'{val:02X}' for val in values])
             data = f'{length:02X}{service:02X}{values}'
             frames.append(data)
@@ -362,6 +425,8 @@ class UDS:
             self.can.start_queue(self.rx_msg.id, 10000)
             dequeue_id = self.rx_msg.id
         # Send out the first frame
+        if opt:
+            self.tx_msg.dlc = len(frames[0]) // 2
         self.tx_msg.data = frames[0]
         self.can._send(self.tx_msg, send_once=True)
         _, resp = self.can.dequeue_msg(dequeue_id, p2)
@@ -377,6 +442,8 @@ class UDS:
             if resp[0] == '3':    # Clear to send
                 frames = frames[1:]
                 for data in frames:
+                    if opt:
+                        self.tx_msg.dlc = len(data) // 2
                     self.tx_msg.data = data
                     self.can._send(self.tx_msg, send_once=True)
                 _, resp = self.can.dequeue_msg(self.rx_msg.id, p2)
@@ -423,7 +490,11 @@ class UDS:
             if msgs_to_rx > 0:
                 # TODO: Implement other parameters for the flow control msg
                 # Multi frame response, send the flow control frame
-                self.tx_msg.data = '3000000000000000'
+                if opt:
+                    self.tx_msg.dlc = 3
+                    self.tx_msg.data = '300000'
+                else:
+                    self.tx_msg.data = '3000000000000000'
                 self.can._send(self.tx_msg, send_once=True)
                 msgs_received = []
                 timeout = p2
@@ -457,6 +528,7 @@ class UDS:
                 else:
                     valid_resp = False
                     data = False
+
         self.can.stop_queue(self.rx_msg.id)
 
         if valid_resp:

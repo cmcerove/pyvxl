@@ -378,13 +378,8 @@ class Message:
         elif dlc > 8 and dlc not in [12, 16, 20, 24, 32, 48, 64]:
             raise ValueError(f'Msg: {self.name}, DLC: {self.dlc}\n CAN FD '
                              f'dlc must be {self.__valid_fd_dlcs}')
-        try:
-            _ = self.__dlc
-        except AttributeError:
-            self.__dlc = dlc
-            self.__max_val = int('FF' * dlc, 16)
-        else:
-            raise AssertionError('can\'t set attribute')
+        self.__dlc = dlc
+        self.__max_val = int('FF' * dlc, 16)
 
     @property
     def signals(self):
