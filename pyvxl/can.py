@@ -206,7 +206,7 @@ class Channel:
         self.__vxl.send(self.channel, msg.id, msg.data, msg.brs)
         if not send_once and msg.period:
             self.__tx_thread.add(self.channel, msg)
-        logging.info(f'{self.name[:8]: ^8} TX: {msg.id: >8X} {msg.data: <64}')
+        logging.info(f'{self.name[:8]: ^8} TX: {msg.id: >8X} {msg.data: <16}')
 
     def send_message(self, name_or_id, data=None, period=None, send_once=False):
         """Send a message by name or id."""
@@ -347,7 +347,7 @@ class Channel:
         rx_time, data = self.__rx_thread.dequeue_msg(self.channel, msg.id,
                                                      timeout)
         if data is not None:
-            logging.info(f'{self.name[:8]: ^8} RX: {msg.id: >8X} {data: <64}')
+            logging.info(f'{self.name[:8]: ^8} RX: {msg.id: >8X} {data: <16}')
         else:
             logging.info(f'{self.name[:8]: ^8} RX timeout: {msg.id: >8X} was '
                          f'not received after {timeout} milliseconds')
@@ -475,12 +475,12 @@ class ReceiveThread(Thread):
                             msg_id = f'{msg_id:X}'
 
                         log_msgs.append(f'{time: >11.6f} {channel}  '
-                                        f'{msg_id: <64}{txrx}   '
+                                        f'{msg_id: <16}{txrx}   '
                                         f'd {dlc} {data}\n')
                 elif (rx_event.tag == XL_CAN_EV_TAG_RX_ERROR or
                       rx_event.tag == XL_CAN_EV_TAG_TX_ERROR):
                     self.set_error_state(channel, True)
-                    # Currently unused. Here's what we have access to:
+                    # Currently unused but available:
                     # rx_event.tagData.canError.errorCode
                     if not self.__log_errors:
                         rx_event = self.__receive()
@@ -490,7 +490,7 @@ class ReceiveThread(Thread):
                         raise NotImplementedError
                 elif rx_event.tag == XL_CAN_EV_TAG_TX_REQUEST:
                     self.set_error_state(channel, False)
-                    # Currently unused. Here's what we have access to:
+                    # Currently unused but available:
                     # rx_event.tagData.canTxRequest.canId
                     # rx_event.tagData.canTxRequest.msgFlags
                     # rx_event.tagData.canTxRequest.dlc
@@ -504,7 +504,7 @@ class ReceiveThread(Thread):
                                       rx_err_count)
                 elif rx_event.tag == XL_SYNC_PULSE:
                     self.set_error_state(channel, False)
-                    # Currently unused. Here's what we have access to:
+                    # Currently unused but available:
                     # rx_event.tagData.canSyncPulse.pulseCode
                     # rx_event.tagData.canSyncPulse.time
                 else:
@@ -888,7 +888,7 @@ class TransmitThread(Thread):
             self.__messages[channel][msg.id] = msg
             self.__update_times()
             msg._set_sending(True)
-            logging.info(f'Periodic added: {msg.id: >8X} {msg.data: <64} '
+            logging.info(f'Periodic added: {msg.id: >8X} {msg.data: <16} '
                          f'period={msg.period}ms')
 
     def remove(self, channel, msg):
@@ -899,7 +899,7 @@ class TransmitThread(Thread):
                 self.__num_msgs -= 1
                 self.__update_times()
                 msg._set_sending(False)
-            logging.info(f'Periodic removed: {msg.id: >8X} {msg.data: <64} '
+            logging.info(f'Periodic removed: {msg.id: >8X} {msg.data: <16} '
                          f'period={msg.period}ms')
         else:
             logging.warning(f'{msg.name} (0x{msg.id:X}) is not being sent!')

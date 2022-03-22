@@ -449,8 +449,8 @@ class UDS:
             # Ceiling division.
             # https://stackoverflow.com/a/17511341/3277956 explains why this is
             # more accurate than math.ceil because it avoids floating point.
-            num_frames = -(len(tx_data) // -self.__max_dlc)
             data_len = self.__max_dlc - 1
+            num_frames = -(len(tx_data) // -data_len)
             for x in range(0, num_frames):
                 frame_data = bytes(tx_data[x * data_len:x * data_len + data_len]).hex()
                 sequence_num = (x + 1) % 0x10
@@ -568,7 +568,7 @@ class UDS:
                 num_bytes = int(resp[:4], 16)
                 # Remove the length
                 resp = resp[4:]
-            elif resp[:1] == '0':  # SF_DL<=8
+            elif resp[0] == '0':  # SF_DL<=8
                 # A maximum of 7 bytes in the first frame
                 num_bytes = int(resp[:2], 16)
                 # Remove N_PCI and the length
