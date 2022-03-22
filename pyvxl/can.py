@@ -206,7 +206,7 @@ class Channel:
         self.__vxl.send(self.channel, msg.id, msg.data, msg.brs)
         if not send_once and msg.period:
             self.__tx_thread.add(self.channel, msg)
-        logging.info(f'{self.name[:8]: ^8} TX: {msg.id: >8X} {msg.data: <16}')
+        logging.info(f'{self.name[:8]: ^8} TX: {msg.id: >8X} {msg.data: <64}')
 
     def send_message(self, name_or_id, data=None, period=None, send_once=False):
         """Send a message by name or id."""
@@ -347,7 +347,7 @@ class Channel:
         rx_time, data = self.__rx_thread.dequeue_msg(self.channel, msg.id,
                                                      timeout)
         if data is not None:
-            logging.info(f'{self.name[:8]: ^8} RX: {msg.id: >8X} {data: <16}')
+            logging.info(f'{self.name[:8]: ^8} RX: {msg.id: >8X} {data: <64}')
         else:
             logging.info(f'{self.name[:8]: ^8} RX timeout: {msg.id: >8X} was '
                          f'not received after {timeout} milliseconds')
@@ -450,6 +450,9 @@ class ReceiveThread(Thread):
                     msg_id = rx_event.tagData.canRxOkMsg.canId
                     dlc = rx_event.tagData.canRxOkMsg.dlc
                     rx_data = rx_event.tagData.canRxOkMsg.data
+                    dlc_map = {9: 12, 10: 16, 11: 20, 12: 24, 13: 32, 14: 48,
+                               15: 64}
+                    dlc = dlc_map[dlc] if dlc in dlc_map else dlc
                     # Convert rx_data from a ctypes 64 byte array to a string
                     data = ''
                     for i, byte in enumerate(rx_data):
@@ -472,7 +475,7 @@ class ReceiveThread(Thread):
                             msg_id = f'{msg_id:X}'
 
                         log_msgs.append(f'{time: >11.6f} {channel}  '
-                                        f'{msg_id: <16}{txrx}   '
+                                        f'{msg_id: <64}{txrx}   '
                                         f'd {dlc} {data}\n')
                 elif (rx_event.tag == XL_CAN_EV_TAG_RX_ERROR or
                       rx_event.tag == XL_CAN_EV_TAG_TX_ERROR):
@@ -739,7 +742,7 @@ class ReceiveThread(Thread):
             else:
                 msg_queues = []
             if msg_id in msg_queues:
-                # logging.debug('RX: {: >8X} {: <16}'.format(msg_id, data))
+                # logging.debug('RX: {: >8X} {: <64}'.format(msg_id, data))
                 if not msg_queues[msg_id].full():
                     # logging.debug('queue.put()')
                     msg_queues[msg_id].put((rx_time, data.replace(' ', '')))
@@ -885,7 +888,7 @@ class TransmitThread(Thread):
             self.__messages[channel][msg.id] = msg
             self.__update_times()
             msg._set_sending(True)
-            logging.info(f'Periodic added: {msg.id: >8X} {msg.data: <16} '
+            logging.info(f'Periodic added: {msg.id: >8X} {msg.data: <64} '
                          f'period={msg.period}ms')
 
     def remove(self, channel, msg):
@@ -896,7 +899,7 @@ class TransmitThread(Thread):
                 self.__num_msgs -= 1
                 self.__update_times()
                 msg._set_sending(False)
-            logging.info(f'Periodic removed: {msg.id: >8X} {msg.data: <16} '
+            logging.info(f'Periodic removed: {msg.id: >8X} {msg.data: <64} '
                          f'period={msg.period}ms')
         else:
             logging.warning(f'{msg.name} (0x{msg.id:X}) is not being sent!')
