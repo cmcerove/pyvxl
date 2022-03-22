@@ -273,6 +273,7 @@ class Message:
         self.sender = sender
         self.signals = signals
         self.__sending = False
+        self.__brs = False
         self.period = 0
         self.delay = None
         self.repetitions = None
@@ -391,12 +392,6 @@ class Message:
         """Add all signals to this message."""
         if not isinstance(signals, list):
             raise TypeError(f'Expected list but got {type(signals)}')
-        try:
-            _ = self.__signals
-        except AttributeError:
-            pass
-        else:
-            raise AssertionError('can\'t set attribute')
 
         mask_check = 0
         added_signals = []
@@ -479,6 +474,22 @@ class Message:
     def sending(self):
         """True if the message is currently being sent by the tx thread."""
         return self.__sending
+
+    @property
+    def brs(self):
+        """Whether the BRS bit is enabled on this message.
+
+        When BRS is enabled, the data portion of the message will be
+        transmitted at a higher baud rate.
+        """
+        return self.__brs
+
+    @brs.setter
+    def brs(self, brs):
+        """Enable or disable the BRS bit for this message."""
+        if not isinstance(brs, bool):
+            raise TypeError(f'Expected bool but got {type(brs)}')
+        self.__brs = brs
 
     def _set_sending(self, value):
         """True if the message is currently being sent by the tx thread.

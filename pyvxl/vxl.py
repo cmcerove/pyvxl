@@ -48,8 +48,8 @@ BUS_TYPE_NAMES = {BUS_TYPE_CAN: 'CAN', BUS_TYPE_LIN: 'LIN'}
 INTERFACE_VERSION_V3 = 3  # CAN, LIN, DAIO and K-Line
 INTERFACE_VERSION_V4 = 4  # MOST,CAN FD, Ethernet, FlexRay and ARINC429
 
-
-# This flag is used to indicate an extended CAN FD data length.
+# Extended data length. This flag is needed when sending more then 8 bytes or
+# of the BRS flag is used.
 XL_CAN_TXMSG_FLAG_EDL = 0x0001
 # Baudrate switch.
 XL_CAN_TXMSG_FLAG_BRS = 0x0002
@@ -604,7 +604,7 @@ class VxlCan(Vxl):
         vxl_activate_channel(self.port, self.access_mask, BUS_TYPE_CAN,
                              ACTIVATE_NONE)
 
-    def send(self, channel, msg_id, msg_data):
+    def send(self, channel, msg_id, msg_data, brs=False):
         """Send a CAN message.
 
         Type checking on input parameters is intentionally left out to increase
@@ -626,17 +626,19 @@ class VxlCan(Vxl):
             else:
                 xl_event.tagData.canMsg.canId = c_ulong(msg_id)
 
-            if dlc > 8:
+            if brs:
                 fd_flags = XL_CAN_TXMSG_FLAG_EDL | XL_CAN_TXMSG_FLAG_BRS
-                xl_event.tagData.canMsg.msgFlags = fd_flags
+            else:
+                fd_flags = 0
+            if dlc > 8:
+                fd_flags |= XL_CAN_TXMSG_FLAG_EDL
                 dlc_map = {12: 9, 16: 10, 20: 11, 24: 12, 32: 13, 48: 14,
                            64: 15}
                 if dlc not in dlc_map:
                     raise ValueError(f'{dlc}s larger than 8 must be one of '
                                      f'these values: {dlc_map.values()}')
                 dlc = dlc_map[dlc]
-            else:
-                xl_event.tagData.canMsg.msgFlags = c_uint(0)
+            xl_event.tagData.canMsg.msgFlags = c_uint(fd_flags)
             xl_event.tagData.canMsg.dlc = c_ubyte(dlc)
             # Converting from a string to a c_ubyte array
             data = create_string_buffer(msg_data, 64)

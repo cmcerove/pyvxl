@@ -203,7 +203,7 @@ class Channel:
         """
         if msg.update_func is not None:
             msg.data = msg.update_func(msg)
-        self.__vxl.send(self.channel, msg.id, msg.data)
+        self.__vxl.send(self.channel, msg.id, msg.data, msg.brs)
         if not send_once and msg.period:
             self.__tx_thread.add(self.channel, msg)
         logging.info(f'{self.name[:8]: ^8} TX: {msg.id: >8X} {msg.data: <16}')
@@ -467,9 +467,9 @@ class ReceiveThread(Thread):
                         self.__enqueue_msg(time, channel, msg_id, data)
                     if self.__log_file is not None:
                         if msg_id > 0x7FF:
-                            msg_id = '{:X}x'.format(msg_id)
+                            msg_id = f'{msg_id:X}x'
                         else:
-                            msg_id = '{:X}'.format(msg_id)
+                            msg_id = f'{msg_id:X}'
 
                         log_msgs.append(f'{time: >11.6f} {channel}  '
                                         f'{msg_id: <16}{txrx}   '
@@ -513,7 +513,7 @@ class ReceiveThread(Thread):
             # received to minimize the frequency of file I/O during
             # this thread. This hopefully favors notifying the main thread a
             # new message was received as fast as possible. The downside is
-            # writes to a file are slightly delayed.
+            # that writes to a file are slightly delayed.
             if self.__log_file is not None and log_msgs:
                 self.__log_file.writelines(log_msgs)
                 self.__log_file.flush()
@@ -746,10 +746,11 @@ class ReceiveThread(Thread):
                     # logging.debug('queue.put() - returned')
                 else:
                     max_size = msg_queues[msg_id].maxsize
-                    logging.error('Queue for 0x{:X} is full. {} wasn\'t added. The'
-                                  ' size is set to {}. Increase the size with the '
-                                  'max_size kwarg or remove messages more quickly.'
-                                  ''.format(msg_id, data, max_size))
+                    logging.error(f'Queue for 0x{msg_id:X} is full. {data} '
+                                  'wasn\'t added. The size is set to '
+                                  f'{max_size}. Increase the size with the '
+                                  'max_size kwarg or remove messages more '
+                                  'quickly.')
                 # Check if the main thread is waiting on a received message
                 if self.__wait_args is not None:
                     wait_channel, wait_id, _ = self.__wait_args
@@ -819,7 +820,8 @@ class TransmitThread(Thread):
                             if self.__elapsed % msg.period == 0:
                                 if msg.update_func is not None:
                                     msg.data = msg.update_func(msg)
-                                self.__vxl.send(channel, msg.id, msg.data)
+                                self.__vxl.send(channel, msg.id, msg.data,
+                                                msg.brs)
                     if self.__elapsed >= self.__max_increment:
                         self.__elapsed = self.__sleep_time_ms
                     else:

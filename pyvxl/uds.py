@@ -16,12 +16,15 @@ class UDS:
         self.can = can
         self.__tx_msg = None
         self.__rx_msg = None
+        self.__max_dlc = 8
         self.__p2_server = None
         self.__p2_star_server = None
-        self.__tester_present_id = None
+        self.__tester_msg = None
         self.__dlc_opt_enabled = False
-        self.__padding_value = '00'
-        self.__max_dlc = 8
+        # From ISO 15765-2: "If not specified differently, the value [0xCC]
+        # should be used for padding as default, to minimize the stuff-bit
+        # insertions and bit alterations on the wire."
+        self.__padding_value = 0xCC
 
     @property
     def tx_msg(self):
@@ -39,13 +42,12 @@ class UDS:
         # overwriting the data in tester present with other non-periodic
         # requests.
         msg = deepcopy(self.can.db.get_message(tx_name_or_id))
-        if msg.dlc < 8:
+        if msg.dlc <= 8:
             self.__max_dlc = 8
         else:
             self.__max_dlc = msg.dlc
         # UDS does not care about the signals defined for this message and
         # needs to be able to use the entire DLC.
-        delattr(msg, '_Message__signals')
         msg.signals = []
         self.__tx_msg = msg
 
@@ -322,9 +324,20 @@ class UDS:
         these responses asynchronously with other diagnostic requests isn't
         implemented.
         """
-        self.__tester_present_id = self.tx_msg.id if tx_id is None else tx_id
-        self.can.send_message(self.__tester_present_id, '023E800000000000',
-                              period=period)
+        tx_id = self.tx_msg.id if tx_id is None else tx_id
+        msg = deepcopy(self.can.db.get_message(tx_id))
+        # UDS does not care about the signals defined for this message and
+        # needs to be able to use the entire DLC.
+        msg.signals = []
+        if self.data_length_optimization_enabled:
+            data = '023E80'
+            msg.dlc = 3
+        else:
+            data = '023E80' + f'{self.padding_byte_value:02X}' * (msg.dlc - 3)
+        msg.data = data
+        msg.period = period
+        self.can._send(msg)
+        self.__tester_msg = msg
 
     def stop_tester_present(self):
         """Stop sending tester present. - Service 0x3E.
@@ -332,8 +345,9 @@ class UDS:
         This function will only work if tester present was started by calling
         send_tester_present without once=True.
         """
-        if self.__tester_present_id is not None:
-            self.can.stop_message(self.__tester_present_id)
+        if self.__tester_msg is not None:
+            self.can.stop_message(self.__tester_msg.id)
+            self.__tester_msg = None
 
     def access_timing_param(self, *args, **kwargs):
         """Access Timing Parameter- Service 0x83.."""

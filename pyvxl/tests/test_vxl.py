@@ -117,28 +117,32 @@ def test_receive(vxl):  # noqa
     valid_dlcs = list(range(9)) + [12, 16, 20, 24, 32, 48, 64]
     for msg_id in ids_to_test:
         for dlc in valid_dlcs:
-            # Generate random data to send
-            tx_data = ''.join([f'{int(random()*0xFF):02X}' for x in range(dlc)])
-            vxl.flush_queues()
-            assert vxl.receive() is None
-            assert vxl.send(channel, msg_id, tx_data)
-            sleep(0.01)
-            rx_event = vxl.receive()
-            assert rx_event is not None
-            assert rx_event.tag == XL_CAN_EV_TAG_TX_OK
-            assert isinstance(rx_event.timeStampSync / 1000000000.0, float)
-            assert rx_event.channelIndex + 1 == channel
-            assert (rx_event.tagData.canRxOkMsg.canId & 0x7FFFFFFF) == msg_id
-            dlc_map = {9: 12, 10: 16, 11: 20, 12: 24, 13: 32, 14: 48, 15: 64}
-            if dlc <= 8:
-                assert rx_event.tagData.canRxOkMsg.msgFlags == 0
-                assert rx_event.tagData.canRxOkMsg.dlc == dlc
-            else:
-                assert dlc_map[rx_event.tagData.canRxOkMsg.dlc] == dlc
+            for brs in (True, False):
+                # Generate random data to send
+                tx_data = ''.join([f'{int(random()*0xFF):02X}' for x in range(dlc)])
+                vxl.flush_queues()
+                assert vxl.receive() is None
+                assert vxl.send(channel, msg_id, tx_data, brs)
+                sleep(0.01)
+                rx_event = vxl.receive()
+                assert rx_event is not None
+                assert rx_event.tag == XL_CAN_EV_TAG_TX_OK
+                assert isinstance(rx_event.timeStampSync / 1000000000.0, float)
+                assert rx_event.channelIndex + 1 == channel
+                assert (rx_event.tagData.canRxOkMsg.canId & 0x7FFFFFFF) == msg_id
+                dlc_map = {9: 12, 10: 16, 11: 20, 12: 24, 13: 32, 14: 48, 15: 64}
+                fd_flags = 0
+                if dlc <= 8:
+                    assert rx_event.tagData.canRxOkMsg.dlc == dlc
+                else:
+                    fd_flags = XL_CAN_TXMSG_FLAG_EDL
+                    assert dlc_map[rx_event.tagData.canRxOkMsg.dlc] == dlc
+                if brs:
+                    fd_flags = XL_CAN_TXMSG_FLAG_EDL | XL_CAN_TXMSG_FLAG_BRS
                 assert rx_event.tagData.canRxOkMsg.msgFlags == fd_flags
-            rx_data = rx_event.tagData.canRxOkMsg.data
-            data = ''.join([f'{x:02X}' for i, x in enumerate(rx_data) if i < dlc])
-            assert data == tx_data
+                rx_data = rx_event.tagData.canRxOkMsg.data
+                data = ''.join([f'{x:02X}' for i, x in enumerate(rx_data) if i < dlc])
+                assert data == tx_data
 
 
 def test_get_rx_queued_length(vxl):  # noqa

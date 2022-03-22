@@ -397,6 +397,8 @@ class DBCParser:
             self.messages[int(p[4]) & 0x1FFFFFFF].repetitions = p[5]
         elif p[2] == 'VFrameFormat':
             self.messages[int(p[4]) & 0x1FFFFFFF].id_format = p[5]
+        elif p[2] == 'CANFD_BRS':
+            self.messages[int(p[4]) & 0x1FFFFFFF].brs = bool(p[5])
 
     def p_attribute_rel_list(self, p):  # noqa
         """attribute_rel_list : empty

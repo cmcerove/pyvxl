@@ -86,6 +86,7 @@ def vxl_deactivate_channel(*args):
 def vxl_transmit(*args):
     """Transmit a CAN message."""
     status = getError(vxDLL.xlCanTransmitEx(*args))
+    # logging.debug('{0}: {1}'.format('xlCanTransmitEx', status))
     return status
 
 
