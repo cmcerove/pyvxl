@@ -421,20 +421,9 @@ class UDS:
         ff_dl = len(tx_data)
         can_dl = n_pci_len + ff_dl
 
-        # Figure out if n_pci_len needs to be 2 so we can determine if this
-        # can be sent with a single frame.
-        if self.__max_dlc > 8:
-            if opt:
-                if can_dl > 8:
-                    n_pci_len = 2
-                    can_dl = n_pci_len + ff_dl
-            else:
-                pad_bytes = 0
-                if can_dl < self.__max_dlc:
-                    pad_bytes = self.__max_dlc - can_dl
-                if (can_dl + pad_bytes) > 8:
-                    n_pci_len = 2
-                    can_dl = n_pci_len + ff_dl
+        if self.__max_dlc > 8 and can_dl > 8:
+            n_pci_len = 2
+            can_dl = n_pci_len + ff_dl
 
         frames = []
         if can_dl > self.__max_dlc:
