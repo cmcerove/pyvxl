@@ -813,9 +813,15 @@ class TransmitThread(Thread):
         while True:
             start = perf_counter()
             with self.__lock:
+                sending = False
+                if self.__num_msgs:
+                    sending = True
                 if time_wasted < self.__sleep_time_s and \
                    self.__updated.wait(self.__sleep_time_s - time_wasted):
-                    time_wasted += perf_counter() - start
+                   # Without this check, we send the very first message added
+                   # too soon.
+                    if sending:
+                        time_wasted += perf_counter() - start
                 else:
                     time_wasted = 0
                     for channel, msgs in self.__messages.items():
@@ -873,10 +879,16 @@ class TransmitThread(Thread):
                 self.__sleep_time_ms = curr_gcd
                 self.__sleep_time_s = curr_gcd / 1000.0
                 self.__max_increment = curr_lcm
+            else:
+                # First message added. Reset elapsed so the first transmit is
+                # sent at the correct time.
+                self.__elapsed = self.__sleep_time_ms
             if self.__elapsed >= self.__max_increment:
                 self.__elapsed = self.__sleep_time_ms
         if old_sleep_time != self.__sleep_time_s:
             self.__updated.notify()
+            # Force a context switch so the tx thread runs sooner
+            sleep(0.001)
 
     def add(self, channel, msg):
         """Add a periodic message to the thread."""
