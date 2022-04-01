@@ -323,7 +323,10 @@ class DBCParser:
         """signal : SG signal_name mux_info ':' bit_msb '|' bit_len '@' endianness signedness '(' scale ',' offset ')' '[' min '|' max ']' STRING_VAL comma_identifier_list"""
         p[0] = self.signal_type(p[2], p[3], p[5], p[7], p[9], p[10], p[12],
                                 p[14], p[17], p[19], p[21], p[22])
-        self.signals[p[2].lower()] = p[0]
+        if p[2].lower() in self.signals:
+            self.signals[p[2].lower()].append(p[0])
+        else:
+            self.signals[p[2].lower()] = [p[0]]
 
     def p_envvar_list(self, p):  # noqa
         """envvar_list : empty
@@ -374,11 +377,17 @@ class DBCParser:
                      | BA STRING_VAL SG INT_VAL ID attribute_value ';'
                      | BA STRING_VAL EV ID attribute_value ';' """
         if p[2] == 'SignalLongName':
-            self.signals[p[5].lower()].long_name = p[6]
+            for sig in self.messages[int(p[4]) & 0x1FFFFFFF].signals:
+                if sig.name == p[5]:
+                    sig.long_name = p[6]
         elif p[2] == 'GenSigStartValue':
-            self.signals[p[5].lower()].init_val = p[6]
+            for sig in self.messages[int(p[4]) & 0x1FFFFFFF].signals:
+                if sig.name == p[5]:
+                    sig.init_val = p[6]
         elif p[2] == 'GenSigSendOnInit':
-            self.signals[p[5].lower()].send_on_init = p[6]
+            for sig in self.messages[int(p[4]) & 0x1FFFFFFF].signals:
+                if sig.name == p[5]:
+                    sig.send_on_init = p[6]
         elif p[2] == 'source_id':
             self.nodes[p[4].lower()].source_id = p[5]
         elif p[2] == 'SystemMessageLongSymbol':
@@ -465,7 +474,9 @@ class DBCParser:
         """val : VAL INT_VAL signal_name val_map ';'
                | VAL ID val_map ';' """
         if len(p) == 6:
-            self.signals[p[3].lower()].values = p[4]
+            for sig in self.messages[int(p[2]) & 0x1FFFFFFF].signals:
+                if sig.name == p[3]:
+                    sig.values = p[4]
 
     def p_val_map(self, p):  # noqa
         """val_map : empty

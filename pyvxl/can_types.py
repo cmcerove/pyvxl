@@ -199,11 +199,18 @@ class Database:
             raise TypeError(f'Expected str but got {type(name)}')
 
         if name.lower() in self.signals:
-            signal = self.signals[name.lower()]
+            signals = self.signals[name.lower()]
+            if len(signals) == 1:
+                signal = signals[0]
+            else:
+                signal = signals
         else:
-            for sig in self.signals.values():
-                if name.lower() == sig.long_name:
-                    signal = sig
+            for signals in self.signals.values():
+                for sig in signals:
+                    if name.lower() == sig.long_name:
+                        signal = sig
+                        break
+                if signal is not None:
                     break
             else:
                 raise ValueError(f'{name} does not match a short or long '
@@ -402,6 +409,13 @@ class Message:
             # Make sure no signals overlap
             if mask_check & sig.mask == 0:
                 mask_check |= sig.mask
+                if sig.name in added_signals:
+                    logging.warning(f'{sig.name} is duplicated in message '
+                                    f'{self.name}. Signal attributes like the '
+                                    'initial value or long name might be '
+                                    'incorrect since the dbc format only '
+                                    'stores attributes by signal name and '
+                                    'message ID.')
                 added_signals.append(sig)
             else:
                 for added_sig in added_signals:
