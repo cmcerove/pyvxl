@@ -525,6 +525,23 @@ class UDS:
                     _, resp = self.can.dequeue_msg(self.rx_msg.id, p2)
                     while resp and resp[2:8] == pending_resp:
                         _, resp = self.can.dequeue_msg(self.rx_msg.id, p2_star)
+                elif resp[1] == '1':
+                    # From ISO 15765-2:
+                    # "The FlowControl Wait parameter shall be encoded by
+                    # setting the lower nibble of the N_PCI byte #1 to “1”.
+                    # It shall cause the sender to continue to wait for a new
+                    # FlowControl N_PDU and to restart its N_BS timer. If
+                    # FlowStatus is set to Wait, the values of BS (BlockSize)
+                    # and STmin (SeparationTime minimum) in the FlowControl
+                    # message are not relevant and shall be ignored."
+                    logging.error('Flowcontrol - Wait. Handling this case is '
+                                  'not implemented. Aborting.')
+                elif resp[1] == '2':  # Overflow
+                    logging.error('Flowcontrol - Overflow! The request '
+                                  'contained more bytes than could fit in the '
+                                  'receiver\'s buffer.')
+                else:  # Reserved
+                    pass
 
         data = False
         valid_resp = False

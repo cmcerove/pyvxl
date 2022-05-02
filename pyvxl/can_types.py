@@ -726,9 +726,20 @@ class Signal:
         # values, otherwise the signal will be defined with min_val and max_val
         if self.values:
             if isinstance(value, str):
-                if value.lower() in self.values:
+                invalid = False
+                lower_vals = [val.lower() for val in self.values]
+                if value in self.values:
                     num = self.values[value]
+                elif value.lower() in lower_vals:
+                    for val in self.values:
+                        if val.lower() == value.lower():
+                            num = self.values[val]
+                            break
+                    else:
+                        invalid = True
                 else:
+                    invalid = True
+                if invalid:
                     raise ValueError('{} is invalid for {}; valid values = {}'
                                      ''.format(value, self.name, self.values))
             else:

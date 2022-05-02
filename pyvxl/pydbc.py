@@ -489,7 +489,7 @@ class DBCParser:
 
     def p_val_map_entry(self, p):  # noqa
         """val_map_entry : INT_VAL STRING_VAL"""
-        p[0] = (p[1], p[2].lower())
+        p[0] = (p[1], p[2])
 
     def p_sig_valtype_list(self, p):  # noqa
         """sig_valtype_list : empty
