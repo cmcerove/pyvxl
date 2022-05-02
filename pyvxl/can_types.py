@@ -463,9 +463,6 @@ class Message:
         if self.signals:
             for sig in self.signals:
                 sig.raw_val = data
-            if int(self.data, 16) != data:
-                raise ValueError(f'One or more values in {data:X} do not map '
-                                 'to valid signal values for:\n'f'{self}')
         else:
             self.__data = data
 
