@@ -10,6 +10,7 @@ from pyvxl.pydbc import DBCParser
 from colorama import Fore, Back, Style
 from colorama import init as colorama_init
 from colorama import deinit as colorama_deinit
+from decimal import Decimal
 
 
 class Database:
@@ -515,7 +516,6 @@ class Message:
 
     def pprint(self):
         """Print colored info about the message to stdout."""
-
         colorama_init()
         print('')
         color = Style.BRIGHT + Fore.GREEN
@@ -670,6 +670,37 @@ class Signal:
         return self.__mask
 
     @property
+    def values(self):
+        """A dictionary mapping numeric values to names."""
+        return self.__values_by_name
+
+    @values.setter
+    def values(self, val_dict):
+        """Set the values dictionary."""
+        if not isinstance(val_dict, dict):
+            raise TypeError(f'Expected dict but got {type(val_dict)}')
+        invalid_keys = []
+        invalid_vals = []
+        for key, val in val_dict.items():
+            if not isinstance(key, str):
+                invalid_keys.append(key)
+            if not isinstance(val, int) or isinstance(val, bool):
+                invalid_vals.append(val)
+        if invalid_keys or invalid_vals:
+            error = ''
+            if invalid_keys:
+                error += f'Keys must be strings. Invalid keys = {invalid_keys}'
+            if invalid_vals:
+                if error:
+                    error += '\n'
+                error += ('Values must be integers. Invalid values = '
+                          f'{invalid_vals}')
+
+            raise TypeError(error)
+        self.__values_by_name = val_dict
+        self.__values_by_num = dict((v, k) for k, v in val_dict.items())
+
+    @property
     def raw_val(self):
         """The signal value as it would look within the full message data."""
         return self.__val
@@ -684,18 +715,31 @@ class Signal:
     @property
     def num_val(self):
         """Return the numeric value of this signal."""
-        num_val = self.__val >> self.bit_start
+        num_val = self.raw_val >> self.bit_start
         if self.endianness == 'little':
             num_bytes = ceil(self.bit_len / 8)
             tmp = num_val.to_bytes(num_bytes, 'little', signed=self.signed)
             num_val = int.from_bytes(tmp, 'big', signed=self.signed)
-        num_val = num_val * self.scale + self.offset
+
+        num_val = Decimal(str(num_val))
+        num_val_no_scaling = num_val
+        num_val = num_val * Decimal(str(self.scale)) + Decimal(str(self.offset))
+
+        if num_val > self.max_val:
+            num_val = num_val_no_scaling
+
         # Check if num_val should be negative
         if num_val > 0 and self.min_val < 0:
-            bval = '{:b}'.format(int(num_val))
+            bval = f'{num_val:b}'
             if bval[0] == '1' and len(bval) == self.bit_len:
-                num_val = float(-self._twos_complement(int(num_val)))
-        return round(num_val, 4)
+                num_val = -self._twos_complement(int(num_val))
+
+        num_val = round(num_val, 4)
+        if int(num_val) == num_val:
+            num_val = int(num_val)
+        else:
+            num_val = float(num_val)
+        return num_val
 
     @property
     def val(self):
@@ -704,84 +748,90 @@ class Signal:
         Returns:
             The named signal value if it exists, otherwise same as num_val.
         """
-        curr_val = self.num_val
-        if self.values:
-            curr_val = int(curr_val)
-            for key, val in self.values.items():
-                if val == curr_val:
-                    curr_val = key
-                    break
-            else:
-                raise ValueError(f'{self.name}.num_val is set to '
-                                 f'{self.num_val} which is not in '
-                                 f'{self.values}')
-        return curr_val
+        val = self.num_val
+        if self.values and val in self.__values_by_num:
+            val = self.__values_by_num[val]
+        return val
 
     @val.setter
-    def val(self, value):
-        """Set the signal value based on the offset and scale."""
-        negative = False
+    def val(self, val):
+        """Set the signal value based on the offset and scale.
 
-        # self.values will only be set if the signal has a discrete set of
-        # values, otherwise the signal will be defined with min_val and max_val
-        if self.values:
-            if isinstance(value, str):
-                invalid = False
-                lower_vals = [val.lower() for val in self.values]
-                if value in self.values:
-                    num = self.values[value]
-                elif value.lower() in lower_vals:
-                    for val in self.values:
-                        if val.lower() == value.lower():
-                            num = self.values[val]
-                            break
-                    else:
-                        invalid = True
-                else:
-                    invalid = True
-                if invalid:
-                    raise ValueError('{} is invalid for {}; valid values = {}'
-                                     ''.format(value, self.name, self.values))
+        Decimal is used in multiple places to reduce floating point errors.
+        """
+        value_error = (f'{val} is invalid for {self.name}; valid values = '
+                       f'{self.values}.')
+        range_error = (f'Value {val} out of range! Valid range is '
+                       f'{self.min_val} to {self.max_val} for signal '
+                       f'{self.name}.')
+        from_values = False
+
+        if isinstance(val, (float, int)):
+            min_val = Decimal(str(self.min_val))
+            max_val = Decimal(str(self.max_val))
+            val = Decimal(str(val))
+            if min_val <= val <= max_val:
+                # In range, nothing else to do.
+                pass
+            elif self.values:
+                if float(val).is_integer():
+                    # Make sure things like 5.0 are really 5 since values
+                    # need to be integers. This also avoids something like 5.5
+                    # from being converted into 5 and possibly matching a value
+                    # when it shouldn't. Also converts from the Decimal type.
+                    val = int(val)
+                if not isinstance(val, int) or val not in self.values.values():
+                    raise ValueError(f'{value_error}\nAND\n{range_error}')
+                # Value is not in range but does match a named value.
+                from_values = True
             else:
-                try:
-                    num = float(value)
-                    if value not in self.values.values():
-                        raise ValueError('{} is invalid for {}; valid values ='
-                                         ' {}'.format(value, self.name,
-                                                      self.values))
-                except ValueError:
-                    raise ValueError('{} is invalid for {}; valid values = {}'
-                                     ''.format(value, self.name, self.values))
-        elif (float(value) < self.min_val) or (float(value) > self.max_val):
-            raise ValueError('Value {} out of range! Valid range is {} to {}'
-                             ' for signal {}.'.format(float(value),
-                                                      self.min_val,
-                                                      self.max_val,
-                                                      self.name))
+                raise ValueError(value_error)
+        elif isinstance(val, str):
+            if not self.values:
+                raise ValueError(value_error)
+            # val.lower() to make this case insensitive
+            lower_vals = dict((val.lower(), val) for val in self.values)
+            if val.lower() in lower_vals:
+                from_values = True
+                val = lower_vals[val.lower()]
+                val = Decimal(str(self.values[val]))
+            else:
+                raise ValueError(value_error)
+
         else:
-            num = value
+            raise TypeError(f'Expected str, int or float but got {type(val)}')
 
-        num = int((float(num) - float(self.offset)) / float(self.scale))
+        val_no_scaling = val
+        val = (val - Decimal(str(self.offset))) / Decimal(str((self.scale)))
+        val = int(val)
 
-        if num < 0:
-            num = abs(num)
+        if val < 0:
+            # Convert to positive so bit_len and other math works below
+            val = abs(val)
             negative = True
+        else:
+            negative = False
 
-        size = len('{:b}'.format(num))
-        if size > self.bit_len:
-            raise ValueError('Unable to set {} to {}; value too large!'
-
-                             ''.format(self.name, num))
+        if len(f'{val:b}') > self.bit_len:
+            # Some DBCs specify value descriptions with values that are beyond
+            # the min/max value definitions. The value without scaling should
+            # be used in these cases and it should still be within the
+            # specified bit length or there is an issue in the DBC.
+            if not from_values or len(f'{val_no_scaling:b}') > self.bit_len:
+                raise ValueError(f'Unable to set {self.name} to {val}; '
+                                 'value too large!')
+            else:
+                val = val_no_scaling
 
         if negative:
-            num = self._twos_complement(num)
+            val = self._twos_complement(val)
 
         # Swap the byte order if necessary
         if self.endianness == 'little':
             num_bytes = ceil(self.bit_len / 8)
-            tmp = num.to_bytes(num_bytes, 'little', signed=self.signed)
-            num = int.from_bytes(tmp, 'big', signed=self.signed)
-        self.__val = num << self.bit_start
+            tmp = val.to_bytes(num_bytes, 'little', signed=self.signed)
+            val = int.from_bytes(tmp, 'big', signed=self.signed)
+        self.__val = val << self.bit_start
 
     def _twos_complement(self, num):
         """Return the twos complement value of a number."""
