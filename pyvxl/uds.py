@@ -133,7 +133,7 @@ class UDS:
 
     @data_length_optimization_enabled.setter
     def data_length_optimization_enabled(self, enabled):
-        """Set the p2_star_server timeout in milliseconds."""
+        """Enable/disable data length optimization for DLCs."""
         if not isinstance(enabled, bool):
             raise TypeError(f'Expected bool but got {type(enabled)}')
         self.__dlc_opt_enabled = enabled

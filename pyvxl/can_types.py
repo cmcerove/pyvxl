@@ -729,8 +729,8 @@ class Signal:
             num_val = num_val_no_scaling
 
         # Check if num_val should be negative
-        if num_val > 0 and self.min_val < 0:
-            bval = f'{num_val:b}'
+        if num_val > 0 and self.min_val < 0 and self.signed:
+            bval = f'{int(num_val):b}'
             if bval[0] == '1' and len(bval) == self.bit_len:
                 num_val = -self._twos_complement(int(num_val))
 
@@ -801,9 +801,17 @@ class Signal:
         else:
             raise TypeError(f'Expected str, int or float but got {type(val)}')
 
-        val_no_scaling = val
-        val = (val - Decimal(str(self.offset))) / Decimal(str((self.scale)))
-        val = int(val)
+        offset = Decimal(str(self.offset))
+        scale = Decimal(str((self.scale)))
+        max_unscaled = (Decimal(str(self.max_val)) - offset) / scale
+        if val > max_unscaled and from_values:
+            # Some DBCs specify value descriptions with values that are beyond
+            # the min/max value definitions. The value without scaling should
+            # be used in these cases and it should still be within the
+            # specified bit length or there is an issue in the DBC.
+            val = int(val)
+        else:
+            val = int((val - offset) / scale)
 
         if val < 0:
             # Convert to positive so bit_len and other math works below
@@ -813,15 +821,8 @@ class Signal:
             negative = False
 
         if len(f'{val:b}') > self.bit_len:
-            # Some DBCs specify value descriptions with values that are beyond
-            # the min/max value definitions. The value without scaling should
-            # be used in these cases and it should still be within the
-            # specified bit length or there is an issue in the DBC.
-            if not from_values or len(f'{val_no_scaling:b}') > self.bit_len:
-                raise ValueError(f'Unable to set {self.name} to {val}; '
-                                 'value too large!')
-            else:
-                val = val_no_scaling
+            raise ValueError(f'Unable to set {self.name} to {val}; value too '
+                             'large!')
 
         if negative:
             val = self._twos_complement(val)
