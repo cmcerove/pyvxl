@@ -384,6 +384,10 @@ class DBCParser:
             for sig in self.messages[int(p[4]) & 0x1FFFFFFF].signals:
                 if sig.name == p[5]:
                     sig.init_val = p[6]
+                    try:
+                        sig.val = sig.init_val
+                    except Exception:
+                        pass
         elif p[2] == 'GenSigSendOnInit':
             for sig in self.messages[int(p[4]) & 0x1FFFFFFF].signals:
                 if sig.name == p[5]:
@@ -558,7 +562,7 @@ class DBCParser:
                       | NAN
                       | INT_VAL"""
         if 'NAN' != p[1]:
-            p[0] = float(p[1])
+            p[0] = p[1]
         else:
             p[0] = None
 
@@ -616,3 +620,66 @@ class DBCParser:
     def p_empty(self, p):  # noqa
         'empty :'
         pass
+
+
+def verify_signals(signals):
+    """Verify signals can be set to their named, min and max values."""
+    sig_count = 0
+    errors = {'values_name_e': [], 'values_name': [],
+              'values_num_e': [], 'values_num': [],
+              'min_val_e': [], 'min_val': [],
+              'max_val_e': [], 'max_val': []}
+    for sig_list in signals.values():
+        for sig in sig_list:
+            sig_count += 1
+            for name, val in sig.values.items():
+                try:
+                    sig.val = name
+                except Exception as e:
+                    errors['values_name_e'].append((sig, e))
+                else:
+                    try:
+                        if sig.val != name:
+                            txt = f'{name} != {sig.val}'
+                            errors['values_name'].append((sig, txt))
+                        if sig.raw_val != val:
+                            txt = f'{sig.raw_val} != enum val for {sig.val}'
+                            errors['values_num'].append((sig, txt))
+                    except Exception:
+                        pass
+                try:
+                    sig.val = val
+                except Exception as e:
+                    errors['values_num_e'].append((sig, e))
+                else:
+                    try:
+                        if sig.val != name:
+                            txt = f'{name} != {sig.val}'
+                            errors['values_num'].append((sig, txt))
+                        if sig.raw_val != val:
+                            txt = f'{sig.raw_val} != enum val for {sig.val}'
+                            errors['values_num'].append((sig, txt))
+                    except Exception:
+                        pass
+            try:
+                sig.val = sig.min_val
+            except Exception as e:
+                errors['min_val_e'].append((sig, e))
+            else:
+                if sig.num_val != sig.min_val:
+                    txt = f'{sig.min_val} != {sig.num_val}'
+                    errors['min_val'].append((sig, txt))
+            try:
+                sig.val = sig.max_val
+            except Exception as e:
+                errors['max_val_e'].append((sig, e))
+            else:
+                if sig.num_val != sig.max_val:
+                    txt = f'{sig.num_val} != {sig.max_val}'
+                    errors['max_val'].append((sig, txt))
+    print(f'Total Signals; {sig_count}\n')
+    print('Errors Found:')
+    for err_type, err_list in errors.items():
+        spaces = ' ' * (15 - len(err_type))
+        print(f'\t{err_type}{spaces}{len(err_list)}')
+    return errors

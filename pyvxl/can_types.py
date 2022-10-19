@@ -438,7 +438,7 @@ class Message:
         if self.signals:
             for sig in self.signals:
                 # Set the value
-                data |= sig.raw_val
+                data |= sig.msg_val
         else:
             data = self.__data
         return f'{data:0{self.dlc*2}X}'
@@ -463,7 +463,7 @@ class Message:
                              f'maximum value of {self.__max_val:X}!')
         if self.signals:
             for sig in self.signals:
-                sig.raw_val = data
+                sig.msg_val = data
         else:
             self.__data = data
 
@@ -565,6 +565,7 @@ class Signal:
 
     def __init__(self, name, mux, bit_msb, bit_len, endianness, signedness,  # noqa
                  scale, offset, min_val, max_val, units, receivers):  # noqa
+        self.values = {}
         self.name = name
         self.mux = mux  # not implemented
         self.endianness = endianness
@@ -579,7 +580,6 @@ class Signal:
         self.units = units
         self.receivers = receivers
         self.long_name = ''
-        self.values = {}
         self.__val = 0
         self.init_val = None
         self.send_on_init = 0
@@ -701,117 +701,157 @@ class Signal:
         self.__values_by_num = dict((v, k) for k, v in val_dict.items())
 
     @property
-    def raw_val(self):
+    def min_val(self):
+        """The minimum scaled value for this signal."""
+        return self.__min_val
+
+    @min_val.setter
+    def min_val(self, min_val):
+        """Set the minimum scaled value for this signal."""
+        if not isinstance(min_val, (int, float)) or isinstance(min_val, bool):
+            raise TypeError(f'Expected int or float but got {type(min_val)}')
+
+        if self.signed:
+            bit_len = self.bit_len - 1
+            max_positive = self._scale(int('0' + ('1' * bit_len), 2))
+            max_negative = self._scale(int('1' + ('0' * bit_len), 2))
+            all_bits = min(max_positive, max_negative)
+        else:
+            all_bits = self._scale(int('1' * self.bit_len, 2))
+
+        no_bits = self._scale(0)
+        min_possible = min(all_bits, no_bits)
+
+        if min_val > min_possible:
+            min_val = min_possible
+
+        # Make sure the value is transmitable on CAN by unscaling and scaling
+        self.__min_val = self._scale(self._unscale(Decimal(str(min_val))))
+
+    @property
+    def max_val(self):
+        """The maximum scaled value for this signal."""
+        return self.__max_val
+
+    @max_val.setter
+    def max_val(self, max_val):
+        """Set the maximum scaled value for this signal."""
+        if not isinstance(max_val, (int, float)) or isinstance(max_val, bool):
+            raise TypeError(f'Expected int or float but got {type(max_val)}')
+
+        if self.signed:
+            bit_len = self.bit_len - 1
+            max_positive = self._scale(int('0' + ('1' * bit_len), 2))
+            max_negative = self._scale(int('1' + ('0' * bit_len), 2))
+            all_bits = max(max_positive, max_negative)
+        else:
+            all_bits = self._scale(int('1' * self.bit_len, 2))
+
+        no_bits = self._scale(0)
+        max_possible = max(all_bits, no_bits)
+
+        if max_val > max_possible:
+            max_val = max_possible
+
+        # Make sure the value is transmitable on CAN by unscaling and scaling
+        self.__max_val = self._scale(self._unscale(Decimal(str(max_val))))
+
+    @property
+    def msg_val(self):
         """The signal value as it would look within the full message data."""
         return self.__val
 
-    @raw_val.setter
-    def raw_val(self, msg_data):
-        """Set the raw_value based on the full message data."""
+    @msg_val.setter
+    def msg_val(self, msg_data):
+        """Set the value based on the full message data."""
         if not isinstance(msg_data, int) or isinstance(msg_data, bool):
             raise TypeError(f'Expected int but got {type(msg_data)}')
         self.__val = msg_data & self.mask
 
     @property
+    def raw_val(self):
+        """The signal value as it would look within the full message data."""
+        return self.msg_val >> self.bit_start
+
+    @raw_val.setter
+    def raw_val(self, raw_val):
+        """Update msg_val with the new unscaled (ready for CAN) value."""
+        self.msg_val = raw_val << self.bit_start
+
+    @property
     def num_val(self):
-        """Return the numeric value of this signal."""
-        num_val = self.raw_val >> self.bit_start
-        if self.endianness == 'little':
-            num_bytes = ceil(self.bit_len / 8)
-            tmp = num_val.to_bytes(num_bytes, 'little', signed=self.signed)
-            num_val = int.from_bytes(tmp, 'big', signed=self.signed)
-
-        num_val = Decimal(str(num_val))
-        num_val_no_scaling = num_val
-        num_val = num_val * Decimal(str(self.scale)) + Decimal(str(self.offset))
-
-        if num_val > self.max_val:
-            num_val = num_val_no_scaling
-
-        # Check if num_val should be negative
-        if num_val > 0 and self.min_val < 0 and self.signed:
-            bval = f'{int(num_val):b}'
-            if bval[0] == '1' and len(bval) == self.bit_len:
-                num_val = -self._twos_complement(int(num_val))
-
-        num_val = round(num_val, 4)
-        if int(num_val) == num_val:
-            num_val = int(num_val)
-        else:
-            num_val = float(num_val)
-        return num_val
+        """The scaled numeric value of this signal."""
+        return self._scale(self.raw_val)
 
     @property
     def val(self):
-        """Get the signal value.
-
-        Returns:
-            The named signal value if it exists, otherwise same as num_val.
-        """
-        val = self.num_val
-        if self.values and val in self.__values_by_num:
-            val = self.__values_by_num[val]
+        """The named signal value if it exists, otherwise same as num_val."""
+        if self.raw_val in self.__values_by_num:
+            val = self.__values_by_num[self.raw_val]
+        else:
+            val = self.num_val
         return val
 
     @val.setter
     def val(self, val):
-        """Set the signal value based on the offset and scale.
-
-        Decimal is used in multiple places to reduce floating point errors.
-        """
+        """Set the signal value based on the offset and scale."""
         value_error = (f'{val} is invalid for {self.name}; valid values = '
                        f'{self.values}.')
         range_error = (f'Value {val} out of range! Valid range is '
                        f'{self.min_val} to {self.max_val} for signal '
                        f'{self.name}.')
-        from_values = False
 
         if isinstance(val, (float, int)):
-            min_val = Decimal(str(self.min_val))
-            max_val = Decimal(str(self.max_val))
-            val = Decimal(str(val))
-            if min_val <= val <= max_val:
-                # In range, nothing else to do.
+            if val in self.__values_by_num:
                 pass
+            elif self.min_val <= val <= self.max_val:
+                val = Decimal(str(val))
             elif self.values:
-                if float(val).is_integer():
-                    # Make sure things like 5.0 are really 5 since values
-                    # need to be integers. This also avoids something like 5.5
-                    # from being converted into 5 and possibly matching a value
-                    # when it shouldn't. Also converts from the Decimal type.
-                    val = int(val)
-                if not isinstance(val, int) or val not in self.values.values():
-                    raise ValueError(f'{value_error}\nAND\n{range_error}')
-                # Value is not in range but does match a named value.
-                from_values = True
+                raise ValueError(f'{value_error}\nAND\n{range_error}')
             else:
-                raise ValueError(value_error)
+                raise ValueError(range_error)
         elif isinstance(val, str):
             if not self.values:
                 raise ValueError(value_error)
             # val.lower() to make this case insensitive
             lower_vals = dict((val.lower(), val) for val in self.values)
             if val.lower() in lower_vals:
-                from_values = True
-                val = lower_vals[val.lower()]
-                val = Decimal(str(self.values[val]))
+                val = self.values[lower_vals[val.lower()]]
             else:
                 raise ValueError(value_error)
 
         else:
             raise TypeError(f'Expected str, int or float but got {type(val)}')
 
+        self.raw_val = self._unscale(val)
+
+    def _scale(self, val):
+        """Scale a number based on the other attributes in this signal."""
+        if self.endianness == 'little':
+            num_bytes = ceil(self.bit_len / 8)
+            tmp = val.to_bytes(num_bytes, 'little', signed=self.signed)
+            val = int.from_bytes(tmp, 'big', signed=self.signed)
+
+        scale = Decimal(str(self.scale))
         offset = Decimal(str(self.offset))
-        scale = Decimal(str((self.scale)))
-        max_unscaled = (Decimal(str(self.max_val)) - offset) / scale
-        if val > max_unscaled and from_values:
-            # Some DBCs specify value descriptions with values that are beyond
-            # the min/max value definitions. The value without scaling should
-            # be used in these cases and it should still be within the
-            # specified bit length or there is an issue in the DBC.
+        val = Decimal(str(val)) * scale + offset
+
+        if int(val) == val:
             val = int(val)
         else:
+            val = float(val)
+        return val
+
+    def _unscale(self, val):
+        """Convert a scaled number to unscaled. The opposite of _scale."""
+        # Only values that aren't named should be scaled i.e. not in the
+        # Value Descriptions tab for a signal in the CANdb++ Editor.
+        if isinstance(val, Decimal) and self.scale != 0:
+            offset = Decimal(str(self.offset))
+            scale = Decimal(str((self.scale)))
             val = int((val - offset) / scale)
+        else:
+            val = int(val)
 
         if val < 0:
             # Convert to positive so bit_len and other math works below
@@ -823,7 +863,6 @@ class Signal:
         if len(f'{val:b}') > self.bit_len:
             raise ValueError(f'Unable to set {self.name} to {val}; value too '
                              'large!')
-
         if negative:
             val = self._twos_complement(val)
 
@@ -832,7 +871,7 @@ class Signal:
             num_bytes = ceil(self.bit_len / 8)
             tmp = val.to_bytes(num_bytes, 'little', signed=self.signed)
             val = int.from_bytes(tmp, 'big', signed=self.signed)
-        self.__val = val << self.bit_start
+        return val
 
     def _twos_complement(self, num):
         """Return the twos complement value of a number."""
