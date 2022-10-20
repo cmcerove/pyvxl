@@ -722,7 +722,7 @@ class Signal:
         no_bits = self._scale(0)
         min_possible = min(all_bits, no_bits)
 
-        if min_val > min_possible:
+        if min_val < min_possible:
             min_val = min_possible
 
         # Make sure the value is transmitable on CAN by unscaling and scaling
