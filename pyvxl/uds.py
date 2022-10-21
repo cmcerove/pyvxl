@@ -145,6 +145,14 @@ class UDS:
             expected_len = 4
             expected_max = 0xFFFF
             fmt_str = '{:04X}'
+        elif check_type == 'DTC':
+            expected_len = 6
+            expected_max = 0xFFFFFF
+            fmt_str = '{:06X}'
+        elif check_type == ['sub_function', 'status_mask']:
+            expected_len = 2
+            expected_max = 0xFF
+            fmt_str = '{:02X}'
         else:
             raise NotImplementedError(f'{check_type} is not implemented')
         if isinstance(data, str):
@@ -203,13 +211,96 @@ class UDS:
             result = data
         return result
 
-    def clear_dtcs(self, *args, **kwargs):
+    def clear_dtc_info(self, dtc_group, raise_error=True, **kwargs):
         """Clear Diagnostic Information - Service 0x14."""
-        raise NotImplementedError
+        result = None
+        request = self._check('DTC', dtc_group)
+        successful, data = self.send_service(0x14, request, **kwargs)
+        if not successful:
+            if raise_error:
+                raise AssertionError('Failed to Clear DTC Group '
+                                     f'0x{request[0]:02X}{request[1]:02X}')
+        else:
+            result = data[3:]  # Remove the DTC Group from the response
+        return result
 
-    def dtcs_dtcs(self, *args, **kwargs):
+    def read_dtc_info(self, sub_function, *args, **kwargs):
         """Read DTC Information - Service 0x19."""
-        raise NotImplementedError
+        result = None
+        sub_function = self._check('sub_function', sub_function)
+        if sub_function == '01':
+            result = self.read_dtc_count_by_status_mask(*args, **kwargs)
+        elif sub_function == '02':
+            result = self.read_dtcs_by_status_mask(*args, **kwargs)
+        elif sub_function == '03':
+            result = self.read_dtc_snapshot_identification(*args, **kwargs)
+        elif sub_function == '04':
+            result = self.read_dtc_snapshot_record(*args, **kwargs)
+        elif sub_function == '05':
+            result = self.read_dtc_data_record(*args, **kwargs)
+        elif sub_function == '06':
+            result = self.read_dtc_extended_data_record(*args, **kwargs)
+        elif sub_function == '07':
+            result = self.read_dtcs_by_severity_mask(*args, **kwargs)
+        return result
+
+    def read_dtc_count_by_status_mask(self, status_mask, raise_error=True, **kwargs):
+        """Read the count of DTCs matching status_mask.
+
+        Service 0x19 Sub-function 01
+        """
+        result = None
+        request = self._check('status_mask', status_mask)
+        successful, data = self.send_service(0x19, request, **kwargs)
+        if not successful:
+            if raise_error:
+                raise AssertionError('Failed to Clear DTC Group '
+                                     f'0x{request[0]:02X}{request[1]:02X}')
+        else:
+            result = data[3:]  # Remove the DTC Group from the response
+        return result
+
+    def read_dtcs_by_status_mask(self, status_mask, raise_error=True, **kwargs):
+        """Read DTC numbers and statuses matching status_mask.
+
+        Service 0x19 Sub-function 02
+        """
+        pass
+
+    def read_dtc_snapshot_identification(self):
+        """Read the count of DTCs matching status_mask.
+
+        Service 0x19 Sub-function 03
+        """
+        pass
+
+    def read_dtc_snapshot_record(self):
+        """Read the count of DTCs matching status_mask.
+
+        Service 0x19 Sub-function 04
+        """
+        pass
+
+    def read_dtc_data_record(self):
+        """Read the count of DTCs matching status_mask.
+
+        Service 0x19 Sub-function 05
+        """
+        pass
+
+    def read_dtc_extended_data_record():
+        """Read the count of DTCs matching status_mask.
+
+        Service 0x19 Sub-function 06
+        """
+        pass
+
+    def read_dtcs_by_severity_mask():
+        """Read the count of DTCs matching status_mask.
+
+        Service 0x19 Sub-function 07
+        """
+        pass
 
     def read_did(self, did, raise_error=True, **kwargs):
         """Read Data by Identifier - Service 0x22."""
