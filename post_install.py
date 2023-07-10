@@ -8,6 +8,7 @@ from sys import executable, argv, exit
 from os import path, system
 from time import time, sleep
 from subprocess import call
+from glob import glob
 from ctypes import WinDLL, windll
 from platform import architecture
 
@@ -19,22 +20,31 @@ ps_cmd = f"Start-Process -FilePath '{exe_path}' -ArgumentList '/S /v/qn' -Wait"
 ps_cmd = f"powershell -command \"{ps_cmd}\""
 version_file = path.join(lib_path, 'version.txt')
 
-
 with open(version_file, 'r') as f:
     vxl_version = f.read()
-vxl_base_path = r'C:\Users\Public\Documents\Vector\XL Driver Library '
-vxl_lib_path = f'{vxl_base_path}{vxl_version}'
-vxl_lib_path = path.join(vxl_lib_path, 'bin')
 
-# The current version isn't installed. Install it.
-if not path.isdir(vxl_lib_path):
-    system(ps_cmd)
-
+vxl_base_path = r'C:\Users\Public\Documents\Vector\XL Driver Library'
+xl_libs = glob(f'{vxl_base_path}*')
 arch, _ = architecture()
-if arch == '64bit':
-    vxl_path = path.join(vxl_lib_path, 'vxlapi64.dll')
+if xl_libs:
+    # Grab the latest version
+    vxl_lib_path = sorted(xl_libs)[-1]
+    vxl_lib_path = path.join(vxl_lib_path, 'bin')
+    if arch == '64bit':
+        vxl_path = path.join(vxl_lib_path, 'vxlapi64.dll')
+    else:
+        vxl_path = path.join(vxl_lib_path, 'vxlapi.dll')
+
+    # The current version isn't installed. Install it.
+    if not path.isdir(vxl_lib_path):
+        system(ps_cmd)
 else:
-    vxl_path = path.join(vxl_lib_path, 'vxlapi.dll')
+    # These get installed with Vector drivers
+    if arch == '64bit':
+        vxl_path = path.join(r'C:\Windows\System32', 'vxlapi64.dll')
+    else:
+        vxl_path = path.join(r'C:\Windows\SysWOW64', 'vxlapi.dll')
+        vxl_path = path.join(vxl_lib_path, 'vxlapi.dll')
 
 
 def is_admin():  # noqa

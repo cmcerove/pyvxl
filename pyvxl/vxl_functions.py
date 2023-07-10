@@ -12,26 +12,28 @@ from ctypes import WinDLL, c_char_p
 
 vxl_base_path = r'C:\Users\Public\Documents\Vector\XL Driver Library'
 xl_libs = glob(f'{vxl_base_path}*')
-if not xl_libs:
-    print('ERROR: Unable to find an installed version of Vector XL Library. '
-          'Please run pyvxl/make.bat again to install the latest version.')
-    exit(1)
-
-# Grab the latest version
-vxl_lib_path = sorted(xl_libs)[-1]
-vxl_lib_path = path.join(vxl_lib_path, 'bin')
-
 arch, _ = architecture()
-if arch == '64bit':
-    vxl_path = path.join(vxl_lib_path, 'vxlapi64.dll')
+if xl_libs:
+    # Grab the latest version
+    vxl_lib_path = sorted(xl_libs)[-1]
+    vxl_lib_path = path.join(vxl_lib_path, 'bin')
+    if arch == '64bit':
+        vxl_path = path.join(vxl_lib_path, 'vxlapi64.dll')
+    else:
+        vxl_path = path.join(vxl_lib_path, 'vxlapi.dll')
 else:
-    vxl_path = path.join(vxl_lib_path, 'vxlapi.dll')
+    # These get installed with Vector drivers
+    if arch == '64bit':
+        vxl_path = path.join(r'C:\Windows\System32', 'vxlapi64.dll')
+    else:
+        vxl_path = path.join(r'C:\Windows\SysWOW64', 'vxlapi.dll')
+        vxl_path = path.join(vxl_lib_path, 'vxlapi.dll')
 
 if path.isfile(vxl_path):
     vxDLL = WinDLL(vxl_path)
 else:
     print(f'ERROR: Unable to find {vxl_path}. '
-          'Please run pyvxl/make.bat again to install the library again.')
+          'Please install Vector\'s XL Driver Library and try again.')
     exit(1)
 
 
