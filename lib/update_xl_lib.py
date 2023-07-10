@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-"""Download the latest 32 bit version of python 3."""
+"""Download the latest Vector's XL Driver Library."""
 
 import logging
 import re

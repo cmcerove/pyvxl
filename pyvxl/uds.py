@@ -17,8 +17,8 @@ class UDS:
         self.__tx_msg = None
         self.__rx_msg = None
         self.__max_dlc = 8
-        self.__p2_server = None
-        self.__p2_star_server = None
+        self.__p2_server = 100
+        self.__p2_star_server = 5000
         self.__tester_msg = None
         self.__dlc_opt_enabled = False
         # From ISO 15765-2: "If not specified differently, the value [0xCC]
@@ -183,8 +183,10 @@ class UDS:
         # raise_error and always raising and error.
         raise AssertionError(msg)
 
-    def session_control(self, session, **kwargs):
+    def diagnostic_session_control(self, session, **kwargs):
         """Session Control - Service 0x10."""
+        # Response should always be 6 bytes:
+        # 0x50 [sub-function] [p2 server(2 bytes)] [p2*server (2 bytes)]
         raise NotImplementedError
 
     def ecu_reset(self, reset_type, raise_error=True, **kwargs):
@@ -334,6 +336,9 @@ class UDS:
             data = '023E80'
             msg.dlc = 3
         else:
+            # Without optimization, 8 bytes is the minimum length and no bytes
+            # should be expected past 8 since this frame doesn't need them.
+            msg.dlc = 8
             data = '023E80' + f'{self.padding_byte_value:02X}' * (msg.dlc - 3)
         msg.data = data
         msg.period = period
@@ -460,8 +465,8 @@ class UDS:
                 # Optimization is disabled so padding is needed up to 8 bytes
                 pad_length = 8 - last_frame_bytes
         elif last_frame_bytes > 8:
-            # Padding is mandatory for more than 8 bytes only up to the next
-            # valid CAN FD DLC. There is no option to pad past this point.
+            # For more than 8 bytes, padding is mandatory up to the next valid
+            # CAN FD DLC. There is no option to pad past this point.
             valid_fd_dlcs = [12, 16, 20, 24, 32, 48, 64]
             if last_frame_bytes not in valid_fd_dlcs:
                 while last_frame_bytes not in valid_fd_dlcs:
