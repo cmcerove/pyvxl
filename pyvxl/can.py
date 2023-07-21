@@ -15,6 +15,8 @@ from pyvxl.vxl import VxlCan
 from pyvxl.uds import UDS
 from pyvxl.can_types import Database
 
+logger = logging.getLogger(__name__)
+
 
 class CAN:
     """Simulate one or more CAN channels."""
@@ -65,7 +67,7 @@ class CAN:
             self.__vxl.add_channel(num=num, **kwargs)
             self.__vxl.start()
             self.__rx_thread.add_channel(num)
-        logging.debug(f'Added channel {channel}')
+        logger.debug(f'Added channel {channel}')
         return channel
 
     def remove_channel(self, num):
@@ -82,7 +84,7 @@ class CAN:
             if self.__vxl.channels:
                 self.__vxl.start()
             self.__rx_thread.remove_channel(num)
-        logging.debug(f'Removed channel {channel}')
+        logger.debug(f'Removed channel {channel}')
         return channel
 
     def start_logging(self, *args, **kwargs):
@@ -139,7 +141,7 @@ class CAN:
         #                         self.last_found_sig = sig
         #                         self._print_sig(sig, value=True)
         #         if not found:
-        #             logging.error(
+        #             logger.error(
         #                 'Unable to find a periodic message with that string!')
         # else:
         #     for msg in self.currentPeriodics:
@@ -206,7 +208,7 @@ class Channel:
         self.__vxl.send(self.channel, msg.id, msg.data, msg.brs)
         if not send_once and msg.period:
             self.__tx_thread.add(self.channel, msg)
-        logging.info(f'{self.name[:8]: ^8} TX: {msg.id: >8X} {msg.data: <16}')
+        logger.info(f'{self.name[:8]: ^8} TX: {msg.id: >8X} {msg.data: <16}')
 
     def send_message(self, name_or_id, data=None, period=None, send_once=False):
         """Send a message by name or id."""
@@ -233,13 +235,13 @@ class Channel:
     def stop_message(self, name_or_id):
         """Stop sending a periodic message."""
         msg = self.db.get_message(name_or_id)
-        logging.info(f'Stopping message {msg.id: >8X}')
+        logger.info(f'Stopping message {msg.id: >8X}')
         self.__tx_thread.remove(self.channel, msg)
         return msg
 
     def stop_all_messages(self):
         """Stop sending all periodic messages."""
-        logging.info(f'Stopping messages on {self}')
+        logger.info(f'Stopping messages on {self}')
         self.__tx_thread.remove_all(self.channel)
 
     def send_signal(self, name, value=None, send_once=False):
@@ -347,9 +349,9 @@ class Channel:
         rx_time, data = self.__rx_thread.dequeue_msg(self.channel, msg.id,
                                                      timeout)
         if data is not None:
-            logging.info(f'{self.name[:8]: ^8} RX: {msg.id: >8X} {data: <16}')
+            logger.info(f'{self.name[:8]: ^8} RX: {msg.id: >8X} {data: <16}')
         else:
-            logging.info(f'{self.name[:8]: ^8} RX timeout: {msg.id: >8X} was '
+            logger.info(f'{self.name[:8]: ^8} RX timeout: {msg.id: >8X} was '
                          f'not received after {timeout} milliseconds')
         return rx_time, data
 
@@ -510,7 +512,7 @@ class ReceiveThread(Thread):
                 else:
                     # The XL Driver Library Manual doesn't specify any other
                     # possible tags so this shouldn't happen.
-                    logging.error(f'Unknown rx_event.tag: {rx_event.tag}')
+                    logger.error(f'Unknown rx_event.tag: {rx_event.tag}')
                 rx_event = self.__receive()
             # Writing to the log is placed after all messages have been
             # received to minimize the frequency of file I/O during
@@ -529,7 +531,7 @@ class ReceiveThread(Thread):
         """Close open log file."""
         if self.__log_file is not None:
             if self.__pending_msgs:
-                logging.debug('writing pending messages to log')
+                logger.debug('writing pending messages to log')
                 self.__log_file.writelines(self.__pending_msgs)
                 self.__pending_msgs.clear()
             self.__log_file.flush()
@@ -607,7 +609,7 @@ class ReceiveThread(Thread):
         if path.isfile(self.__log_path):
             file_opts = 'a'
         self.__log_file = open(self.__log_path, file_opts)
-        logging.debug('Logging to: {}'.format(self.__log_path))
+        logger.debug('Logging to: {}'.format(self.__log_path))
         data_str = 'date {} {} {} {}:{}:{} {}\n'
         days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
         months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug',
@@ -668,7 +670,7 @@ class ReceiveThread(Thread):
                     # The receive thread crashing is hard to debug. This is
                     # safer.
                     pass
-            logging.debug('Logging stopped.')
+            logger.debug('Logging stopped.')
             if not self.__msg_queues:
                 self.__sleep_time = 0.1
                 self.__logging = False
@@ -684,12 +686,12 @@ class ReceiveThread(Thread):
                 sleep(0.1)
         if self.__log_request != 'stop' and self.__log_path:
             old_path = self.__log_path
-            logging.debug('Stop logging requested.')
+            logger.debug('Stop logging requested.')
             self.__log_request = 'stop'
             self.__delete_log = delete_log
         else:
             old_path = ''
-            logging.error('Logging already stopped!')
+            logger.error('Logging already stopped!')
         return old_path
 
     def start_queue(self, channel, msg_id, queue_size):
@@ -701,7 +703,7 @@ class ReceiveThread(Thread):
                 self.__msg_queues[channel][msg_id] = Queue(queue_size)
                 self.__sleep_time = 0.01
             else:
-                logging.error(f'Channel {channel} not found in the rx thread.')
+                logger.error(f'Channel {channel} not found in the rx thread.')
 
     def stop_queue(self, channel, msg_id):
         """Stop queuing received data for msg_id."""
@@ -717,14 +719,14 @@ class ReceiveThread(Thread):
                 if not queuing and not self.__log_request and not self.__log_path:
                     self.__sleep_time = 0.1
             else:
-                logging.error(f'Channel {channel} not found in the rx thread.')
+                logger.error(f'Channel {channel} not found in the rx thread.')
 
     def stop_channel_queues(self, channel):
         """Stop all queues for a channel."""
         if channel in self.__msg_queues:
             self.__msg_queues[channel] = {}
         else:
-            logging.error(f'Channel {channel} not found in the rx thread.')
+            logger.error(f'Channel {channel} not found in the rx thread.')
 
     def stop_all_queues(self):
         """Stop all queues."""
@@ -742,14 +744,14 @@ class ReceiveThread(Thread):
             else:
                 msg_queues = []
             if msg_id in msg_queues:
-                # logging.debug('RX: {: >8X} {: <64}'.format(msg_id, data))
+                # logger.debug('RX: {: >8X} {: <64}'.format(msg_id, data))
                 if not msg_queues[msg_id].full():
-                    # logging.debug('queue.put()')
+                    # logger.debug('queue.put()')
                     msg_queues[msg_id].put((rx_time, data.replace(' ', '')))
-                    # logging.debug('queue.put() - returned')
+                    # logger.debug('queue.put() - returned')
                 else:
                     max_size = msg_queues[msg_id].maxsize
-                    logging.error(f'Queue for 0x{msg_id:X} is full. {data} '
+                    logger.error(f'Queue for 0x{msg_id:X} is full. {data} '
                                   'wasn\'t added. The size is set to '
                                   f'{max_size}. Increase the size with the '
                                   'max_size kwarg or remove messages more '
@@ -759,7 +761,7 @@ class ReceiveThread(Thread):
                     wait_channel, wait_id, _ = self.__wait_args
                     # The message was received; wake up the main thread
                     if channel == wait_channel and msg_id == wait_id:
-                        # logging.debug('__enqueue clearing wait args')
+                        # logger.debug('__enqueue clearing wait args')
                         self.__wait_args = None
                         self.__wait_sem.release()
 
@@ -781,16 +783,16 @@ class ReceiveThread(Thread):
                 while self.__time is None:
                     sleep(0.01)
                 end_time = self.__time + (timeout / 1000)
-                # logging.debug('wait_sem.acquire()')
+                # logger.debug('wait_sem.acquire()')
                 self.__wait_args = (channel, msg_id, end_time)
                 self.__wait_sem.acquire()
-                # logging.debug('wait_sem.acquire() - returned')
+                # logger.debug('wait_sem.acquire() - returned')
             if timeout is None or msg_queues[msg_id].qsize():
-                # logging.debug('queue.get()')
+                # logger.debug('queue.get()')
                 rx_time, msg_data = msg_queues[msg_id].get()
-                # logging.debug('queue.get() - returned')
+                # logger.debug('queue.get() - returned')
         else:
-            logging.error('Queue for 0x{:X} hasn\'t been started! Call '
+            logger.error('Queue for 0x{:X} hasn\'t been started! Call '
                           'start_queuing first.'.format(msg_id))
         return rx_time, msg_data
 
@@ -900,7 +902,7 @@ class TransmitThread(Thread):
             self.__messages[channel][msg.id] = msg
             self.__update_times()
             msg._set_sending(True)
-            logging.info(f'Periodic added: {msg.id: >8X} {msg.data: <16} '
+            logger.info(f'Periodic added: {msg.id: >8X} {msg.data: <16} '
                          f'period={msg.period}ms')
 
     def remove(self, channel, msg):
@@ -911,10 +913,10 @@ class TransmitThread(Thread):
                 self.__num_msgs -= 1
                 self.__update_times()
                 msg._set_sending(False)
-            logging.info(f'Periodic removed: {msg.id: >8X} {msg.data: <16} '
+            logger.info(f'Periodic removed: {msg.id: >8X} {msg.data: <16} '
                          f'period={msg.period}ms')
         else:
-            logging.warning(f'{msg.name} (0x{msg.id:X}) is not being sent!')
+            logger.warning(f'{msg.name} (0x{msg.id:X}) is not being sent!')
 
     def remove_all(self, channel):
         """Remove all periodic messages for a specific channel."""

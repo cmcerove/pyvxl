@@ -2,6 +2,11 @@
 
 """Import structure for pyvxl."""
 
-from pyvxl.can import CAN # noqa
-from pyvxl.can_types import Database as CanDatabase  # noqa
-from pyvxl.vxl import VxlCan  # noqa
+# Configure logging for this module the recommended way:
+# https://docs.python.org/3.11/howto/logging.html#configuring-logging-for-a-library
+import logging
+logging.getLogger(__name__).addHandler(logging.NullHandler())
+
+from pyvxl.can import CAN
+from pyvxl.can_types import Database as CanDatabase
+from pyvxl.vxl import VxlCan

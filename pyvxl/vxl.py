@@ -20,6 +20,8 @@ from ctypes import cdll, c_uint, c_int, c_ubyte, c_ulong, cast
 from ctypes import c_ushort, c_ulonglong, pointer, sizeof, POINTER
 from ctypes import c_long, create_string_buffer
 
+logger = logging.getLogger(__name__)
+
 # Grab the c library and some functions from it
 if os.name == 'nt':
     libc = cdll.msvcrt
@@ -174,7 +176,7 @@ class Vxl:
         drv_config_ptr = pointer(vxl_driver_config_type())
         vxl_get_driver_config(drv_config_ptr)
         self.__config = drv_config_ptr.contents
-        logging.debug(f'Vxl Channels: {self.config.channelCount}')
+        logger.debug(f'Vxl Channels: {self.config.channelCount}')
 
     @property
     def channels(self):
@@ -226,8 +228,8 @@ class Vxl:
             raise AssertionError('Port not opened! Call open_port first.')
         size = c_int(0)
         size_ptr = pointer(size)
-        logging.debug(vxl_get_receive_queue_size(self.port, size_ptr))
-        logging.debug(f'Rx Queued Items: {size.value}')
+        logger.debug(vxl_get_receive_queue_size(self.port, size_ptr))
+        logger.debug(f'Rx Queued Items: {size.value}')
         return size.value
 
     def reset_clock(self):
@@ -248,8 +250,8 @@ class Vxl:
         """Get the time from the dll."""
         time = c_ulonglong(0)
         time_ptr = pointer(time)
-        logging.debug(vxl_get_sync_time(self.port, time_ptr))
-        logging.debug(f'Time: {time.value}')
+        logger.debug(vxl_get_sync_time(self.port, time_ptr))
+        logger.debug(f'Time: {time.value}')
         return time.value
 
     def print_config(self, debug=False):
@@ -277,7 +279,7 @@ class Vxl:
 
         print('----------------------------------------------------------')
         if not found_piggy:
-            logging.info('Virtual channels only!')
+            logger.info('Virtual channels only!')
             return False
         return True
 

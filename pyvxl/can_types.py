@@ -12,6 +12,8 @@ from colorama import init as colorama_init
 from colorama import deinit as colorama_deinit
 from decimal import Decimal
 
+logger = logging.getLogger(__name__)
+
 
 class Database:
     """A CAN database."""
@@ -171,7 +173,7 @@ class Database:
                     for sig in msg.signals:
                         self._print_sig(sig)
             except KeyError:
-                logging.error('Message ID 0x{:X} not found!'.format(msg_id))
+                logger.error('Message ID 0x{:X} not found!'.format(msg_id))
                 return False
         else:
             for msg in self.messages.values():
@@ -183,7 +185,7 @@ class Database:
                             self._print_sig(sig)
         if num_found == 0:
             if print_result:
-                logging.info('No messages found for that input')
+                logger.info('No messages found for that input')
         elif num_found > 1:
             pass
         return True
@@ -242,7 +244,7 @@ class Database:
                             msgPrinted = True
                         self._print_sig(sig)
         if num_found == 0:
-            logging.info('No signals found for that input')
+            logger.info('No signals found for that input')
         elif num_found > 1:
             pass
         return signals
@@ -411,7 +413,7 @@ class Message:
             if mask_check & sig.mask == 0:
                 mask_check |= sig.mask
                 if sig.name in added_signals:
-                    logging.warning(f'{sig.name} is duplicated in message '
+                    logger.warning(f'{sig.name} is duplicated in message '
                                     f'{self.name}. Signal attributes like the '
                                     'initial value or long name might be '
                                     'incorrect since the dbc format only '

@@ -7,6 +7,8 @@ import re
 from time import sleep
 from copy import deepcopy
 
+logger = logging.getLogger(__name__)
+
 
 class UDS:
     """Sends/receives UDS requests compliant with ISO 14229-1:2013."""
@@ -500,7 +502,7 @@ class UDS:
                 if resp[1] == '0':  # Continue to Send
                     block_size = int(resp[2:4], 16)
                     if block_size != 0:
-                        logging.warning('Received a flow control frame with '
+                        logger.warning('Received a flow control frame with '
                                         f'block size = {block_size:02X}. Only '
                                         ' block size = 0 is supported. Frames '
                                         'will be sent without waiting for '
@@ -539,10 +541,10 @@ class UDS:
                     # FlowStatus is set to Wait, the values of BS (BlockSize)
                     # and STmin (SeparationTime minimum) in the FlowControl
                     # message are not relevant and shall be ignored."
-                    logging.error('Flowcontrol - Wait. Handling this case is '
+                    logger.error('Flowcontrol - Wait. Handling this case is '
                                   'not implemented. Aborting.')
                 elif resp[1] == '2':  # Overflow
-                    logging.error('Flowcontrol - Overflow! The request '
+                    logger.error('Flowcontrol - Overflow! The request '
                                   'contained more bytes than could fit in the '
                                   'receiver\'s buffer.')
                 else:  # Reserved
@@ -600,7 +602,7 @@ class UDS:
             else:
                 nrc = resp[4:6]
                 self.last_nrc = int(nrc, 16)
-                logging.info(f'Negative Response: {self.decode_nrc(nrc)}')
+                logger.info(f'Negative Response: {self.decode_nrc(nrc)}')
                 data = 0
                 msgs_to_rx = 0
 
