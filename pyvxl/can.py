@@ -14,6 +14,7 @@ from math import gcd
 from pyvxl.vxl import VxlCan
 from pyvxl.uds import UDS
 from pyvxl.can_types import Database
+from pyvxl.vxl_functions import vxl_get_event_str
 
 logger = logging.getLogger(__name__)
 
@@ -413,6 +414,18 @@ class ReceiveThread(Thread):
         XL_CAN_EV_TAG_TX_OK = 0x0404  # noqa
         XL_CAN_EV_TAG_CHIP_STATE = 0x0409  # noqa
         XL_SYNC_PULSE = 0x000B  # noqa
+
+        rx_errors = {
+            '01': 'XL_CAN_ERRC_BIT_ERROR',
+            '02': 'XL_CAN_ERRC_FORM_ERROR',
+            '03': 'XL_CAN_ERRC_STUFF_ERROR',
+            '04': 'XL_CAN_ERRC_OTHER_ERROR',
+            '05': 'XL_CAN_ERRC_CRC_ERROR',
+            '06': 'XL_CAN_ERRC_ACK_ERROR',
+            '07': 'XL_CAN_ERRC_NACK_ERROR',
+            '08': 'XL_CAN_ERRC_OVLD_ERROR',
+            '09': 'XL_CAN_ERRC_EXCPT_ERROR'
+        }
         log_msgs = self.__pending_msgs
         while True:
             sleep(self.__sleep_time)
@@ -488,8 +501,18 @@ class ReceiveThread(Thread):
                         rx_event = self.__receive()
                         continue
                     else:
-                        # TODO: implement logging for error frames
-                        raise NotImplementedError
+                        err = rx_event.tagData.canError.errorCode
+                        err = err.to_bytes().hex()
+                        if err in rx_errors:
+                            err = rx_errors[err]
+                        else:
+                            err = f'{err}: Unknown error code'
+                        if self.__log_file is not None:
+                            log_msgs.append(f'{time: >11.6f} {channel}  '
+                                            f'{err}\n')
+                        # log_msgs.append(f'{dir(rx_event.tagData.canError.errorCode)}\n')
+                        # log_msgs.append(f'{rx_event.tagData.canError}\n')
+                        # log_msgs.append(f'{dir(rx_event.tagData.canError)}\n')
                 elif rx_event.tag == XL_CAN_EV_TAG_TX_REQUEST:
                     self.set_error_state(channel, False)
                     # Currently unused but available:
@@ -632,7 +655,11 @@ class ReceiveThread(Thread):
     def start_logging(self, log_path, add_date=True, log_errors=False):
         """Request the thread start logging."""
         if not isinstance(log_path, str):
-            raise TypeError('Expected str but got {}'.format(type(log_path)))
+            raise TypeError(f'Expected str but got {type(log_path)}')
+        if not isinstance(add_date, bool):
+            raise TypeError(f'Expected bool but got {type(add_date)}')
+        if not isinstance(log_errors, bool):
+            raise TypeError(f'Expected bool but got {type(log_errors)}')
         if not log_path:
             raise ValueError('log_path of "" is invalid')
         if self.__log_request == 'start':
@@ -643,13 +670,13 @@ class ReceiveThread(Thread):
                 sleep(0.1)
         directory, _ = path.split(log_path)
         if directory and not path.isdir(directory):
-            raise ValueError('{} is not a valid directory!'.format(directory))
+            raise ValueError(f'{directory} is not a valid directory!')
         tmstr = localtime()
         hr = tmstr.tm_hour % 12
         mn = tmstr.tm_min
         sc = tmstr.tm_sec
         if add_date:
-            log_path = '{}[{}-{}-{}].asc'.format(log_path, hr, mn, sc)
+            log_path = f'{log_path}[{hr}-{mn}-{sc}].asc'
         self.__log_path = path.abspath(log_path)
         self.__log_errors = log_errors
         self.__log_request = 'start'
