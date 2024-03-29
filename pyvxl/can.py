@@ -708,10 +708,11 @@ class ReceiveThread(Thread):
     def stop_queue(self, channel, msg_id):
         """Stop queuing received data for msg_id."""
         with self.__lock:
-            if channel in self.__msg_queues:
+            if channel in self.__msg_queues and \
+               msg_id in self.__msg_queues[channel]:
                 self.__msg_queues[channel].pop(msg_id)
-                for channel in self.__msg_queues:
-                    if not self.__msg_queues[channel]:
+                for chan in self.__msg_queues:
+                    if not self.__msg_queues[chan]:
                         queuing = True
                         break
                 else:
@@ -820,8 +821,8 @@ class TransmitThread(Thread):
                     sending = True
                 if time_wasted < self.__sleep_time_s and \
                    self.__updated.wait(self.__sleep_time_s - time_wasted):
-                   # Without this check, we send the very first message added
-                   # too soon.
+                    # Without this check, we send the very first message added
+                    # too soon.
                     if sending:
                         time_wasted += perf_counter() - start
                 else:
