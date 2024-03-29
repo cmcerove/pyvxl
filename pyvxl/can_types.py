@@ -390,7 +390,10 @@ class Message:
             raise ValueError(f'Msg: {self.name}, DLC: {self.dlc}\n CAN FD '
                              f'dlc must be {self.__valid_fd_dlcs}')
         self.__dlc = dlc
-        self.__max_val = int('FF' * dlc, 16)
+        if dlc:
+            self.__max_val = int('FF' * dlc, 16)
+        else:
+            self.__max_val = 0
 
     @property
     def signals(self):
