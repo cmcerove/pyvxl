@@ -616,7 +616,7 @@ class VxlCan(Vxl):
         if channel not in self.channels:
             raise ValueError(f'{channel} has not been added through '
                              'add_channel.')
-        dlc = int(len(msg_data) / 2)
+        data_length = int(len(msg_data) / 2)
         msg_data = bytes.fromhex(msg_data)
         # Retry transmitting until the queue isn't full
         while status == b'XL_ERR_QUEUE_IS_FULL':
@@ -632,14 +632,17 @@ class VxlCan(Vxl):
                 fd_flags = XL_CAN_TXMSG_FLAG_EDL | XL_CAN_TXMSG_FLAG_BRS
             else:
                 fd_flags = 0
-            if dlc > 8:
+            if data_length > 8:
                 fd_flags |= XL_CAN_TXMSG_FLAG_EDL
                 dlc_map = {12: 9, 16: 10, 20: 11, 24: 12, 32: 13, 48: 14,
                            64: 15}
-                if dlc not in dlc_map:
-                    raise ValueError(f'{dlc}s larger than 8 must be one of '
-                                     f'these values: {dlc_map.values()}')
-                dlc = dlc_map[dlc]
+                if data_length not in dlc_map:
+                    raise ValueError(f'DLC={data_length}; DLCs larger than 8 '
+                                     'must be one of these values: '
+                                     f'{dlc_map.values()}')
+                dlc = dlc_map[data_length]
+            else:
+                dlc = data_length
             xl_event.tagData.canMsg.msgFlags = c_uint(fd_flags)
             xl_event.tagData.canMsg.dlc = c_ubyte(dlc)
             # Converting from a string to a c_ubyte array
