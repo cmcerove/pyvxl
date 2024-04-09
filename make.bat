@@ -31,15 +31,6 @@ call pip3 install -e .
 IF ERRORLEVEL 1 GOTO setup_error
 GOTO clean_develop
 
-:doc
-ECHO.
-ECHO.Generating documentation...
-ECHO.
-C:\Python27\python.exe C:\Python27\Scripts\epydoc.py -v --config setup.cfg
-START ..\documentation\apidocs\index.html
-IF ERRORLEVEL 1 GOTO error
-GOTO end
-
 :clean
 call python -c "import time; time.sleep(0.2)"
 DEL %MODULE%\*.pyc 2>NUL
