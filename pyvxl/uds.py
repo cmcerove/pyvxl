@@ -168,6 +168,9 @@ class UDS:
                 raise ValueError(f'{data:X} not in range: 0 <= {check_type} <='
                                  f' 0x{expected_max:X}')
             data = fmt_str.format(data)
+        else:
+            raise TypeError('Expected int or str but received unsupported '
+                            f'type {type(data)}.')
         return list(bytes.fromhex(data))
 
     def _check_data(self, data):
