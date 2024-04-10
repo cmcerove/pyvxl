@@ -310,28 +310,28 @@ class UDS:
 
         Service 0x19 Sub-function 03
         """
-        pass
+        raise NotImplementedError('Sub-function 0x03 has not be added yet.')
 
     def read_dtc_snapshot_record(self):
         """Read the count of DTCs matching status_mask.
 
         Service 0x19 Sub-function 04
         """
-        pass
+        raise NotImplementedError('Sub-function 0x04 has not be added yet.')
 
     def read_dtc_data_record(self):
         """Read the count of DTCs matching status_mask.
 
         Service 0x19 Sub-function 05
         """
-        pass
+        raise NotImplementedError('Sub-function 0x05 has not be added yet.')
 
-    def read_dtc_extended_data_record():
+    def read_dtc_extended_data_record(self):
         """Read the count of DTCs matching status_mask.
 
         Service 0x19 Sub-function 06
         """
-        pass
+        raise NotImplementedError('Sub-function 0x06 has not be added yet.')
 
     def read_num_dtcs_by_severity_mask(self, sev_mask, status_mask,
                                        raise_error=True, **kwargs):
