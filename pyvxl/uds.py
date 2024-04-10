@@ -217,22 +217,20 @@ class UDS:
 
     def clear_dtc_info(self, dtc_group, raise_error=True, **kwargs):
         """Clear Diagnostic Information - Service 0x14."""
-        result = None
         request = self._check('DTC', dtc_group)
-        successful, data = self.send_service(0x14, request, **kwargs)
+        successful, _ = self.send_service(0x14, request, **kwargs)
         if not successful:
             if raise_error:
                 raise AssertionError('Failed to Clear DTC Group '
                                      f'0x{request[0]:02X}{request[1]:02X}')
-        else:
-            result = data[3:]  # Remove the DTC Group from the response
-        return result
+        return True
 
     def read_dtc_info(self, sub_function, *args, **kwargs):
         """Read DTC Information - Service 0x19."""
         result = None
 
-        match(sub_function):
+        sub_function_byte = self._check('sub_function', sub_function)
+        match(sub_function_byte[0]):
             case 0x01:
                 result = self.read_dtc_count_by_status_mask(*args, **kwargs)
             case 0x02:
@@ -246,7 +244,7 @@ class UDS:
             case 0x06:
                 result = self.read_dtc_extended_data_record(*args, **kwargs)
             case 0x07:
-                result = self.read_dtcs_by_severity_mask(*args, **kwargs)
+                result = self.read_num_dtcs_by_severity_mask(*args, **kwargs)
             case 0x08:
                 result = self.read_dtcs_by_severity_mask(*args, **kwargs)
             case 0x09:
@@ -263,7 +261,8 @@ class UDS:
 
         return result
 
-    def read_dtc_count_by_status_mask(self, status_mask, raise_error=True, **kwargs):
+    def read_dtc_count_by_status_mask(self, status_mask, raise_error=True,
+                                      **kwargs):
         """Read the count of DTCs matching status_mask.
 
         Service 0x19 Sub-function 01
@@ -279,7 +278,8 @@ class UDS:
             result = data[3:]  # Remove the DTC Group from the response
         return result
 
-    def read_dtcs_by_status_mask(self, status_mask, raise_error=True, **kwargs):
+    def read_dtcs_by_status_mask(self, status_mask, raise_error=True,
+                                 **kwargs):
         """Retrieve the list of DTCs that match a client defined status mask.
 
         Service 0x19 Sub-function 02
@@ -290,13 +290,15 @@ class UDS:
                                           Defaults to True.
         """
         result = None
-        request = [0x02, status_mask]
+        request = (self._check('sub_function', 0x02) +
+                   self._check('status_mask', status_mask))
         successful, data = self.send_service(0x19, request, **kwargs)
         if not successful:
             if raise_error:
                 raise AssertionError('Error using sub-function 0x02.')
         else:
-            result = data[3:]
+            # First two bytes are sub-function ID and availability mask.
+            result = data[2:]
 
         return result
 
@@ -347,13 +349,16 @@ class UDS:
             List: Bytes from the service sub-function
         """
         result = None
-        request = [0x07, sev_mask, status_mask]
+        request = (self._check('sub_function', 0x07) +
+                   self._check('status_mask', sev_mask) +
+                   self._check('status_mask', status_mask))
         successful, data = self.send_service(0x19, request, **kwargs)
         if not successful:
             if raise_error:
                 raise AssertionError('Error using sub-function 0x07.')
         else:
-            result = data[3:]
+            # First two bytes are sub-function ID and availability mask.
+            result = data[2:]
 
         return result
 
@@ -376,13 +381,16 @@ class UDS:
             List: Bytes from the service sub-function
         """
         result = None
-        request = [0x08, sev_mask, status_mask]
+        request = (self._check('sub_function', 0x08) +
+                   self._check('status_mask', sev_mask) +
+                   self._check('status_mask', status_mask))
         successful, data = self.send_service(0x19, request, **kwargs)
         if not successful:
             if raise_error:
                 raise AssertionError('Error using sub-function 0x08.')
         else:
-            result = data[3:]
+            # First two bytes are sub-function ID and availability mask.
+            result = data[2:]
 
         return result
 
@@ -404,17 +412,15 @@ class UDS:
             List: Bytes from the service sub-function
         """
         result = None
-        dtc_id_str = f'{dtc_id:06X}'
-        dtc_id_bytes = [int(dtc_id_str[0:2], 16),
-                        int(dtc_id_str[2:4], 16),
-                        int(dtc_id_str[4:6], 16)]
-        request = [0x09] + dtc_id_bytes
+        request = (self._check('sub_function', 0x09) +
+                   self._check('DTC', dtc_id))
         successful, data = self.send_service(0x19, request, **kwargs)
         if not successful:
             if raise_error:
                 raise AssertionError('Error using sub-function 0x09.')
         else:
-            result = data[3:]
+            # First two bytes are sub-function ID and availability mask.
+            result = data[2:]
 
         return result
 
@@ -434,13 +440,14 @@ class UDS:
             List: Bytes from the service sub-function
         """
         result = None
-        request = [0x0A]
+        request = self._check('sub_function', 0x0A)
         successful, data = self.send_service(0x19, request, **kwargs)
         if not successful:
             if raise_error:
                 raise AssertionError('Error using sub-function 0x0A.')
         else:
-            result = data[3:]
+            # First two bytes are sub-function ID and availability mask.
+            result = data[2:]
 
         return result
 
@@ -460,13 +467,14 @@ class UDS:
             List: Bytes from the service sub-function
         """
         result = None
-        request = [0x0C]
+        request = self._check('sub_function', 0x0C)
         successful, data = self.send_service(0x19, request, **kwargs)
         if not successful:
             if raise_error:
                 raise AssertionError('Error using sub-function 0x0C.')
         else:
-            result = data[3:]
+            # First two bytes are sub-function ID and availability mask.
+            result = data[2:]
 
         return result
 
@@ -486,13 +494,14 @@ class UDS:
             List: Bytes from the service sub-function
         """
         result = None
-        request = [0x0E]
+        request = self._check('sub_function', 0x0E)
         successful, data = self.send_service(0x19, request, **kwargs)
         if not successful:
             if raise_error:
                 raise AssertionError('Error using sub-function 0x0B.')
         else:
-            result = data[3:]
+            # First two bytes are sub-function ID and availability mask.
+            result = data[2:]
 
         return result
 
