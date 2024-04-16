@@ -345,13 +345,13 @@ class UDS:
         Service 0x19 Sub-function 06
         """
         result = None
-        request = (self._check('sub_function', 0x04) +
+        request = (self._check('sub_function', 0x06) +
                    self._check('DTC', dtc) +
                    self._check('byte_mask', record))
         successful, data = self.send_service(0x19, request, **kwargs)
         if not successful:
             if raise_error:
-                raise AssertionError('Error using sub-function 0x04.')
+                raise AssertionError('Error using sub-function 0x06.')
         else:
             result = data[2:]
 
