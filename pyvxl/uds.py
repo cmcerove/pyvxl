@@ -151,7 +151,7 @@ class UDS:
             expected_len = 6
             expected_max = 0xFFFFFF
             fmt_str = '{:06X}'
-        elif check_type in ['sub_function', 'status_mask']:
+        elif check_type in ['sub_function', 'status_mask', 'byte_mask']:
             expected_len = 2
             expected_max = 0xFF
             fmt_str = '{:02X}'
@@ -312,12 +312,24 @@ class UDS:
         """
         raise NotImplementedError('Sub-function 0x03 has not be added yet.')
 
-    def read_dtc_snapshot_record(self):
-        """Read the count of DTCs matching status_mask.
+    def read_dtc_snapshot_record(self, dtc, snapshot, raise_error=True,
+                                 **kwargs):
+        """Read snapshot/freezeframe of a DTC event.
 
         Service 0x19 Sub-function 04
         """
-        raise NotImplementedError('Sub-function 0x04 has not be added yet.')
+        result = None
+        request = (self._check('sub_function', 0x04) +
+                   self._check('DTC', dtc) +
+                   self._check('byte_mask', snapshot))
+        successful, data = self.send_service(0x19, request, **kwargs)
+        if not successful:
+            if raise_error:
+                raise AssertionError('Error using sub-function 0x04.')
+        else:
+            result = data[2:]
+
+        return result
 
     def read_dtc_data_record(self):
         """Read the count of DTCs matching status_mask.
@@ -326,12 +338,24 @@ class UDS:
         """
         raise NotImplementedError('Sub-function 0x05 has not be added yet.')
 
-    def read_dtc_extended_data_record(self):
-        """Read the count of DTCs matching status_mask.
+    def read_dtc_extended_data_record(self, dtc, record, raise_error=True,
+                                      **kwargs):
+        """Read the extended data of a DTC Event.
 
         Service 0x19 Sub-function 06
         """
-        raise NotImplementedError('Sub-function 0x06 has not be added yet.')
+        result = None
+        request = (self._check('sub_function', 0x04) +
+                   self._check('DTC', dtc) +
+                   self._check('byte_mask', record))
+        successful, data = self.send_service(0x19, request, **kwargs)
+        if not successful:
+            if raise_error:
+                raise AssertionError('Error using sub-function 0x04.')
+        else:
+            result = data[2:]
+
+        return result
 
     def read_num_dtcs_by_severity_mask(self, sev_mask, status_mask,
                                        raise_error=True, **kwargs):
