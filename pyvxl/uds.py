@@ -219,21 +219,43 @@ class UDS:
         return result
 
     def clear_dtc_info(self, dtc_group, raise_error=True, **kwargs):
-        """Clear Diagnostic Information - Service 0x14."""
+        """Clears DTC info for a DTC group using Serivce 0x14.
+
+        Args:
+            dtc_group (int): Group of DTCs to clear.
+            raise_error (bool, optional): Raise error if service fails to send
+                                          back expected data. Defaults to True.
+
+        Raises:
+            AssertionError: when service fails to complete the clear.
+
+        Returns:
+            Bool: Always returns True.
+        """
         request = self._check('DTC', dtc_group)
         successful, _ = self.send_service(0x14, request, **kwargs)
         if not successful:
             if raise_error:
                 raise AssertionError('Failed to Clear DTC Group '
-                                     f'0x{request[0]:02X}{request[1]:02X}')
+                                     f'0x{dtc_group:02X}')
         return True
 
     def read_dtc_info(self, sub_function, *args, **kwargs):
-        """Read DTC Information - Service 0x19."""
+        """Read DTC information from the DHM.
+
+        Args:
+            sub_function (int): Subfunction related to Service 0x19.
+
+        Raises:
+            NotImplementedError: when unsupported subfunction is used.
+
+        Returns:
+            List: Bytes sent back by the service.
+        """
         result = None
 
         sub_function_byte = self._check('sub_function', sub_function)
-        match(sub_function_byte[0]):
+        match sub_function_byte[0]:
             case 0x01:
                 result = self.read_dtc_count_by_status_mask(*args, **kwargs)
             case 0x02:
@@ -295,7 +317,7 @@ class UDS:
             status_mask (int): Status mask used to filter DTCs by status.
 
         Returns:
-            List: Cropped response message from service.
+            List: Cropped response message from service, in Bytes format.
         """
         request = self._check('status_mask', status_mask)
         data = self.execute_dtc_service(request, **kwargs)
@@ -313,7 +335,7 @@ class UDS:
             status_mask (int): Status mask used to filter DTCs by status.
 
         Returns:
-            List: Cropped response message from service.
+            List: Cropped response message from service, in Bytes format.
         """
         request = (self._check('sub_function', 0x02) +
                    self._check('status_mask', status_mask))
@@ -322,17 +344,27 @@ class UDS:
         # First two bytes are sub-function ID and availability mask.
         return data[2:]
 
-    def read_dtc_snapshot_identification(self):
+    def read_dtc_snapshot_identification(self, *args, **kwargs):
         """Read the count of DTCs matching status_mask.
 
         Service 0x19 Sub-function 03
-        """
+
+        Raises:
+            NotImplementedError: when function is called, no implementation.
+    """
         raise NotImplementedError('Sub-function 0x03 has not be added yet.')
 
     def read_dtc_snapshot_record(self, dtc, snapshot, **kwargs):
         """Read snapshot/freezeframe of a DTC event.
 
         Service 0x19 Sub-function 04
+
+        Args:
+            dtc (int): DTC ID of the requested snapshot.
+            snapshot (int): Snapshot ID for the associated DTC.
+
+        Returns:
+            List: Cropped response message from service, in Bytes format.
         """
         request = (self._check('sub_function', 0x04) +
                    self._check('DTC', dtc) +
@@ -342,10 +374,13 @@ class UDS:
         # First byte is the sub-function ID.
         return data[1:]
 
-    def read_dtc_data_record(self):
+    def read_dtc_data_record(self, *args, **kwargs):
         """Read the count of DTCs matching status_mask.
 
         Service 0x19 Sub-function 05
+
+        Raises:
+            NotImplementedError: when function is called, no implementation.
         """
         raise NotImplementedError('Sub-function 0x05 has not be added yet.')
 
@@ -359,7 +394,7 @@ class UDS:
             record (int): Record ID for the associated DTC.
 
         Returns:
-            List: Cropped response message from service.
+            List: Cropped response message from service, in Bytes format.
         """
         request = (self._check('sub_function', 0x06) +
                    self._check('DTC', dtc) +
@@ -379,7 +414,7 @@ class UDS:
             status_mask(int): Mask used to filter DTCs by its status byte.
 
         Returns:
-            List: Cropped response message from service.
+            List: Cropped response message from service, in Bytes format.
         """
         request = (self._check('sub_function', 0x07) +
                    self._check('status_mask', sev_mask) +
@@ -400,7 +435,7 @@ class UDS:
             status_mask(int): Mask used to filter DTCs by its status byte.
 
         Returns:
-            List: Cropped response message from service.
+            List: Cropped response message from service, in Bytes format.
         """
         request = (self._check('sub_function', 0x08) +
                    self._check('status_mask', sev_mask) +
@@ -419,7 +454,7 @@ class UDS:
             dtc_id (int): ID of the DTC being requested.
 
         Returns:
-            List: Cropped response message from service.
+            List: Cropped response message from service, in Bytes format.
         """
         request = (self._check('sub_function', 0x09) +
                    self._check('DTC', dtc_id))
@@ -434,7 +469,7 @@ class UDS:
         Service 0x19 Sub-function 0A
 
         Returns:
-            List: Cropped response message from service.
+            List: Cropped response message from service, in Bytes format.
         """
         request = self._check('sub_function', 0x0A)
         data = self.execute_dtc_service(request, **kwargs)
@@ -448,7 +483,7 @@ class UDS:
         Service 0x19 Sub-function 0C
 
         Returns:
-            List: Cropped response message from service.
+            List: Cropped response message from service, in Bytes format.
         """
         request = self._check('sub_function', 0x0C)
         data = self.execute_dtc_service(request, **kwargs)
@@ -462,7 +497,7 @@ class UDS:
         Service 0x19 Sub-function 0E
 
         Returns:
-            List: Cropped response message from service.
+            List: Cropped response message from service, in Bytes format.
         """
         request = self._check('sub_function', 0x0E)
         data = self.execute_dtc_service(request, **kwargs)
