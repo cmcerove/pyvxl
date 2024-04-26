@@ -147,6 +147,14 @@ class UDS:
             expected_len = 4
             expected_max = 0xFFFF
             fmt_str = '{:04X}'
+        elif check_type == 'DTC':
+            expected_len = 6
+            expected_max = 0xFFFFFF
+            fmt_str = '{:06X}'
+        elif check_type in ['sub_function', 'status_mask', 'byte_mask']:
+            expected_len = 2
+            expected_max = 0xFF
+            fmt_str = '{:02X}'
         else:
             raise NotImplementedError(f'{check_type} is not implemented')
         if isinstance(data, str):
@@ -160,6 +168,9 @@ class UDS:
                 raise ValueError(f'{data:X} not in range: 0 <= {check_type} <='
                                  f' 0x{expected_max:X}')
             data = fmt_str.format(data)
+        else:
+            raise TypeError('Expected int or str but received unsupported '
+                            f'type {type(data)}.')
         return list(bytes.fromhex(data))
 
     def _check_data(self, data):
@@ -207,13 +218,292 @@ class UDS:
             result = data
         return result
 
-    def clear_dtcs(self, *args, **kwargs):
-        """Clear Diagnostic Information - Service 0x14."""
-        raise NotImplementedError
+    def clear_dtc_info(self, dtc_group, raise_error=True, **kwargs):
+        """Clears DTC info for a DTC group using Serivce 0x14.
 
-    def dtcs_dtcs(self, *args, **kwargs):
-        """Read DTC Information - Service 0x19."""
-        raise NotImplementedError
+        Args:
+            dtc_group (int): Group of DTCs to clear.
+            raise_error (bool, optional): Raise error if service fails to send
+                                          back expected data. Defaults to True.
+
+        Raises:
+            AssertionError: when service fails to complete the clear.
+
+        Returns:
+            Bool: Always returns True.
+        """
+        request = self._check('DTC', dtc_group)
+        successful, _ = self.send_service(0x14, request, **kwargs)
+        if not successful:
+            if raise_error:
+                raise AssertionError('Failed to Clear DTC Group '
+                                     f'0x{dtc_group:02X}')
+        return True
+
+    def read_dtc_info(self, sub_function, *args, **kwargs):
+        """Read DTC information from the DHM.
+
+        Args:
+            sub_function (int): Subfunction related to Service 0x19.
+
+        Raises:
+            NotImplementedError: when unsupported subfunction is used.
+
+        Returns:
+            List: Bytes sent back by the service.
+        """
+        result = None
+
+        sub_function_byte = self._check('sub_function', sub_function)
+        match sub_function_byte[0]:
+            case 0x01:
+                result = self.read_dtc_count_by_status_mask(*args, **kwargs)
+            case 0x02:
+                result = self.read_dtcs_by_status_mask(*args, **kwargs)
+            case 0x03:
+                result = self.read_dtc_snapshot_identification(*args, **kwargs)
+            case 0x04:
+                result = self.read_dtc_snapshot_record(*args, **kwargs)
+            case 0x05:
+                result = self.read_dtc_data_record(*args, **kwargs)
+            case 0x06:
+                result = self.read_dtc_extended_data_record(*args, **kwargs)
+            case 0x07:
+                result = self.read_num_dtcs_by_severity_mask(*args, **kwargs)
+            case 0x08:
+                result = self.read_dtcs_by_severity_mask(*args, **kwargs)
+            case 0x09:
+                result = self.read_severity_of_dtc(*args, **kwargs)
+            case 0x0A:
+                result = self.read_all_supported_dtcs(*args, **kwargs)
+            case 0x0C:
+                result = self.read_first_confirmed_dtc(*args, **kwargs)
+            case 0x0E:
+                result = self.read_most_recent_confirmed_dtc(*args, **kwargs)
+            case _:
+                raise NotImplementedError(f'Sub-function {sub_function} is not'
+                                          ' implemented yet.')
+
+        return result
+
+    def execute_dtc_service(self, request, raise_error=True, **kwargs):
+        """Executes the 0x19 DTC service with a certain sub-function.
+
+        Args:
+            request (List): Request mesages bytes.
+            raise_error (bool, optional): Raise error if service fails to send
+                                          back expected data. Defaults to True.
+
+        Raises:
+            AssertionError: Service did not execute successfully.
+
+        Returns:
+            List: Service response message in bytes.
+        """
+        successful, data = self.send_service(0x19, request, **kwargs)
+        if not successful:
+            if raise_error:
+                raise AssertionError(f'Error using sub-function {request[0]} '
+                                     'of service 0x19.')
+
+        return data
+
+    def read_dtc_count_by_status_mask(self, status_mask, **kwargs):
+        """Read the count of DTCs matching status_mask.
+
+        Service 0x19 Sub-function 01
+
+        Args:
+            status_mask (int): Status mask used to filter DTCs by status.
+
+        Returns:
+            List: Cropped response message from service, in Bytes format.
+        """
+        request = self._check('status_mask', status_mask)
+        data = self.execute_dtc_service(request, **kwargs)
+
+        # First three bytes are sub-function ID, availability mask,
+        # and format identifier.
+        return data[3:]
+
+    def read_dtcs_by_status_mask(self, status_mask, **kwargs):
+        """Retrieve the list of DTCs that match a client defined status mask.
+
+        Service 0x19 Sub-function 02
+
+        Args:
+            status_mask (int): Status mask used to filter DTCs by status.
+
+        Returns:
+            List: Cropped response message from service, in Bytes format.
+        """
+        request = (self._check('sub_function', 0x02) +
+                   self._check('status_mask', status_mask))
+        data = self.execute_dtc_service(request, **kwargs)
+
+        # First two bytes are sub-function ID and availability mask.
+        return data[2:]
+
+    def read_dtc_snapshot_identification(self, *args, **kwargs):
+        """Read the count of DTCs matching status_mask.
+
+        Service 0x19 Sub-function 03
+
+        Raises:
+            NotImplementedError: when function is called, no implementation.
+    """
+        raise NotImplementedError('Sub-function 0x03 has not be added yet.')
+
+    def read_dtc_snapshot_record(self, dtc, snapshot, **kwargs):
+        """Read snapshot/freezeframe of a DTC event.
+
+        Service 0x19 Sub-function 04
+
+        Args:
+            dtc (int): DTC ID of the requested snapshot.
+            snapshot (int): Snapshot ID for the associated DTC.
+
+        Returns:
+            List: Cropped response message from service, in Bytes format.
+        """
+        request = (self._check('sub_function', 0x04) +
+                   self._check('DTC', dtc) +
+                   self._check('byte_mask', snapshot))
+        data = self.execute_dtc_service(request, **kwargs)
+
+        # First byte is the sub-function ID.
+        return data[1:]
+
+    def read_dtc_data_record(self, *args, **kwargs):
+        """Read the count of DTCs matching status_mask.
+
+        Service 0x19 Sub-function 05
+
+        Raises:
+            NotImplementedError: when function is called, no implementation.
+        """
+        raise NotImplementedError('Sub-function 0x05 has not be added yet.')
+
+    def read_dtc_extended_data_record(self, dtc, record, **kwargs):
+        """Read the extended data of a DTC Event.
+
+        Service 0x19 Sub-function 06
+
+        Args:
+            dtc (int): DTC ID of the request record.
+            record (int): Record ID for the associated DTC.
+
+        Returns:
+            List: Cropped response message from service, in Bytes format.
+        """
+        request = (self._check('sub_function', 0x06) +
+                   self._check('DTC', dtc) +
+                   self._check('byte_mask', record))
+        data = self.execute_dtc_service(request, **kwargs)
+
+        # First byte is the sub-function ID.
+        return data[1:]
+
+    def read_num_dtcs_by_severity_mask(self, sev_mask, status_mask, **kwargs):
+        """Retrieve the number of DTCs that match the security mask record.
+
+        Service 0x19 Sub-function 07
+
+        Args:
+            sev_mask (int): Mask used to compare DTC severity records.
+            status_mask(int): Mask used to filter DTCs by its status byte.
+
+        Returns:
+            List: Cropped response message from service, in Bytes format.
+        """
+        request = (self._check('sub_function', 0x07) +
+                   self._check('status_mask', sev_mask) +
+                   self._check('status_mask', status_mask))
+        data = self.execute_dtc_service(request, **kwargs)
+
+        # First three bytes are sub-function ID, availability mask,
+        # and format identifier.
+        return data[3:]
+
+    def read_dtcs_by_severity_mask(self, sev_mask, status_mask, **kwargs):
+        """Retrieve the number of DTCs that match the security mask record.
+
+        Service 0x19 Sub-function 08
+
+        Args:
+            sev_mask (int): Mask used to compare DTC severity records.
+            status_mask(int): Mask used to filter DTCs by its status byte.
+
+        Returns:
+            List: Cropped response message from service, in Bytes format.
+        """
+        request = (self._check('sub_function', 0x08) +
+                   self._check('status_mask', sev_mask) +
+                   self._check('status_mask', status_mask))
+        data = self.execute_dtc_service(request, **kwargs)
+
+        # First two bytes are sub-function ID and availability mask.
+        return data[2:]
+
+    def read_severity_of_dtc(self, dtc_id, **kwargs):
+        """Retrieve the number of DTCs that match the security mask record.
+
+        Service 0x19 Sub-function 09
+
+        Args:
+            dtc_id (int): ID of the DTC being requested.
+
+        Returns:
+            List: Cropped response message from service, in Bytes format.
+        """
+        request = (self._check('sub_function', 0x09) +
+                   self._check('DTC', dtc_id))
+        data = self.execute_dtc_service(request, **kwargs)
+
+        # First two bytes are sub-function ID and availability mask.
+        return data[2:]
+
+    def read_all_supported_dtcs(self, **kwargs):
+        """Receive status bytes for all supported DTCs.
+
+        Service 0x19 Sub-function 0A
+
+        Returns:
+            List: Cropped response message from service, in Bytes format.
+        """
+        request = self._check('sub_function', 0x0A)
+        data = self.execute_dtc_service(request, **kwargs)
+
+        # First two bytes are sub-function ID and availability mask.
+        return data[2:]
+
+    def read_first_confirmed_dtc(self, **kwargs):
+        """Receive the DTC that was confirmed first.
+
+        Service 0x19 Sub-function 0C
+
+        Returns:
+            List: Cropped response message from service, in Bytes format.
+        """
+        request = self._check('sub_function', 0x0C)
+        data = self.execute_dtc_service(request, **kwargs)
+
+        # First two bytes are sub-function ID and availability mask.
+        return data[2:]
+
+    def read_most_recent_confirmed_dtc(self, **kwargs):
+        """Receive the DTC that was most recently confirmed.
+
+        Service 0x19 Sub-function 0E
+
+        Returns:
+            List: Cropped response message from service, in Bytes format.
+        """
+        request = self._check('sub_function', 0x0E)
+        data = self.execute_dtc_service(request, **kwargs)
+
+        # First two bytes are sub-function ID and availability mask.
+        return data[2:]
 
     def read_did(self, did, raise_error=True, **kwargs):
         """Read Data by Identifier - Service 0x22."""
