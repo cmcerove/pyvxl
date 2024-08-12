@@ -809,7 +809,7 @@ class ReceiveThread(Thread):
         if msg_id in msg_queues:
             if timeout is not None:
                 while self.__time is None:
-                    sleep(0.01)
+                    sleep(0)
                 end_time = self.__time + (timeout / 1000)
                 # logger.debug('wait_sem.acquire()')
                 self.__wait_args = (channel, msg_id, end_time)
@@ -820,8 +820,8 @@ class ReceiveThread(Thread):
                 rx_time, msg_data = msg_queues[msg_id].get()
                 # logger.debug('queue.get() - returned')
         else:
-            logger.error('Queue for 0x{:X} hasn\'t been started! Call '
-                          'start_queuing first.'.format(msg_id))
+            logger.error(f'Queue for 0x{msg_id:X} hasn\'t been started! Call '
+                         'start_queuing first.')
         return rx_time, msg_data
 
 
