@@ -351,7 +351,7 @@ class UDS:
 
         Raises:
             NotImplementedError: when function is called, no implementation.
-    """
+        """
         raise NotImplementedError('Sub-function 0x03 has not be added yet.')
 
     def read_dtc_snapshot_record(self, dtc, snapshot, **kwargs):
@@ -582,7 +582,19 @@ class UDS:
 
     def stop_rid(self, rid, data=[], raise_error=True, **kwargs):
         """Routine Control - Service 0x31, Stop RID - SubFunction 0x02."""
-        raise NotImplementedError
+        self.last_nrc = 0
+        result = None
+        # Start routine sub function
+        sub_func = [0x02]
+        request = sub_func + self._check('RID', rid) + self._check_data(data)
+        successful, data = self.send_service(0x31, request, **kwargs)
+        if not successful:
+            if raise_error:
+                raise AssertionError('Failed to stop RID '
+                                     f'0x{request[1]:02X}{request[2]:02X}')
+        else:
+            result = data[3:]  # Remove the DID from the response
+        return result
 
     def rid_result(self, rid, data=[], raise_error=True, **kwargs):
         """Routine Control - Service 0x31, RID Result - SubFunction 0x03."""
