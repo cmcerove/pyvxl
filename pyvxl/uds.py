@@ -143,7 +143,15 @@ class UDS:
     def _check(self, check_type, data):
         """Generic funcion for checking types."""
         expected_len = expected_max = 0
-        if check_type in ['DID', 'RID']:
+        if check_type == 'DID':
+            # Convert to str always since the range check won't work for very
+            # long integers and there isn't a limit on how many DIDs you can
+            # request at once.
+            if isinstance(data, int):
+                data = f'{data:X}'
+            expected_len = len(data) + len(data) % 4
+            fmt_str = ''
+        elif check_type == 'RID':
             expected_len = 4
             expected_max = 0xFFFF
             fmt_str = '{:04X}'
@@ -515,7 +523,7 @@ class UDS:
                 raise AssertionError('Failed to read DID '
                                      f'0x{request[0]:02X}{request[1]:02X}')
         else:
-            result = data[2:]  # Remove the DID from the response
+            result = data
         return result
 
     def read_mba(self, *args, **kwargs):
